@@ -1,0 +1,7 @@
+challenge: Math # Math, Enter, YesNo
+
+checks:
+  default:
+    is: rm
+    method: Startwith
+    # todo: the option to override the challenge per check
