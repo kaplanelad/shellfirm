@@ -32,9 +32,11 @@ pub enum Challenge {
 }
 
 /// describe configuration folder
-pub struct ConfigFolder {
+pub struct SettingsConfig {
     /// Configuration folder path.
     pub path: String,
+    /// config file.
+    pub config_file_path: String,
     /// If configuration path overridden by the user.
     pub default: bool,
 }
@@ -55,24 +57,60 @@ pub struct Check {
     pub method: Method,
 }
 
-impl ConfigFolder {
-    pub fn get_config_file_path(&self) -> String {
-        format!("{}/config.yaml", self.path)
+impl SettingsConfig {
+    /// Convert config yaml file to struct.
+    pub fn load_config_from_file(&self) -> AnyResult<Config> {
+        Ok(serde_yaml::from_str(&self.read_config_file()?)?)
     }
 
-    pub fn load_config_from_file(&self) -> AnyResult<Config> {
-        let config_content = read_file(&self.get_config_file_path())?;
-        let config = serde_yaml::from_str(&config_content)?;
-        Ok(config)
+    /// Manage configuration folder/ file.
+    /// * Create config folder if not exists
+    /// * Create config yaml file if not exists
+    pub fn manage_config_file(&self) -> AnyResult<()> {
+        self.create_config_folder()?;
+        if fs::metadata(&self.config_file_path).is_err() {
+            self.create_default_config_file()?;
+        }
+        Ok(())
+    }
+
+    /// Create config folder if not exists.
+    fn create_config_folder(&self) -> AnyResult<()> {
+        if let Err(err) = fs::create_dir(&self.path) {
+            if err.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(anyhow!("could not create folder: {}", err.to_string()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Create config file with default configuration content
+    fn create_default_config_file(&self) -> AnyResult<()> {
+        let mut file = fs::File::create(&self.config_file_path)?;
+        file.write_all(DEFAULT_CONFIG_FILE.as_bytes())?;
+        Ok(())
+    }
+
+    /// Convert config file to config struct.
+    fn read_config_file(&self) -> AnyResult<String> {
+        let mut file = std::fs::File::open(&self.config_file_path)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        Ok(content)
     }
 }
 
-pub fn get_config_folder(path: &str) -> AnyResult<ConfigFolder> {
+/// Get config config application details.
+///
+/// # Arguments
+///
+/// * `path` - Config folder path. if is empty default path will be returned.
+pub fn get_config_folder(path: &str) -> AnyResult<SettingsConfig> {
     let package_name = std::env::var("CARGO_PKG_NAME").unwrap();
 
     let mut config_folder = path.into();
     let mut is_default = false;
-    if path == "" {
+    if path.is_empty() {
         match home::home_dir() {
             Some(path) => {
                 is_default = true;
@@ -81,30 +119,73 @@ pub fn get_config_folder(path: &str) -> AnyResult<ConfigFolder> {
             None => return Err(anyhow!("could not get directory path")),
         }
     }
-    Ok(ConfigFolder {
-        path: config_folder,
+    Ok(SettingsConfig {
+        path: config_folder.clone(),
         default: is_default,
+        config_file_path: format!("{}/config.yaml", config_folder),
     })
 }
 
-pub fn manage_config_file(conf: &ConfigFolder) -> AnyResult<()> {
-    let config_file = conf.get_config_file_path();
-    if fs::metadata(&config_file).is_err() {
-        create_default_config_file(&config_file)?;
+#[cfg(test)]
+mod password {
+    use super::*;
+
+    fn get_current_project_path() -> String {
+        std::env::current_dir().unwrap().to_str().unwrap().into()
     }
-    Ok(())
-}
+    #[test]
+    fn can_get_config_default_folder() {
+        let conf = get_config_folder("").unwrap();
+        assert_ne!(conf.path, "");
+        assert!(conf.default);
+        assert_eq!(conf.config_file_path, format!("{}/config.yaml", conf.path));
+    }
 
-fn create_default_config_file(file_path: &str) -> AnyResult<()> {
-    let mut file = fs::File::create(file_path)?;
-    file.write_all(DEFAULT_CONFIG_FILE.as_bytes())?;
-    Ok(())
-}
+    #[test]
+    fn can_get_config_custom_folder() {
+        let folder_path = "/custom/folder/path";
+        let conf = get_config_folder(folder_path).unwrap();
+        assert_eq!(conf.path, folder_path);
+        assert!(!conf.default);
+        assert_eq!(conf.config_file_path, format!("{}/config.yaml", conf.path));
+    }
 
-fn read_file(filepath: &str) -> AnyResult<String> {
-    let mut file = std::fs::File::open(filepath)?;
+    #[test]
+    fn can_load_config_from_file() {
+        let settings_config = SettingsConfig {
+            path: get_current_project_path(),
+            default: false,
+            config_file_path: format!("{}/src/config.yaml", get_current_project_path()),
+        };
 
-    let mut content = String::new();
-    file.read_to_string(&mut content)?;
-    Ok(content)
+        assert!(settings_config.load_config_from_file().is_ok())
+    }
+
+    #[test]
+    fn cant_load_config_from_file() {
+        let settings_config = SettingsConfig {
+            path: String::from(""),
+            default: false,
+            config_file_path: String::from(""),
+        };
+
+        assert!(settings_config.load_config_from_file().is_err())
+    }
+
+    #[test]
+    fn can_write_config_file() {
+        let tmp_folder = format!("{}/tmp", get_current_project_path());
+        if fs::metadata(&tmp_folder).is_ok() {
+            fs::remove_dir_all(&tmp_folder).unwrap();
+        }
+
+        let settings_config = SettingsConfig {
+            path: format!("{}", tmp_folder),
+            default: false,
+            config_file_path: format!("{}/config.yaml", tmp_folder),
+        };
+
+        assert!(settings_config.manage_config_file().is_ok());
+        assert!(settings_config.read_config_file().is_ok());
+    }
 }
