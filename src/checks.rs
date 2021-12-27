@@ -1,9 +1,11 @@
 ///! Manage command checks
 ///
-use crate::config::Method;
+use crate::config::{Challenge, Method};
+use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::Deserialize;
+use std::io;
 
 /// Describe single check
 #[derive(Debug, Deserialize, Clone)]
@@ -15,8 +17,91 @@ pub struct Check {
 }
 
 impl Check {
-    pub fn show(&self) {
-        println!("show")
+    /// Show challenge to the user.
+    pub fn show(&self, challenge: &Challenge) -> bool {
+        match challenge {
+            Challenge::Math => self.prompt_math(),
+            Challenge::Enter => self.prompt_enter(),
+            Challenge::YesNo => self.prompt_yesno(),
+        }
+    }
+
+    /// Show prompt text + details of the challenge.
+    ///
+    /// # Arguments
+    ///
+    /// * `extra` - String with more text to the prompt question (usually for more detail of how solve the question).
+    fn prompt_text(&self, extra: String) -> String {
+        format!("{}, {}", self.description, extra)
+    }
+
+    /// Show math challenge prompt question to the user. creates random number between 0-10.
+    fn prompt_math(&self) -> bool {
+        let mut rng = rand::thread_rng();
+        let num_a = rng.gen_range(0..10);
+        let num_b = rng.gen_range(0..10);
+        let expected_answer = num_a + num_b;
+
+        eprintln!("{}", self.prompt_text(format!("{} + {} = ?", num_a, num_b)));
+        loop {
+            let answer = self.show_stdin_prompt();
+
+            let answer: u32 = match answer.trim().parse() {
+                Ok(num) => num,
+                Err(_) => continue,
+            };
+            if answer == expected_answer {
+                break;
+            }
+            eprintln!("wrong answer, try again...");
+        }
+        true
+    }
+
+    /// Show enter challenge to the user.
+    fn prompt_enter(&self) -> bool {
+        eprintln!("{}", self.prompt_text(format!("Type `Enter` to continue")));
+
+        loop {
+            let answer = self.show_stdin_prompt();
+            if answer == "\n" {
+                break;
+            }
+            eprintln!("wrong answer, try again...");
+        }
+        true
+    }
+
+    /// Show enter yes/no challenge to the user.
+    fn prompt_yesno(&self) -> bool {
+        eprintln!(
+            "{}",
+            self.prompt_text(format!("Type `yes` to continue `no` to cancel"))
+        );
+        let mut is_approve = true;
+
+        loop {
+            let answer = self.show_stdin_prompt();
+            let answer = answer.trim();
+            if answer == "yes" {
+                break;
+            } else if answer == "no" {
+                is_approve = false;
+                break;
+            }
+            eprintln!("wrong answer, try again...");
+        }
+        is_approve
+    }
+
+    /// Catch user stdin.
+    fn show_stdin_prompt(&self) -> String {
+        let mut answer = String::new();
+        io::stdin()
+            .read_line(&mut answer)
+            .expect("Failed to read line");
+
+        answer
     }
 }
 
@@ -26,7 +111,7 @@ impl Check {
 ///
 /// * `checks` - List of checks that we want to validate.
 /// * `command` - Command check.
-pub fn run_check_on_command(checks: &Vec<Check>, command: &str) -> Vec<Check> {
+pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
     checks
         .par_iter()
         .filter(|&v| v.enable)

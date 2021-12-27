@@ -23,17 +23,25 @@ fn main() {
         exit(1);
     }
 
-    let matches = match config_dir.load_config_from_file() {
-        Ok(conf) => checks::run_check_on_command(&conf.checks, "git reset"),
+    let conf = match config_dir.load_config_from_file() {
+        Ok(conf) => conf,
         Err(e) => {
             eprintln!("Error: {}", e.to_string());
             exit(1)
         }
     };
 
+    let matches = checks::run_check_on_command(&conf.checks, "git reset");
+
     println!("matches found: {}", matches.len());
 
+    let mut should_continue = 0;
     for m in matches {
-        m.show()
+        if !m.show(&conf.challenge) {
+            should_continue = 2;
+            break;
+        }
     }
+
+    exit(should_continue);
 }
