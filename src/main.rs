@@ -1,3 +1,4 @@
+mod checks;
 mod cli;
 mod config;
 use std::process::exit;
@@ -22,7 +23,17 @@ fn main() {
         exit(1);
     }
 
-    // load local config file to struct
-    let app_config = config_dir.load_config_from_file();
-    println!("{:?}", app_config);
+    let matches = match config_dir.load_config_from_file() {
+        Ok(conf) => checks::run_check_on_command(&conf.checks, "git reset"),
+        Err(e) => {
+            eprintln!("Error: {}", e.to_string());
+            exit(1)
+        }
+    };
+
+    println!("matches found: {}", matches.len());
+
+    for m in matches {
+        m.show()
+    }
 }

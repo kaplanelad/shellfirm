@@ -1,19 +1,19 @@
 //! Configuration management
 
+use crate::checks::Check;
 use anyhow::anyhow;
 use anyhow::Result as AnyResult;
 use serde_derive::Deserialize;
-use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
 
 /// The method type go the check.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub enum Method {
     /// If the command start with.
-    Startwith,
+    StartWith,
     /// if the command contains.
     Contains,
     /// if the command match to the given regex.
@@ -47,15 +47,17 @@ pub struct Config {
     /// Type of the challenge.
     pub challenge: Challenge,
     /// List of checks.
-    pub checks: HashMap<String, Check>,
+    pub checks: Vec<Check>,
 }
 
-/// Describe single check
-#[derive(Debug, Deserialize)]
-pub struct Check {
-    pub is: String,
-    pub method: Method,
-}
+// /// Describe single check
+// #[derive(Debug, Deserialize, Clone)]
+// pub struct Check {
+//     pub is: String,
+//     pub method: Method,
+//     pub enable: bool,
+//     pub description: String,
+// }
 
 impl SettingsConfig {
     /// Convert config yaml file to struct.
