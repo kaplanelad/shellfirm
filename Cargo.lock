@@ -47,21 +47,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "checkme"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "home",
- "rand",
- "rayon",
- "regex",
- "serde",
- "serde_derive",
- "serde_yaml",
-]
-
-[[package]]
 name = "clap"
 version = "3.0.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -369,6 +354,21 @@ dependencies = [
  "ryu",
  "serde",
  "yaml-rust",
+]
+
+[[package]]
+name = "shellfirm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "home",
+ "rand",
+ "rayon",
+ "regex",
+ "serde",
+ "serde_derive",
+ "serde_yaml",
 ]
 
 [[package]]
