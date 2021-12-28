@@ -4,11 +4,11 @@ use crate::config::{Challenge, Method};
 use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::io;
 
 /// Describe single check
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Check {
     pub is: String,
     pub method: Method,

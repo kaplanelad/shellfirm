@@ -1,16 +1,17 @@
 //! Configuration management
 
 use crate::checks::Check;
+use crate::cli::{UPDATE_CONFIGURATION_ONLY_DIFF, UPDATE_CONFIGURATION_OVERRIDE};
 use anyhow::anyhow;
 use anyhow::Result as AnyResult;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
 
 /// The method type go the check.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum Method {
     /// If the command start with.
     StartWith,
@@ -21,7 +22,7 @@ pub enum Method {
 }
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -42,7 +43,7 @@ pub struct SettingsConfig {
 }
 
 /// Describe the configuration yaml
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     /// Type of the challenge.
     pub challenge: Challenge,
@@ -65,6 +66,11 @@ impl SettingsConfig {
         Ok(serde_yaml::from_str(&self.read_config_file()?)?)
     }
 
+    /// Return default app config as a config struct.
+    pub fn load_default_config(&self) -> AnyResult<Config> {
+        Ok(serde_yaml::from_str(DEFAULT_CONFIG_FILE)?)
+    }
+
     /// Manage configuration folder/ file.
     /// * Create config folder if not exists
     /// * Create config yaml file if not exists
@@ -74,6 +80,14 @@ impl SettingsConfig {
             self.create_default_config_file()?;
         }
         Ok(())
+    }
+
+    pub fn update_config_content(&self, behaver: &str) -> AnyResult<()> {
+        match behaver {
+            UPDATE_CONFIGURATION_ONLY_DIFF => self.add_diff_configuration_file(),
+            UPDATE_CONFIGURATION_OVERRIDE => self.override_configuration_file(),
+            _ => return Err(anyhow!("unsupported behaver")),
+        }
     }
 
     /// Create config folder if not exists.
@@ -93,12 +107,48 @@ impl SettingsConfig {
         Ok(())
     }
 
+    /// Create config file with default configuration content
+    fn create_config_file_from_struct(&self, config: &Config) -> AnyResult<()> {
+        let content = serde_yaml::to_string(config)?;
+        let mut file = fs::File::create(&self.config_file_path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+
     /// Convert config file to config struct.
     fn read_config_file(&self) -> AnyResult<String> {
         let mut file = std::fs::File::open(&self.config_file_path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
         Ok(content)
+    }
+
+    /// override existing config yaml file with the application configuration
+    fn override_configuration_file(&self) -> AnyResult<()> {
+        self.create_default_config_file()
+    }
+
+    /// adding only new check into configuration file.
+    fn add_diff_configuration_file(&self) -> AnyResult<()> {
+        match self.load_config_from_file() {
+            Ok(mut conf) => {
+
+                let default_app_config =  self.load_default_config()?;
+
+                for default_check in default_app_config.checks.clone() {
+                    let mut found = false;
+                    for user_check in &conf.checks{
+                        if user_check.is == default_check.is {found = true; break;}
+                    }
+                    if !found {
+                        conf.checks.push(default_check.clone())
+                    }
+                }
+                self.create_config_file_from_struct(&conf)?;
+                Ok(())
+            },
+            Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behaver override`"))
+        }
     }
 }
 
@@ -129,7 +179,7 @@ pub fn get_config_folder(path: &str) -> AnyResult<SettingsConfig> {
 }
 
 #[cfg(test)]
-mod password {
+mod config {
     use super::*;
 
     fn get_current_project_path() -> String {
@@ -178,7 +228,7 @@ mod password {
     fn can_write_config_file() {
         let tmp_folder = format!("{}/tmp", get_current_project_path());
         if fs::metadata(&tmp_folder).is_ok() {
-            fs::remove_dir_all(&tmp_folder).unwrap();
+            fs::remove_file(format!("{}/config.yaml", &tmp_folder)).unwrap();
         }
 
         let settings_config = SettingsConfig {
@@ -189,5 +239,86 @@ mod password {
 
         assert!(settings_config.manage_config_file().is_ok());
         assert!(settings_config.read_config_file().is_ok());
+    }
+
+    #[test]
+    fn can_load_default_config() {
+        let conf = get_config_folder("").unwrap();
+        assert!(conf.load_default_config().is_ok())
+    }
+
+    #[test]
+    fn can_override_existing_config() {
+        let settings_config = SettingsConfig {
+            path: get_current_project_path(),
+            default: false,
+            config_file_path: format!("{}/tmp/override.yaml", get_current_project_path()),
+        };
+
+        // check if we file created successfully
+        assert!(fs::File::create(&settings_config.config_file_path)
+            .unwrap()
+            .write_all("".as_bytes())
+            .is_ok());
+
+        // then read the file and make sure that the content is empty
+        let file_content = settings_config
+            .read_config_file()
+            .unwrap_or(format!("error"));
+
+        assert_eq!(file_content, "");
+
+        // create the default configuration
+        assert!(settings_config.override_configuration_file().is_ok());
+        // make sure that the file is not empty
+        assert!(!settings_config.read_config_file().unwrap().is_empty());
+    }
+
+    #[test]
+    fn can_add_diff_configuration_file() {
+        let settings_config = SettingsConfig {
+            path: get_current_project_path(),
+            default: false,
+            config_file_path: format!("{}/tmp/add-diff.yaml", get_current_project_path()),
+        };
+
+        let orig_config = settings_config.load_default_config().unwrap();
+        let mut config = settings_config.load_default_config().unwrap();
+
+        // creates configuration file with only 1 check (we want to check that we not change existing check and just append new ones)
+        config.checks = vec![Check {
+            is: String::from("is value"),
+            method: Method::Contains,
+            enable: true,
+            description: String::from("description"),
+        }];
+
+        // create configuration file with 1 check
+        assert!(settings_config
+            .create_config_file_from_struct(&config)
+            .is_ok());
+
+        // make sure that the configuration created with 1 check
+        assert_eq!(
+            settings_config
+                .load_config_from_file()
+                .unwrap()
+                .checks
+                .len(),
+            config.checks.len()
+        );
+
+        // create the config diff command
+        assert!(settings_config.add_diff_configuration_file().is_ok());
+
+        // make sure that the count of check that change equal to existing config + the default application config
+        assert_eq!(
+            settings_config
+                .load_config_from_file()
+                .unwrap()
+                .checks
+                .len(),
+            config.checks.len() + orig_config.checks.len()
+        );
     }
 }

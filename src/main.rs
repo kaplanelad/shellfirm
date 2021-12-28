@@ -23,16 +23,16 @@ fn main() {
         exit(1);
     }
 
-    let conf = match config_dir.load_config_from_file() {
-        Ok(conf) => conf,
-        Err(e) => {
-            eprintln!("Error: {}", e.to_string());
-            exit(1)
-        }
-    };
-
     if let Some(validate_matches) = matches.subcommand_matches("pre-command") {
         let command = validate_matches.value_of("command").unwrap();
+
+        let conf = match config_dir.load_config_from_file() {
+            Ok(conf) => conf,
+            Err(e) => {
+                eprintln!("Error: {}", e.to_string());
+                exit(1)
+            }
+        };
 
         let matches = checks::run_check_on_command(&conf.checks, command);
 
@@ -47,6 +47,16 @@ fn main() {
         }
 
         exit(should_continue);
+    }
+    if let Some(validate_matches) = matches.subcommand_matches("update-configuration") {
+        let behaver = validate_matches.value_of("behaver").unwrap();
+        if let Err(err) = config_dir.update_config_content(behaver) {
+            eprintln!(
+                "Error while trying to update configuration. Error: {}",
+                err.to_string()
+            );
+            exit(1)
+        }
     } else {
         app.print_long_help().unwrap();
     }
