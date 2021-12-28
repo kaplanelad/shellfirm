@@ -60,7 +60,10 @@ impl Check {
 
     /// Show enter challenge to the user.
     fn prompt_enter(&self) -> bool {
-        eprintln!("{}", self.prompt_text(format!("Type `Enter` to continue")));
+        eprintln!(
+            "{}",
+            self.prompt_text("Type `Enter` to continue".to_string())
+        );
 
         loop {
             let answer = self.show_stdin_prompt();
@@ -76,7 +79,7 @@ impl Check {
     fn prompt_yesno(&self) -> bool {
         eprintln!(
             "{}",
-            self.prompt_text(format!("Type `yes` to continue `no` to cancel"))
+            self.prompt_text("Type `yes` to continue `no` to cancel".to_string())
         );
         let mut is_approve = true;
 

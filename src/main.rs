@@ -4,7 +4,7 @@ mod config;
 use std::process::exit;
 
 fn main() {
-    let app = cli::get_app();
+    let mut app = cli::get_app();
     let matches = app.to_owned().get_matches();
 
     // TODO:: get config from environment variable
@@ -31,17 +31,23 @@ fn main() {
         }
     };
 
-    let matches = checks::run_check_on_command(&conf.checks, "git reset");
+    if let Some(validate_matches) = matches.subcommand_matches("pre-command") {
+        let command = validate_matches.value_of("command").unwrap();
 
-    println!("matches found: {}", matches.len());
+        let matches = checks::run_check_on_command(&conf.checks, command);
 
-    let mut should_continue = 0;
-    for m in matches {
-        if !m.show(&conf.challenge) {
-            should_continue = 2;
-            break;
+        println!("matches found: {}", matches.len());
+
+        let mut should_continue = 0;
+        for m in matches {
+            if !m.show(&conf.challenge) {
+                should_continue = 2;
+                break;
+            }
         }
-    }
 
-    exit(should_continue);
+        exit(should_continue);
+    } else {
+        app.print_long_help().unwrap();
+    }
 }
