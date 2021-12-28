@@ -36,8 +36,6 @@ fn main() {
 
         let matches = checks::run_check_on_command(&conf.checks, command);
 
-        println!("matches found: {}", matches.len());
-
         let mut should_continue = 0;
         for m in matches {
             if !m.show(&conf.challenge) {
