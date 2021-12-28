@@ -1,14 +1,11 @@
 challenge: Math # Math, Enter, YesNo
 
 checks:
-  - is: exit
-    method: Contains
-    enable: true
-    description: "Are you sure that you want to exit?"
   - is: git reset
     method: Contains
     enable: true
     description: "This command going to reset all your local changes. are you sure?"
-  # - is: "^gi"
-  #   method: Regex
-  #   enable: true
+  - is: "rm.+(-r|-f|-rf|-fr)*"
+    method: Regex
+    enable: true
+    description: "You are going to deletes everything in the path. are you sure that you want to do it? "
