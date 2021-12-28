@@ -1,6 +1,7 @@
 ///! Manage command checks
 ///
 use crate::config::{Challenge, Method};
+use colored::Colorize;
 use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
@@ -31,8 +32,17 @@ impl Check {
     /// # Arguments
     ///
     /// * `extra` - String with more text to the prompt question (usually for more detail of how solve the question).
-    fn prompt_text(&self, extra: String) -> String {
-        format!("{}, {}", self.description, extra)
+    fn prompt_text(&self, extra: String) {
+        eprintln!("{}", "#######################".yellow().bold());
+        eprintln!("{}", "# RISKY COMMAND FOUND #".yellow().bold());
+        eprintln!("{}", "#######################".yellow().bold());
+
+        eprintln!(
+            "* {}\n {} ({})",
+            self.description.underline(),
+            extra,
+            "^C to cancel".underline().bold().italic()
+        )
     }
 
     /// Show math challenge prompt question to the user. creates random number between 0-10.
@@ -42,7 +52,11 @@ impl Check {
         let num_b = rng.gen_range(0..10);
         let expected_answer = num_a + num_b;
 
-        eprintln!("{}", self.prompt_text(format!("{} + {} = ?", num_a, num_b)));
+        self.prompt_text(format!(
+            "\nSolve the challenge: {} + {} = ?",
+            num_a.to_string(),
+            num_b.to_string()
+        ));
         loop {
             let answer = self.show_stdin_prompt();
 
@@ -60,10 +74,7 @@ impl Check {
 
     /// Show enter challenge to the user.
     fn prompt_enter(&self) -> bool {
-        eprintln!(
-            "{}",
-            self.prompt_text("Type `Enter` to continue".to_string())
-        );
+        self.prompt_text("T\nype `Enter` to continue".to_string());
 
         loop {
             let answer = self.show_stdin_prompt();
@@ -77,10 +88,7 @@ impl Check {
 
     /// Show enter yes/no challenge to the user.
     fn prompt_yesno(&self) -> bool {
-        eprintln!(
-            "{}",
-            self.prompt_text("Type `yes` to continue `no` to cancel".to_string())
-        );
+        self.prompt_text("\nType `yes` to continue `no` to cancel".to_string());
         let mut is_approve = true;
 
         loop {
@@ -146,4 +154,51 @@ fn is_start_with(check: &str, command: &str) -> bool {
 fn is_regex(r: &str, command: &str) -> bool {
     // let search_regex = format!("r\"{}\"", r);
     Regex::new(r).unwrap().is_match(command)
+}
+
+#[cfg(test)]
+mod checks {
+    use super::*;
+
+    #[test]
+    fn is_match_command() {
+        let regex_check = Check {
+            is: String::from("rm.+(-r|-f|-rf|-fr)*"),
+            method: Method::Regex,
+            enable: true,
+            description: String::from(""),
+        };
+        let contains_check = Check {
+            is: String::from("test"),
+            method: Method::Contains,
+            enable: true,
+            description: String::from(""),
+        };
+        let startwith_check = Check {
+            is: String::from("start"),
+            method: Method::StartWith,
+            enable: true,
+            description: String::from(""),
+        };
+        assert!(is_match(&regex_check, "rm -rf"));
+        assert!(is_match(&contains_check, "test command"));
+        assert!(is_match(&startwith_check, "start command"));
+    }
+    #[test]
+    fn can_check_is_contains() {
+        assert!(is_contains("test", "test is valid"));
+        assert!(!is_contains("test is valid", "not-found"));
+    }
+
+    #[test]
+    fn can_check_is_start_with() {
+        assert!(is_start_with("test is", "test is valid"));
+        assert!(!is_start_with("test is valid", "is"));
+    }
+
+    #[test]
+    fn can_check_is_regex_match() {
+        assert!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
+        assert!(!is_regex("^f", "rm -rf"));
+    }
 }
