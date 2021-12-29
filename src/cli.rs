@@ -27,6 +27,12 @@ pub fn get_app() -> App<'static> {
                         .help("get the user command that should run.")
                         .required(true)
                         .takes_value(true),
+                ).arg(
+                    Arg::new("test")
+                        .short('t')
+                        .long("test")
+                        .help("Check if the command is risky and exit")
+                        .takes_value(false),
                 ),
         )
         .subcommand(
