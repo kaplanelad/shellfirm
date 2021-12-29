@@ -47,8 +47,8 @@ fn main() {
         exit(should_continue);
     }
     if let Some(validate_matches) = matches.subcommand_matches("update-configuration") {
-        let behaver = validate_matches.value_of("behaver").unwrap();
-        if let Err(err) = config_dir.update_config_content(behaver) {
+        let behavior = validate_matches.value_of("behavior").unwrap();
+        if let Err(err) = config_dir.update_config_content(behavior) {
             eprintln!(
                 "Error while trying to update configuration. Error: {}",
                 err.to_string()

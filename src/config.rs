@@ -82,11 +82,11 @@ impl SettingsConfig {
         Ok(())
     }
 
-    pub fn update_config_content(&self, behaver: &str) -> AnyResult<()> {
-        match behaver {
+    pub fn update_config_content(&self, behavior: &str) -> AnyResult<()> {
+        match behavior {
             UPDATE_CONFIGURATION_ONLY_DIFF => self.add_diff_configuration_file(),
             UPDATE_CONFIGURATION_OVERRIDE => self.override_configuration_file(),
-            _ => return Err(anyhow!("unsupported behaver")),
+            _ => return Err(anyhow!("unsupported behavior")),
         }
     }
 
@@ -147,7 +147,7 @@ impl SettingsConfig {
                 self.create_config_file_from_struct(&conf)?;
                 Ok(())
             },
-            Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behaver override`"))
+            Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
         }
     }
 }

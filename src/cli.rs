@@ -33,10 +33,10 @@ pub fn get_app() -> App<'static> {
             App::new("update-configuration")
                 .about("Update configuration file")
                 .arg(
-                    Arg::new("behaver")
+                    Arg::new("behavior") 
                         .short('b')
-                        .long("behaver")
-                        .help("The behaver of the update, you can replace your existing one with the default config application or just add new checks")
+                        .long("behavior")
+                        .help("The behavior of the update, you can replace your existing one with the default config application or just add new checks")
                         .possible_values(&[UPDATE_CONFIGURATION_OVERRIDE, UPDATE_CONFIGURATION_ONLY_DIFF])
                         .default_value(UPDATE_CONFIGURATION_ONLY_DIFF)
                         .takes_value(true)

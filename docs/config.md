@@ -19,10 +19,10 @@ You can always change your config file content and the `shellfirm` will never ch
 
 Option one is to override the current configuration:
 ```bash
-shellfirm update-configuration --behaver override
+shellfirm update-configuration --behavior override
 ```
 
 Option two is to keep your configuration and still enjoy the updated checks by running the command
 ```bash
-shellfirm update-configuration --behaver only-diff
+shellfirm update-configuration --behavior only-diff
 ```
