@@ -4,11 +4,11 @@ checks:
   - is: git reset
     method: Contains
     enable: true
-    description: "This command going to reset all your local changes"
+    description: "This command going to reset all your local changes."
   - is: "rm.+(-r|-f|-rf|-fr)*"
     method: Regex
     enable: true
-    description: "You are going to deletes everything in the path"
+    description: "You are going to deletes everything in the path."
   - is: ":(){ :|: & };:"
     method: Contains
     enable: true
