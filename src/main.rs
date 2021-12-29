@@ -38,7 +38,7 @@ fn main() {
 
         let mut should_continue = 0;
         for m in matches {
-            if !m.show(&conf.challenge) {
+            if !m.show(&conf.challenge, validate_matches.is_present("test")) {
                 should_continue = 2;
                 break;
             }

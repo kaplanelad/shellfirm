@@ -3,6 +3,7 @@
 When you install `shellfirm` the first time it creates a new config file in the home directory in the path: ~/.shellfirm/config.yaml.
 The main configuration file manage in [config.yaml](../src/config.yaml). 
 You can always change your config file content and the `shellfirm` will never change it back. 
+[read here how to add and test new command](./contributing.md#test-new-command)
 
 
 # Config

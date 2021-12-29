@@ -18,8 +18,17 @@ pub struct Check {
 }
 
 impl Check {
+    /// convert check to yaml
+    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
+        serde_yaml::to_string(self)
+    }
+
     /// Show challenge to the user.
-    pub fn show(&self, challenge: &Challenge) -> bool {
+    pub fn show(&self, challenge: &Challenge, dry_run: bool) -> bool {
+        if dry_run {
+            eprintln!("{}", self.to_yaml().unwrap());
+            return true;
+        }
         match challenge {
             Challenge::Math => self.prompt_math(),
             Challenge::Enter => self.prompt_enter(),
@@ -74,7 +83,7 @@ impl Check {
 
     /// Show enter challenge to the user.
     fn prompt_enter(&self) -> bool {
-        self.prompt_text("T\nype `Enter` to continue".to_string());
+        self.prompt_text("\nType `Enter` to continue".to_string());
 
         loop {
             let answer = self.show_stdin_prompt();
@@ -200,5 +209,19 @@ mod checks {
     fn can_check_is_regex_match() {
         assert!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
         assert!(!is_regex("^f", "rm -rf"));
+    }
+
+    #[test]
+    fn can_convert_check_to_yaml() {
+        let check = Check {
+            is: String::from("start"),
+            method: Method::StartWith,
+            enable: true,
+            description: String::from("desc"),
+        };
+        assert_eq!(
+            check.to_yaml().unwrap(),
+            "---\nis: start\nmethod: StartWith\nenable: true\ndescription: desc\n"
+        );
     }
 }
