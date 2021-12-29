@@ -9,4 +9,4 @@
 # Added by cargo
 
 /target
-/tmp
+/tmp/*
