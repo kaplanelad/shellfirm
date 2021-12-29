@@ -227,14 +227,15 @@ mod config {
     #[test]
     fn can_write_config_file() {
         let tmp_folder = format!("{}/tmp", get_current_project_path());
-        if fs::metadata(&tmp_folder).is_ok() {
-            fs::remove_file(format!("{}/config.yaml", &tmp_folder)).unwrap();
+        let config_file_path = format!("{}/config.yaml", &tmp_folder);
+        if fs::metadata(&config_file_path).is_ok() {
+            fs::remove_file(&config_file_path).unwrap();
         }
 
         let settings_config = SettingsConfig {
             path: format!("{}", tmp_folder),
             default: false,
-            config_file_path: format!("{}/config.yaml", tmp_folder),
+            config_file_path: config_file_path,
         };
 
         assert!(settings_config.manage_config_file().is_ok());
