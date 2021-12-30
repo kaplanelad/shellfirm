@@ -158,7 +158,7 @@ impl SettingsConfig {
 ///
 /// * `path` - Config folder path. if is empty default path will be returned.
 pub fn get_config_folder(path: &str) -> AnyResult<SettingsConfig> {
-    let package_name = std::env::var("CARGO_PKG_NAME").unwrap();
+    let package_name = env!("CARGO_PKG_NAME");
 
     let mut config_folder = path.into();
     let mut is_default = false;
