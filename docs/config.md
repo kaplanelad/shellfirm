@@ -9,7 +9,7 @@ You can always change your config file content and the `shellfirm` will never ch
 # Config
 | Parameter | Description | Values |
 | --- | --- | --- |
-| `challenge` | The way that you want to solve the challenge when risky command detected | `Math`, `Enter`, `YesNo` |
+| `challenge` | The way that you want to solve the challenge when risky command detected | `Math`, `Enter`, `Yes` |
 | `checks[].is` | The value of the check | `String` |
 | `checks[].method` | How to make the check | `Contains`, `Regex`, `StartWith` |
 | `checks[].enable` | Enable disable the check | `true`, `false` |

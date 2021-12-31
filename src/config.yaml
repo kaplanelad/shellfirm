@@ -1,4 +1,4 @@
-challenge: Math # Math, Enter, YesNo
+challenge: Math # Math, Enter, Yes
 
 checks:
   - is: git reset
