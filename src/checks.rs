@@ -32,7 +32,7 @@ impl Check {
         match challenge {
             Challenge::Math => self.prompt_math(),
             Challenge::Enter => self.prompt_enter(),
-            Challenge::YesNo => self.prompt_yesno(),
+            Challenge::Yes => self.prompt_yes(),
         }
     }
 
@@ -95,23 +95,17 @@ impl Check {
         true
     }
 
-    /// Show enter yes/no challenge to the user.
-    fn prompt_yesno(&self) -> bool {
-        self.prompt_text("\nType `yes` to continue `no` to cancel".to_string());
-        let mut is_approve = true;
+    /// Show enter yes challenge to the user.
+    fn prompt_yes(&self) -> bool {
+        self.prompt_text("\nType `yes` to continue".to_string());
 
         loop {
-            let answer = self.show_stdin_prompt();
-            let answer = answer.trim();
-            if answer == "yes" {
-                break;
-            } else if answer == "no" {
-                is_approve = false;
+            if self.show_stdin_prompt().trim() == "yes" {
                 break;
             }
             eprintln!("wrong answer, try again...");
         }
-        is_approve
+        true
     }
 
     /// Catch user stdin.

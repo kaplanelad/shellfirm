@@ -27,7 +27,7 @@ If a risky pattern is detected, you will get a prompt with a warning and double 
 
 ### Checks examples:
 ```yaml
-challenge: Math # Math, Enter, YesNo
+challenge: Math # Math, Enter, Yes
 
 checks:
   - is: git reset
@@ -65,8 +65,8 @@ After installing `shellfirm` tool the config stored in the path: `~/.shellfirm/c
 ## Change challenge
 currently we supporting 3 different challenges when a command is detected:
 * `Math` - Default challenge which requires you to solve a math question.
-* `Enter` - Requite only `Enter` to continue with the command.
-* `YesNo` - expected `yes` to continue and `no` to abort the command.
+* `Enter` - Requite only `Enter` to continue.
+* `Yes` - Requite `yes` to continue.
 
 You can change the default challenge in [config.yaml file](./src/config.yaml).
 

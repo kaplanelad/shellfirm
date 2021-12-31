@@ -28,8 +28,8 @@ pub enum Challenge {
     Math,
     /// Only enter will approve the command.
     Enter,
-    /// only yes/no typing will approve the command.
-    YesNo,
+    /// only yes typing will approve the command.
+    Yes,
 }
 
 /// describe configuration folder

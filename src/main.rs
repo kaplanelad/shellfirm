@@ -12,7 +12,7 @@ fn main() {
     {
         Ok(config_dir) => config_dir,
         Err(err) => {
-            eprintln!("Error: {}", err.to_string());
+            eprintln!("Loading config error: {}", err.to_string());
             exit(1)
         }
     };
@@ -29,7 +29,7 @@ fn main() {
         let conf = match config_dir.load_config_from_file() {
             Ok(conf) => conf,
             Err(e) => {
-                eprintln!("Error: {}", e.to_string());
+                eprintln!("Could not load config from file: {}", e.to_string());
                 exit(1)
             }
         };
