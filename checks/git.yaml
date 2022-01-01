@@ -1,0 +1,5 @@
+- from: git
+  is: git reset
+  method: Contains
+  enable: true
+  description: "This command going to reset all your local changes."

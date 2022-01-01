@@ -2,21 +2,9 @@
 
 use clap::{crate_name, crate_version, App, Arg};
 
-pub const UPDATE_CONFIGURATION_OVERRIDE: &str = "override";
-
-pub const UPDATE_CONFIGURATION_ONLY_DIFF: &str = "only-diff";
-
 pub fn get_app() -> App<'static> {
     App::new(crate_name!())
         .version(crate_version!())
-        // .about("TODO...")
-        .arg(
-            Arg::new("config")
-                .short('c')
-                .long("config")
-                .help("External configuration file path.")
-                .takes_value(true),
-        )
         .subcommand(
             App::new("pre-command")
                 .about("Check if given command marked as sensitive command that need your extra approval.")
@@ -36,16 +24,45 @@ pub fn get_app() -> App<'static> {
                 ),
         )
         .subcommand(
-            App::new("update-configuration")
-                .about("Update configuration file")
-                .arg(
-                    Arg::new("behavior") 
-                        .short('b')
-                        .long("behavior")
-                        .help("The behavior of the update, you can replace your existing one with the default config application or just add new checks")
-                        .possible_values(&[UPDATE_CONFIGURATION_OVERRIDE, UPDATE_CONFIGURATION_ONLY_DIFF])
-                        .default_value(UPDATE_CONFIGURATION_ONLY_DIFF)
-                        .takes_value(true)
-                ),
+            App::new("config")
+                .about("Manage app config")
+                .subcommand(
+                    App::new("update")
+                        .about("add/remove check group")
+                        .arg(
+                            Arg::new("check-group") 
+                                .short('c')
+                                .long("check-group")
+                                .help("Check group")
+                                // .possible_values(get_checks_name!())
+                                // .takes_value(true)
+                                .multiple_values(true)
+                                .required(true)
+                                .min_values(1)
+                        )
+                        .arg(
+                            Arg::new("remove") 
+                                .long("remove")
+                                .help("remove the given checks")
+                                // .possible_values(get_checks_name!())
+                                .takes_value(false)
+                        ),
+                )
+                .subcommand(
+                    App::new("reset")
+                        .about("Reset configuration")
+                )
+                .subcommand(
+                    App::new("challenge")
+                        .about("Reset configuration")
+                        .arg(
+                            Arg::new("challenge") 
+                                .long("challenge")
+                                .help("Change challenge prompt")
+                                .possible_values(&["Math", "Enter", "Yes"])
+                                .required(true)
+                                .takes_value(true)
+                        ),
+                )
         )
 }
