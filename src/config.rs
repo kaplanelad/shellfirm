@@ -186,7 +186,6 @@ impl SettingsConfig {
                         conf.includes.push(c.clone());
                     }
                 }
-                
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
                 checks.extend( self.get_default_checks(checks_group));
@@ -333,12 +332,6 @@ mod config {
                 .len(),
             1
         );
-    }
-
-    #[test]
-    fn can_read_config_file() {
-        let conf = get_config_folder().unwrap();
-        assert!(!conf.read_config_file().unwrap().is_empty());
     }
 
     #[test]
