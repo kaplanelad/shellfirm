@@ -60,7 +60,7 @@ checks:
     from: fs
 ```
 
-:information_source: toe define custom check (that not include int the `shillfirm` check) make the `from` with `custom`
+:information_source: to define custom check (that not include int the `shillfirm` check) make the `from` with `custom`
 ```yaml
   - is: "special check"
     method: Regex
@@ -73,7 +73,15 @@ checks:
 TODO... add a gif with action
 
 ## Installation 
-TODO...
+* brew command
+* Download zsh plugin:
+```bash
+curl  https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+```
+* Finally, add the shellfirm as the plugin in your .zshrc file as:
+```bash
+plugins=(... shellfirm)
+```
 
 ## Updates
 TODO...
