@@ -73,7 +73,15 @@ checks:
 TODO... add a gif with action
 
 ## Installation 
-TODO...
+* brew command
+* Download zsh plugin:
+```bash
+curl  https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+```
+* Finally, add the shellfirm as the plugin in your .zshrc file as:
+```bash
+plugins=(... shellfirm)
+```
 
 ## Updates
 TODO...
