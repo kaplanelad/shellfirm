@@ -60,7 +60,7 @@ checks:
     from: fs
 ```
 
-:information_source: toe define custom check (that not include int the `shillfirm` check) make the `from` with `custom`
+:information_source: to define custom check (that not include int the `shillfirm` check) make the `from` with `custom`
 ```yaml
   - is: "special check"
     method: Regex
