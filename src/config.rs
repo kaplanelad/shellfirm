@@ -186,9 +186,19 @@ impl SettingsConfig {
                         conf.includes.push(c.clone());
                     }
                 }
+                // getting the check that disable
+                let disable_checks = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable).cloned().collect::<Vec<Check>>();
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
                 checks.extend( self.get_default_checks(checks_group));
+
+                for need_to_disable in disable_checks{
+                    for c in  &mut checks{
+                        if c.is == need_to_disable.is{
+                            c.enable = false;
+                        }
+                    }
+                }
 
                 conf.checks = checks;
                 Ok(conf)

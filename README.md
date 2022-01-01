@@ -42,18 +42,31 @@ checks:
     method: Contains
     enable: true
     description: "This command going to reset all your local changes."
+    from: git
   - is: "rm.+(-r|-f|-rf|-fr)*"
     method: Regex
     enable: true
     description: "You are going to deletes everything in the path."
+    from: fs
   - is: ">.+/dev/sda"
     method: Regex
     enable: true
     description: "Writing the data directly to the hard disk drive and damaging your file system."
+    from: fs
   - is: "mv+.*/dev/null"
     method: Regex
     enable: true
     description: "The files will be discarded and destroyed."
+    from: fs
+```
+
+:information_source: toe define custom check (that not include int the `shillfirm` check) make the `from` with `custom`
+```yaml
+  - is: "special check"
+    method: Regex
+    enable: true
+    description: "Example of custom check."
+    from: custom
 ```
 
 ## Live example
@@ -62,6 +75,8 @@ TODO... add a gif with action
 ## Installation 
 TODO...
 
+## Updates
+TODO...
 
 ## Risky command:
 | Group | Path | Enabled by default |
@@ -100,11 +115,6 @@ $ shellfirm config challenge --challenge Math
 ```
 
 *At any time you can exit with the challenge by `^C`*
-
-## Version update
-TODO....
-To update the config file with more checks [go here](./docs/config.md#Update-config-file)
-
 
 ## Contributing
 See the [contributing](../docs/CONTRIBUTING.MD) directory for more developer documentation.

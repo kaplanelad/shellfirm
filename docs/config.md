@@ -7,7 +7,7 @@ You can always change your config file content and the `shellfirm` will never ch
 [read here how to add and test new command](./contributing.md#test-new-command)
 
 
-# Config
+## Config
 | Parameter | Description | Values |
 | --- | --- | --- |
 | `challenge` | The way that you want to solve the challenge when risky command detected | `Math`, `Enter`, `Yes` |
@@ -19,19 +19,19 @@ You can always change your config file content and the `shellfirm` will never ch
 | `checks[].from` | Group name | `String` |
 
 
-# Update config file
+## Update config file
 
-Adding new groups:
+### Adding new groups:
 ```bash
 $ shellfirm config update --check-group {group} {group}
 ```
 
-Remove groups
+### Remove groups
 ```bash
 $ shellfirm config update --check-group {group} {group} --remove
 ```
 
-Reset 
+### Reset 
 ```bash
 $ shellfirm config reset
 ```
