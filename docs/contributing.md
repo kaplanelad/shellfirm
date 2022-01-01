@@ -4,10 +4,11 @@ You are more than welcome to help the community with the following options
 
 ## Add more risky commands
 
-Add more risky command patters in [config.yaml file](../src/config.yaml) and open a PR.
+Add more risky command patters to one of the check group in `checks` folder or add a bew group and open a PR.
+
 
 ### Test new command
-1. Add new check to [config.yaml file](../src/config.yaml)
+1. Add new check to one of the groups/create new group.
 2. Run `pre-command` command with `-t`
 ```bash
 $ shellfirm pre-command --command 'rm -rf' -t
@@ -22,8 +23,7 @@ You will get all finding checks to STDOUT
 
 ## Open issues
 
-Open an issue with your problems/requirements that you think will helpful
-
+Open an issue with your problems/requirements that you think will helpful.
 
 ## Run it locally
 Run it locally by running the command:

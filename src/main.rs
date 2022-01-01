@@ -3,13 +3,13 @@ mod cli;
 mod config;
 use std::process::exit;
 
+use config::Challenge;
+
 fn main() {
     let mut app = cli::get_app();
     let matches = app.to_owned().get_matches();
 
-    // TODO:: get config from environment variable
-    let config_dir = match config::get_config_folder(matches.value_of("config").unwrap_or_default())
-    {
+    let config_dir = match config::get_config_folder() {
         Ok(config_dir) => config_dir,
         Err(err) => {
             eprintln!("Loading config error: {}", err.to_string());
@@ -45,17 +45,44 @@ fn main() {
         }
 
         exit(should_continue);
-    }
-    if let Some(validate_matches) = matches.subcommand_matches("update-configuration") {
-        let behavior = validate_matches.value_of("behavior").unwrap();
-        if let Err(err) = config_dir.update_config_content(behavior) {
-            eprintln!(
-                "Error while trying to update configuration. Error: {}",
-                err.to_string()
-            );
-            exit(1)
+    } else if let Some(validate_matches) = matches.subcommand_matches("config") {
+        if let Some(update_matches) = validate_matches.subcommand_matches("update") {
+            let check_groups: Vec<&str> =
+                update_matches.values_of("check-group").unwrap().collect();
+
+            let res: Vec<String> = check_groups.iter().map(|s| s.to_string()).collect();
+
+            if let Err(err) =
+                config_dir.update_config_content(update_matches.is_present("remove"), &res)
+            {
+                eprintln!("Could not update checks group{}", err.to_string());
+                exit(1)
+            }
+
+            exit(0);
+        } else if validate_matches.subcommand_matches("reset").is_some() {
+            if let Err(err) = config_dir.reset_config() {
+                eprintln!("Could not reset settings{}", err.to_string());
+                exit(1)
+            }
+
+            exit(0);
+        } else if let Some(challenge_matches) = validate_matches.subcommand_matches("challenge") {
+            let challenge = match challenge_matches.value_of("challenge").unwrap() {
+                "Math" => Challenge::Math,
+                "Enter" => Challenge::Enter,
+                "Yes" => Challenge::Yes,
+                _ => Challenge::Math,
+            };
+
+            if let Err(err) = config_dir.update_challenge(challenge) {
+                eprintln!("Could not update challenge: {}", err.to_string());
+                exit(1)
+            }
+
+            exit(0);
         }
-    } else {
-        app.print_long_help().unwrap();
     }
+
+    app.print_long_help().unwrap();
 }

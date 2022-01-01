@@ -1,0 +1,15 @@
+- from: fs
+  is: "rm.+(-r|-f|-rf|-fr) *"
+  method: Regex
+  enable: true
+  description: "You are going to deletes everything in the path."
+- from: fs
+  is: ">.+/dev/sda"
+  method: Regex
+  enable: true
+  description: "Writing the data directly to the hard disk drive and damaging your file system."
+- from: fs
+  is: "mv+.*/dev/null"
+  method: Regex
+  enable: true
+  description: "The files will be discarded and destroyed."

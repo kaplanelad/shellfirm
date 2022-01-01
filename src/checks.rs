@@ -15,6 +15,7 @@ pub struct Check {
     pub method: Method,
     pub enable: bool,
     pub description: String,
+    pub from: String,
 }
 
 impl Check {
@@ -170,18 +171,21 @@ mod checks {
             method: Method::Regex,
             enable: true,
             description: String::from(""),
+            from: String::from(""),
         };
         let contains_check = Check {
             is: String::from("test"),
             method: Method::Contains,
             enable: true,
             description: String::from(""),
+            from: String::from(""),
         };
         let startwith_check = Check {
             is: String::from("start"),
             method: Method::StartWith,
             enable: true,
             description: String::from(""),
+            from: String::from(""),
         };
         assert!(is_match(&regex_check, "rm -rf"));
         assert!(is_match(&contains_check, "test command"));
@@ -212,10 +216,11 @@ mod checks {
             method: Method::StartWith,
             enable: true,
             description: String::from("desc"),
+            from: String::from(""),
         };
         assert_eq!(
             check.to_yaml().unwrap(),
-            "---\nis: start\nmethod: StartWith\nenable: true\ndescription: desc\n"
+            "---\nis: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\n"
         );
     }
 }
