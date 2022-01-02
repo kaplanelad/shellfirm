@@ -1,4 +1,4 @@
-# Config
+# Contributing
 
 You are more than welcome to help the community with the following options
 
