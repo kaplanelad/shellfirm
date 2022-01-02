@@ -2,6 +2,8 @@
 
 use clap::{crate_name, crate_version, App, Arg};
 
+const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_files.rs"));
+
 pub fn get_app() -> App<'static> {
     App::new(crate_name!())
         .version(crate_version!())
@@ -34,8 +36,7 @@ pub fn get_app() -> App<'static> {
                                 .short('c')
                                 .long("check-group")
                                 .help("Check group")
-                                // .possible_values(get_checks_name!())
-                                // .takes_value(true)
+                                .possible_values(ALL_GROUP_CHECKS)
                                 .multiple_values(true)
                                 .required(true)
                                 .min_values(1)
@@ -44,7 +45,7 @@ pub fn get_app() -> App<'static> {
                             Arg::new("remove") 
                                 .long("remove")
                                 .help("remove the given checks")
-                                // .possible_values(get_checks_name!())
+                                .possible_values(ALL_GROUP_CHECKS)
                                 .takes_value(false)
                         ),
                 )
