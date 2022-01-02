@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{Read, Write};
 
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
-pub const ALL_CHECKS: &str = include_str!("./checks.yaml");
+pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
 
 /// The method type go the check.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -240,6 +240,7 @@ pub fn get_config_folder() -> AnyResult<SettingsConfig> {
 }
 
 fn get_all_available_checks() -> AnyResult<Vec<Check>> {
+    println!("{:?}", ALL_CHECKS);
     Ok(serde_yaml::from_str(ALL_CHECKS)?)
 }
 
