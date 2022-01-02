@@ -9,7 +9,12 @@
   enable: true
   description: "Writing the data directly to the hard disk drive and damaging your file system."
 - from: fs
-  is: "mv+.*/dev/null"
+  is: "mv+.*/dev/null" 
   method: Regex
   enable: true
   description: "The files will be discarded and destroyed."
+- from: fs
+  is: ^\s*> *.+
+  method: Regex
+  enable: true
+  description: "The above command is used to flush the content of file."
