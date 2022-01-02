@@ -8,6 +8,7 @@ Protect yourself from yourself!
 * `rm -rf *`
 * `git reset --hard` before saving?
 * `kubectl delete ns` which going to delete all resources under this namespace?
+* And more!
 
 
 Do you want to learn from people that made those mistakes??
