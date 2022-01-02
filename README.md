@@ -128,4 +128,4 @@ $ shellfirm config challenge --challenge Math
 *At any time you can exit with the challenge by `^C`*
 
 ## Contributing
-See the [contributing](../docs/CONTRIBUTING.MD) directory for more developer documentation.
+See the [contributing](./docs/contributing.md) directory for more developer documentation.
