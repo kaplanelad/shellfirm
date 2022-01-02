@@ -7,7 +7,7 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/kaplanelad/shellfirm"
 homepage = "https://github.com/kaplanelad/shellfirm"
-
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,3 +22,6 @@ regex = "1.5"
 rayon = "1.5.1"
 rand = "0.8.4"
 colored = "2.0.0"
+
+[build-dependencies]
+anyhow = "1.0.51"
