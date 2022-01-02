@@ -81,16 +81,12 @@ brew tap kaplanelad/tap && brew install shellfirm
 ```
 * Download zsh plugin:
 ```bash
-curl  https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
 * Finally, add the `shellfirm` as the plugin in your .zshrc file as:
 ```bash
 plugins=(... shellfirm)
 ```
-
-## Updates
-* Download the updated `shellfirm` via brew
-* [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Risky command:
 | Group | Path | Enable By Default |
@@ -130,6 +126,11 @@ $ shellfirm config challenge --challenge Math
 ```
 
 *At any time you can exit with the challenge by `^C`*
+
+
+## Updates
+* Download the updated `shellfirm` via brew
+* [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Contributing
 See the [contributing](./docs/contributing.md) directory for more developer documentation.
