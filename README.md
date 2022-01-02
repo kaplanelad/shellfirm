@@ -7,10 +7,10 @@ Protect yourself from yourself!
 
 * `rm -rf *`
 * `git reset --hard` before saving?
-* `kubectl delete ns` i'm want to delete all resources under this namespace?
+* `kubectl delete ns` which going to delete all resources under this namespace?
 
 
-Or you just o you want to learn from people that made those mistakes?
+Do you want to learn from people that made those mistakes??
 
 `shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal.
 
@@ -87,11 +87,12 @@ plugins=(... shellfirm)
 TODO...
 
 ## Risky command:
-| Group | Path | Enabled by default |
+| Group | Path | Enable By Default |
 | --- | --- | --- |
-| `base` | [base.yaml file](./checks/base.yaml) | `true` |
-| `git` | [git.yaml file](./checks/git.yaml) | `true` |
-| `fs` | [fs.yaml file](./checks/fs.yaml) | `true` |
+| `base` | [base.yaml](./checks/base.yaml) | `true` |
+| `git` | [git.yaml](./checks/git.yaml) | `true` |
+| `fs` | [fs.yaml](./checks/fs.yaml) | `true` |
+| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` |
 
 After installing `shellfirm` tool the config stored in the path: `~/.shellfirm/config.yaml`
 

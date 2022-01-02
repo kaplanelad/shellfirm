@@ -1,0 +1,5 @@
+- from: kubernetes
+  is: "(kubectl|k).*.delete.*.(ns|namespace)"
+  method: Regex
+  enable: true
+  description: "Deleting the namespace also deletes all the residing components."
