@@ -240,7 +240,6 @@ pub fn get_config_folder() -> AnyResult<SettingsConfig> {
 }
 
 fn get_all_available_checks() -> AnyResult<Vec<Check>> {
-    println!("{:?}", ALL_CHECKS);
     Ok(serde_yaml::from_str(ALL_CHECKS)?)
 }
 
