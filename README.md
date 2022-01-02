@@ -93,7 +93,7 @@ TODO...
 | `base` | [base.yaml](./checks/base.yaml) | `true` |
 | `git` | [git.yaml](./checks/git.yaml) | `true` |
 | `fs` | [fs.yaml](./checks/fs.yaml) | `true` |
-| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` |
+| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` |
 
 After installing `shellfirm` tool the config stored in the path: `~/.shellfirm/config.yaml`
 
