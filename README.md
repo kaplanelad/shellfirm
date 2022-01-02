@@ -90,7 +90,7 @@ plugins=(... shellfirm)
 
 ## Updates
 * Download the updated `shellfirm` via brew
-* [Add new check group](./readme.md#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
+* [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Risky command:
 | Group | Path | Enable By Default |
