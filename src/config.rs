@@ -8,6 +8,7 @@ use std::fs;
 use std::io::{Read, Write};
 
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
+pub const ALL_CHECKS: &str = include_str!("./checks.yaml");
 
 /// The method type go the check.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -37,8 +38,6 @@ pub struct SettingsConfig {
     pub path: String,
     /// config file.
     pub config_file_path: String,
-
-    pub all_available_checks: Vec<Check>,
 }
 
 /// Describe the configuration yaml
@@ -52,24 +51,6 @@ pub struct Config {
     // #[serde(skip_deserializing)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
-}
-
-macro_rules! load_all_checks {
-    () => {{
-        let paths = fs::read_dir("./checks")?;
-        let mut all_checks: Vec<Check> = vec![];
-        for path in paths {
-            let mut file = std::fs::File::open(format!("{}", path?.path().display()))?;
-            let mut content = String::new();
-            file.read_to_string(&mut content)?;
-
-            let checks: Vec<Check> = serde_yaml::from_str(&content)?;
-            for c in checks {
-                all_checks.push(c);
-            }
-        }
-        all_checks
-    }};
 }
 
 impl SettingsConfig {
@@ -150,7 +131,7 @@ impl SettingsConfig {
     /// Create config file with default configuration content
     fn create_default_config_file(&self) -> AnyResult<()> {
         let mut conf = self.load_default_config()?;
-        conf.checks = self.get_default_checks(&conf.includes);
+        conf.checks = self.get_default_checks(&conf.includes)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(serde_yaml::to_string(&conf)?.as_bytes())?;
         Ok(())
@@ -190,7 +171,7 @@ impl SettingsConfig {
                 let disable_checks = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable).cloned().collect::<Vec<Check>>();
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
-                checks.extend( self.get_default_checks(checks_group));
+                checks.extend( self.get_default_checks(checks_group)?);
 
                 for need_to_disable in disable_checks{
                     for c in  &mut checks{
@@ -229,12 +210,12 @@ impl SettingsConfig {
         }
     }
 
-    fn get_default_checks(&self, includes: &[String]) -> Vec<Check> {
-        self.all_available_checks
+    fn get_default_checks(&self, includes: &[String]) -> AnyResult<Vec<Check>> {
+        Ok(get_all_available_checks()?
             .iter()
             .filter(|&c| includes.contains(&c.from))
             .cloned()
-            .collect::<Vec<Check>>()
+            .collect::<Vec<Check>>())
     }
 }
 
@@ -252,11 +233,14 @@ pub fn get_config_folder() -> AnyResult<SettingsConfig> {
             Ok(SettingsConfig {
                 path: config_folder.clone(),
                 config_file_path: format!("{}/config.yaml", config_folder),
-                all_available_checks: load_all_checks!(),
             })
         }
         None => return Err(anyhow!("could not get directory path")),
     }
+}
+
+fn get_all_available_checks() -> AnyResult<Vec<Check>> {
+    Ok(serde_yaml::from_str(ALL_CHECKS)?)
 }
 
 #[cfg(test)]
@@ -278,7 +262,6 @@ mod config {
         Ok(SettingsConfig {
             path: format!("{}", tmp_folder),
             config_file_path: config_file_path,
-            all_available_checks: load_all_checks!(),
         })
     }
 
@@ -287,7 +270,6 @@ mod config {
         let settings_config = SettingsConfig {
             path: get_current_project_path(),
             config_file_path: format!("{}/src/config.yaml", get_current_project_path()),
-            all_available_checks: load_all_checks!(),
         };
 
         assert!(settings_config.load_config_from_file().is_ok());
