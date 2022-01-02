@@ -136,14 +136,8 @@ jobs:
               chmod +x tmp/$pkgname/$BIN_NAME$exe
               if [ "$exe" = "" ]; then
                   tar cJf dist/$pkgname.tar.xz -C tmp $pkgname
-                  echo "####"
-                  echo $pkgname
-                  echo "####"
               else
                   (cd tmp && 7z a -r ../dist/$pkgname.zip $pkgname)
-                  echo "####"
-                  echo $pkgname
-                  echo "####"
               fi
           done
       - name: Upload binaries to release
