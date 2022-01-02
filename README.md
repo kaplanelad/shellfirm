@@ -75,12 +75,15 @@ checks:
 
 
 ## Installation 
-* brew command
+* Install via brew
+```bash
+brew tap kaplanelad/tap && brew install shellfirm
+```
 * Download zsh plugin:
 ```bash
 curl  https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
-* Finally, add the shellfirm as the plugin in your .zshrc file as:
+* Finally, add the `shellfirm` as the plugin in your .zshrc file as:
 ```bash
 plugins=(... shellfirm)
 ```
