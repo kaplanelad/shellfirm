@@ -69,8 +69,9 @@ checks:
     from: custom
 ```
 
-## Live example
-TODO... add a gif with action
+## Example
+![](./docs/media/example.gif)
+
 
 ## Installation 
 * brew command
