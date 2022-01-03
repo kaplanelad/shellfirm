@@ -1,6 +1,6 @@
 [package]
 name = "shellfirm"
-documentation = "`shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal."
+description = "`shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal."
 version = "0.1.1"
 edition = "2021"
 authors = ["Elad-Kaplan <kaplan.elad@gmail.com>"]
