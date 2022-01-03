@@ -1,6 +1,7 @@
 ## 0.1.2 - Unreleased
 
-* mark history | sh/bash as risky command [PR-27](https://github.com/kaplanelad/shellfirm/pull/27)]
+* Mark history | sh/bash as risky command [PR-27](https://github.com/kaplanelad/shellfirm/pull/27)]
+* Add 2 check for `fs` group. detect `chmod 777 /` and `find -delete` [PR-28](https://github.com/kaplanelad/shellfirm/pull/28)]
 
 
 ## 0.1.1 (Jan 3, 2022)
