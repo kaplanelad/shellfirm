@@ -15,7 +15,10 @@ if [ "$?" != 0 ]; then
 fi
 
 function shellfirm-pre-command () {
-    shellfirm  pre-command --command "${1}"
+    if [[ "${1}" == *"shellfirm pre-command"* ]]; then
+        return
+    fi
+    shellfirm pre-command --command "${1}"
 }
 
 autoload -Uz add-zsh-hook
