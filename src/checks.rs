@@ -1,4 +1,4 @@
-///! Manage command checks
+//! Manage command checks
 ///
 use crate::config::{Challenge, Method};
 use colored::Colorize;
@@ -11,20 +11,30 @@ use std::io;
 /// Describe single check
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Check {
+    /// is ia a value that we check the command.
     pub is: String,
+    /// The type of the check.
     pub method: Method,
+    /// boolean for ignore check
     pub enable: bool,
+    /// description of what is risky in this command
     pub description: String,
+    /// the group of the check see files in `checks` folder
     pub from: String,
 }
 
 impl Check {
-    /// convert check to yaml
+    /// Return current check struct as yaml format.
     pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
         serde_yaml::to_string(self)
     }
 
-    /// Show challenge to the user.
+    /// Show prompt challenge text to the user.
+    ///
+    /// # Arguments
+    ///
+    /// * `challenge` - type of the challenge
+    /// * `dry_run` - if true the check will print to stderr.
     pub fn show(&self, challenge: &Challenge, dry_run: bool) -> bool {
         if dry_run {
             eprintln!("{}", self.to_yaml().unwrap());
@@ -96,7 +106,7 @@ impl Check {
         true
     }
 
-    /// Show enter yes challenge to the user.
+    /// Show yes challenge to the user.
     fn prompt_yes(&self) -> bool {
         self.prompt_text("\nType `yes` to continue".to_string());
 
@@ -109,7 +119,7 @@ impl Check {
         true
     }
 
-    /// Catch user stdin.
+    /// Catch user stdin. and return the user type
     fn show_stdin_prompt(&self) -> String {
         let mut answer = String::new();
         io::stdin()
@@ -135,7 +145,12 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
         .collect()
 }
 
-/// returns true/false if the check match to the given command
+/// Check if the given command match to one of the existing checks
+///
+/// # Arguments
+///
+/// * `check` - Check struct
+/// * `command` - command for the check
 fn is_match(check: &Check, command: &str) -> bool {
     match check.method {
         Method::Contains => is_contains(&check.is, command),
@@ -144,17 +159,32 @@ fn is_match(check: &Check, command: &str) -> bool {
     }
 }
 
-// Checks if the given check contains the command.
+/// Is the command contains the given check.
+///
+/// # Arguments
+///
+/// * `check` - check value
+/// * `command` - command value
 fn is_contains(check: &str, command: &str) -> bool {
     command.contains(check)
 }
 
-// Checks if the given check start with the command.
+/// is the command start with the given check.
+///
+/// # Arguments
+///
+/// * `check` - check value
+/// * `command` - command value
 fn is_start_with(check: &str, command: &str) -> bool {
     command.starts_with(check)
 }
 
-// Checks if the given check match to the command using regex.
+/// Is the command match to the given regex.
+///
+/// # Arguments
+///
+/// * `check` - check value
+/// * `command` - command value
 fn is_regex(r: &str, command: &str) -> bool {
     Regex::new(r).unwrap().is_match(command)
 }

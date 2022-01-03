@@ -1,3 +1,11 @@
+//! `shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal.
+//!
+//! Protect yourself from yourself!
+//! * `rm -rf *`
+//! * `git reset --hard` before saving?
+//! * `kubectl delete ns` which going to delete all resources under this namespace?
+//! * And more!
+//!
 mod checks;
 mod cli;
 mod config;

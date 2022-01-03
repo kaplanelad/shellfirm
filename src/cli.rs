@@ -2,8 +2,10 @@
 
 use clap::{crate_name, crate_version, App, Arg};
 
+/// List of files name on `checks` folder. populated in `build.rs`.
 const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_files.rs"));
 
+/// Return the APP cli.
 pub fn get_app() -> App<'static> {
     App::new(crate_name!())
         .version(crate_version!())
