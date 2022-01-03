@@ -20,7 +20,7 @@ $ rm -rf /
 #######################
 # RISKY COMMAND FOUND #
 #######################
-* You are going to deletes everything in the path
+* You are going to delete everything in the path.
 
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
@@ -79,7 +79,7 @@ checks:
   - is: "rm.+(-r|-f|-rf|-fr)*"
     method: Regex
     enable: true
-    description: "You are going to deletes everything in the path."
+    description: "You are going to delete everything in the path."
     from: fs
   - is: ">.+/dev/sda"
     method: Regex

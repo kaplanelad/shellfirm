@@ -17,7 +17,7 @@ $ shellfirm pre-command --command 'rm -rf' -t
 is: rm.+(-r|-f|-rf|-fr)*
 method: Regex
 enable: true
-description: You are going to deletes everything in the path.
+description: You are going to delete everything in the path.
 ```
 You will get all finding checks to STDOUT
 
