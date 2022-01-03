@@ -3,3 +3,8 @@
   method: Contains
   enable: true
   description: "This short line defines a shell function that creates new copies of itself.\nThe process continually replicates itself, and its copies continually replicate themselves, quickly taking up all your CPU time and memory.\nThis can cause your computer to freeze. It’s basically a denial-of-service attack."
+- from: base
+  is: \s*history.*.[|].*.(bash|sh)
+  method: Regex
+  enable: true
+  description: "You are going to executes every command from the command log that you have already executed."
