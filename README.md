@@ -29,7 +29,39 @@ Solve the challenge: 8 + 0 = ? (^C to cancel)
 `shellfirm` evaluate all shell command behind the scene. 
 If a risky pattern is detected, you will get a prompt with a warning and double verification will requests.
 
-### Checks examples:
+
+## Example
+![](./docs/media/example.gif)
+
+
+## Installation 
+* Install via brew
+```bash
+brew tap kaplanelad/tap && brew install shellfirm
+```
+* Download zsh plugin:
+```bash
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+```
+* Finally, add the `shellfirm` as the plugin in your .zshrc file as:
+```bash
+plugins=(... shellfirm)
+```
+
+## Risky command:
+| Group | Path | Enable By Default |
+| --- | --- | --- |
+| `base` | [base.yaml](./checks/base.yaml) | `true` |
+| `git` | [git.yaml](./checks/git.yaml) | `true` |
+| `fs` | [fs.yaml](./checks/fs.yaml) | `true` |
+| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` |
+
+After installing `shellfirm` tool the config stored in the path: `~/.shellfirm/config.yaml`
+
+You can always manage your out risky command:
+
+
+## Checks examples:
 ```yaml
 challenge: Math # Math, Enter, Yes
 
@@ -69,36 +101,6 @@ checks:
     description: "Example of custom check."
     from: custom
 ```
-
-## Example
-![](./docs/media/example.gif)
-
-
-## Installation 
-* Install via brew
-```bash
-brew tap kaplanelad/tap && brew install shellfirm
-```
-* Download zsh plugin:
-```bash
-curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
-```
-* Finally, add the `shellfirm` as the plugin in your .zshrc file as:
-```bash
-plugins=(... shellfirm)
-```
-
-## Risky command:
-| Group | Path | Enable By Default |
-| --- | --- | --- |
-| `base` | [base.yaml](./checks/base.yaml) | `true` |
-| `git` | [git.yaml](./checks/git.yaml) | `true` |
-| `fs` | [fs.yaml](./checks/fs.yaml) | `true` |
-| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` |
-
-After installing `shellfirm` tool the config stored in the path: `~/.shellfirm/config.yaml`
-
-You can always manage your out risky command:
 
 ### Add new group checks:
 ```bash
