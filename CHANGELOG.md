@@ -1,3 +1,8 @@
+## 0.1.2 - Unreleased
+
+* mark history | sh/bash as risky command [PR-27](https://github.com/kaplanelad/shellfirm/pull/27)]
+
+
 ## 0.1.1 (Jan 3, 2022)
 
 IMPROVEMENTS:
