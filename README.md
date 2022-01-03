@@ -129,7 +129,10 @@ $ shellfirm config challenge --challenge Math
 
 
 ## Updates
-* Download the updated `shellfirm` via brew
+* Update `shellfirm`:
+```bash
+$ brew upgrade shellfirm
+```
 * [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Contributing
