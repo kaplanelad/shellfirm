@@ -3,6 +3,7 @@
 use crate::checks::Check;
 use anyhow::anyhow;
 use anyhow::Result as AnyResult;
+use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
@@ -32,6 +33,7 @@ pub enum Challenge {
     Yes,
 }
 
+#[derive(Debug)]
 /// describe configuration folder
 pub struct SettingsConfig {
     /// Configuration folder path.
@@ -72,8 +74,10 @@ impl SettingsConfig {
     pub fn manage_config_file(&self) -> AnyResult<()> {
         self.create_config_folder()?;
         if fs::metadata(&self.config_file_path).is_err() {
+            debug!("config file not found");
             self.create_default_config_file()?;
         }
+        debug!("config content: {:?}", self.load_config_from_file()?);
         Ok(())
     }
 
@@ -124,6 +128,9 @@ impl SettingsConfig {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
                 return Err(anyhow!("could not create folder: {}", err.to_string()));
             }
+            debug!("configuration folder found: {}", &self.path);
+        } else {
+            debug!("configuration created in path: {}", &self.path);
         }
         Ok(())
     }
@@ -134,6 +141,10 @@ impl SettingsConfig {
         conf.checks = self.get_default_checks(&conf.includes)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(serde_yaml::to_string(&conf)?.as_bytes())?;
+        debug!(
+            "config file crated in path: {}. config data: {:?}",
+            &self.config_file_path, conf
+        );
         Ok(())
     }
 
@@ -142,6 +153,7 @@ impl SettingsConfig {
         let content = serde_yaml::to_string(config)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(content.as_bytes())?;
+        debug!("cerated new configuration file: {:?}", config);
         Ok(())
     }
 
@@ -162,13 +174,18 @@ impl SettingsConfig {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
+
                 for c in checks_group{
                     if !conf.includes.contains(c){
                         conf.includes.push(c.clone());
                     }
                 }
+                debug!("new list of includes groups: {:?}", checks_group);
+
                 // getting the check that disable
                 let disable_checks = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable).cloned().collect::<Vec<Check>>();
+                debug!("disabled checks: {:?}", disable_checks);
+
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
                 checks.extend( self.get_default_checks(checks_group)?);
@@ -182,6 +199,7 @@ impl SettingsConfig {
                 }
 
                 conf.checks = checks;
+                debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
             },
             Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
@@ -197,13 +215,17 @@ impl SettingsConfig {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
+
                 for c in checks_group{
                     if conf.includes.contains(c){
                         conf.includes.retain(|x| x != c);
                     }
                 }
+                debug!("new list of includes groups: {:?}", checks_group);
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 conf.checks = conf.checks.iter().filter(|&c| conf.includes.contains(&c.from)).cloned().collect::<Vec<Check>>();
+
+                debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
             },
             Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
@@ -230,10 +252,12 @@ pub fn get_config_folder() -> AnyResult<SettingsConfig> {
     match home::home_dir() {
         Some(path) => {
             let config_folder = format!("{}/.{}", path.display(), package_name);
-            Ok(SettingsConfig {
+            let setting_config = SettingsConfig {
                 path: config_folder.clone(),
                 config_file_path: format!("{}/config.yaml", config_folder),
-            })
+            };
+            debug!("configuration settings: {:?}", setting_config);
+            Ok(setting_config)
         }
         None => return Err(anyhow!("could not get directory path")),
     }

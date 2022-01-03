@@ -1,11 +1,13 @@
 mod checks;
 mod cli;
 mod config;
+use config::Challenge;
+use log::debug;
 use std::process::exit;
 
-use config::Challenge;
-
 fn main() {
+    env_logger::builder().format_timestamp(None).init();
+
     let mut app = cli::get_app();
     let matches = app.to_owned().get_matches();
 
@@ -35,6 +37,8 @@ fn main() {
         };
 
         let matches = checks::run_check_on_command(&conf.checks, command);
+
+        debug!("matches found {}. {:?}", matches.len(), matches);
 
         let mut should_continue = 0;
         for m in matches {

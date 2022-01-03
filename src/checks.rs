@@ -156,7 +156,6 @@ fn is_start_with(check: &str, command: &str) -> bool {
 
 // Checks if the given check match to the command using regex.
 fn is_regex(r: &str, command: &str) -> bool {
-    // let search_regex = format!("r\"{}\"", r);
     Regex::new(r).unwrap().is_match(command)
 }
 
