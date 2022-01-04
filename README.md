@@ -39,11 +39,15 @@ If a risky pattern is detected, you will get a prompt with a warning and double 
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
+
+### Oh My Zsh
+
 * Download zsh plugin:
 ```bash
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+
 ```
-* Finally, add the `shellfirm` as the plugin in your .zshrc file as:
+* Add the `shellfirm` to the list of plugins for Oh My Zsh to load (inside ~/.zshrc):
 ```bash
 plugins=(... shellfirm)
 ```
