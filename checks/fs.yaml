@@ -14,7 +14,7 @@
   enable: true
   description: "The above command is used to flush the content of file."
 - from: fs
-  is: \s*chmod.*-R.* \/\s*$
+  is: \s*chmod.*-R.* (\/|\*|\/\*)\s*$
   method: Regex
   enable: true
   description: "Change permission to all root files can brake your some thinks like SSH keys."
