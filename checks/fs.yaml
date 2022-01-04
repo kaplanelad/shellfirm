@@ -1,5 +1,5 @@
 - from: fs
-  is: "rm.+(-r|-f|-rf|-fr) *"
+  is: rm.+(-r\b|-f\b|-rf\b|-fr\b) *
   method: Regex
   enable: true
   description: "You are going to delete everything in the path."
