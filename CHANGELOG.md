@@ -1,3 +1,7 @@
+## 0.1.3 - Unreleased
+
+* Improve FS checks [PR-30](https://github.com/kaplanelad/shellfirm/pull/30)]
+
 ## 0.1.2 - (Jan 4, 2022)
 
 * Mark history | sh/bash as risky command [PR-27](https://github.com/kaplanelad/shellfirm/pull/27)]
