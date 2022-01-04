@@ -27,4 +27,4 @@
   is: \s*find\s*-delete
   method: Regex
   enable: true
-  description: "Did you messing the order of --delete flag? find -delete going to delete all the file under your current path."
+  description: "Did you messing the order of -delete flag? find -delete going to delete all the file under your current path."
