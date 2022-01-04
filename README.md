@@ -58,8 +58,6 @@ plugins=(... shellfirm)
 | `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` |
 
 
-Config example:
-
 ## Checks examples:
 
 After installing `shellfirm` creates config file in the path: `~/.shellfirm/config.yaml`. make sure that you not editing this file. to add/remove checks you can mange via `shellfirm config --help`
