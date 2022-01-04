@@ -1,13 +1,8 @@
 - from: fs
-  is: rm.+(-r\b|-f\b|-rf\b|-fr\b) *
+  is: rm.+(-r\b|-f\b|-rf\b|-fr\b).*(\/|\*)\s
   method: Regex
   enable: true
   description: "You are going to delete everything in the path."
-- from: fs
-  is: ">.+/dev/sda"
-  method: Regex
-  enable: true
-  description: "Writing the data directly to the hard disk drive and damaging your file system."
 - from: fs
   is: "mv+.*/dev/null" 
   method: Regex
@@ -19,7 +14,7 @@
   enable: true
   description: "The above command is used to flush the content of file."
 - from: fs
-  is: \s*chmod*.*-R *.* /\s*$
+  is: \s*chmod.*-R.* \/\s*$
   method: Regex
   enable: true
   description: "Change permission to all root files can brake your some thinks like SSH keys."
