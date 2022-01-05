@@ -2,7 +2,7 @@
 
 IMPROVEMENTS:
 * Improve FS checks. [PR-30](https://github.com/kaplanelad/shellfirm/pull/30)
-* Skip github actions on push (without PR) or on *.md file/docs folder. [PR-](https://github.com/kaplanelad/shellfirm/pull/33) 
+* Skip github actions on push (without PR) or on *.md file/docs folder. [PR-33](https://github.com/kaplanelad/shellfirm/pull/33) 
 
 FEATURES:
 * Promt message while using `config reset` + ading the option to backup file. [PR-31](https://github.com/kaplanelad/shellfirm/pull/31)
