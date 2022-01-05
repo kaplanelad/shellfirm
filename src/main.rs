@@ -48,15 +48,15 @@ fn main() {
 
         debug!("matches found {}. {:?}", matches.len(), matches);
 
-        let mut should_continue = 0;
+        let mut exit_code = 0;
         for m in matches {
             if !m.show(&conf.challenge, validate_matches.is_present("test")) {
-                should_continue = 2;
+                exit_code = 1;
                 break;
             }
         }
 
-        exit(should_continue);
+        exit(exit_code);
     } else if let Some(validate_matches) = matches.subcommand_matches("config") {
         if let Some(update_matches) = validate_matches.subcommand_matches("update") {
             let check_groups: Vec<&str> =
