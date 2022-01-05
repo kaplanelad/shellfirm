@@ -75,22 +75,22 @@ includes:
   - git
 
 checks:
-  - is: git reset
+  - test: git reset
     method: Contains
     enable: true
     description: "This command going to reset all your local changes."
     from: git
-  - is: "rm.+(-r|-f|-rf|-fr)*"
+  - test: "rm.+(-r|-f|-rf|-fr)*"
     method: Regex
     enable: true
     description: "You are going to delete everything in the path."
     from: fs
-  - is: ">.+/dev/sda"
+  - test: ">.+/dev/sda"
     method: Regex
     enable: true
     description: "Writing the data directly to the hard disk drive and damaging your file system."
     from: fs
-  - is: "mv+.*/dev/null"
+  - test: "mv+.*/dev/null"
     method: Regex
     enable: true
     description: "The files will be discarded and destroyed."
@@ -99,7 +99,7 @@ checks:
 
 :information_source: to define custom check (that not include int the `shillfirm` check) add new check to config.yaml file with `from: custom`.
 ```yaml
-  - is: "special check"
+  - test: "special check"
     method: Regex
     enable: true
     description: "Example of custom check."

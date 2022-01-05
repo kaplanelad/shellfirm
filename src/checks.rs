@@ -11,8 +11,8 @@ use std::io;
 /// Describe single check
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Check {
-    /// is ia a value that we check the command.
-    pub is: String,
+    /// test ia a value that we check the command.
+    pub test: String,
     /// The type of the check.
     pub method: Method,
     /// boolean for ignore check
@@ -153,9 +153,9 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
 /// * `command` - command for the check
 fn is_match(check: &Check, command: &str) -> bool {
     match check.method {
-        Method::Contains => is_contains(&check.is, command),
-        Method::StartWith => is_start_with(&check.is, command),
-        Method::Regex => is_regex(&check.is, command),
+        Method::Contains => is_contains(&check.test, command),
+        Method::StartWith => is_start_with(&check.test, command),
+        Method::Regex => is_regex(&check.test, command),
     }
 }
 
@@ -163,30 +163,30 @@ fn is_match(check: &Check, command: &str) -> bool {
 ///
 /// # Arguments
 ///
-/// * `check` - check value
+/// * `test` - check value
 /// * `command` - command value
-fn is_contains(check: &str, command: &str) -> bool {
-    command.contains(check)
+fn is_contains(test: &str, command: &str) -> bool {
+    command.contains(test)
 }
 
 /// is the command start with the given check.
 ///
 /// # Arguments
 ///
-/// * `check` - check value
+/// * `test` - check value
 /// * `command` - command value
-fn is_start_with(check: &str, command: &str) -> bool {
-    command.starts_with(check)
+fn is_start_with(test: &str, command: &str) -> bool {
+    command.starts_with(test)
 }
 
 /// Is the command match to the given regex.
 ///
 /// # Arguments
 ///
-/// * `check` - check value
+/// * `test_r` - check value
 /// * `command` - command value
-fn is_regex(r: &str, command: &str) -> bool {
-    Regex::new(r).unwrap().is_match(command)
+fn is_regex(test_r: &str, command: &str) -> bool {
+    Regex::new(test_r).unwrap().is_match(command)
 }
 
 #[cfg(test)]
@@ -196,21 +196,21 @@ mod checks {
     #[test]
     fn is_match_command() {
         let regex_check = Check {
-            is: String::from("rm.+(-r|-f|-rf|-fr)*"),
+            test: String::from("rm.+(-r|-f|-rf|-fr)*"),
             method: Method::Regex,
             enable: true,
             description: String::from(""),
             from: String::from(""),
         };
         let contains_check = Check {
-            is: String::from("test"),
+            test: String::from("test"),
             method: Method::Contains,
             enable: true,
             description: String::from(""),
             from: String::from(""),
         };
         let startwith_check = Check {
-            is: String::from("start"),
+            test: String::from("start"),
             method: Method::StartWith,
             enable: true,
             description: String::from(""),
@@ -241,7 +241,7 @@ mod checks {
     #[test]
     fn can_convert_check_to_yaml() {
         let check = Check {
-            is: String::from("start"),
+            test: String::from("start"),
             method: Method::StartWith,
             enable: true,
             description: String::from("desc"),
@@ -249,7 +249,7 @@ mod checks {
         };
         assert_eq!(
             check.to_yaml().unwrap(),
-            "---\nis: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\n"
+            "---\ntest: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\n"
         );
     }
 }

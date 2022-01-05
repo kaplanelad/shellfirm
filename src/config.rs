@@ -230,7 +230,7 @@ impl SettingsConfig {
 
                 for need_to_disable in disable_checks{
                     for c in  &mut checks{
-                        if c.is == need_to_disable.is{
+                        if c.test == need_to_disable.test{
                             c.enable = false;
                         }
                     }
@@ -365,7 +365,7 @@ mod config {
 
         // creates configuration file with only 1 check (we want to check that we not change existing check and just append new ones)
         config.checks = vec![Check {
-            is: String::from("is value"),
+            test: String::from("is value"),
             method: Method::Contains,
             enable: true,
             description: String::from("description"),
@@ -393,7 +393,7 @@ mod config {
 
         config.includes = vec!["test".into()];
         config.checks = vec![Check {
-            is: String::from("is value"),
+            test: String::from("is value"),
             method: Method::Contains,
             enable: true,
             description: String::from("description"),
@@ -417,7 +417,7 @@ mod config {
 
         config.includes = vec!["test".into()];
         config.checks = vec![Check {
-            is: String::from("is value"),
+            test: String::from("is value"),
             method: Method::Contains,
             enable: true,
             description: String::from("description"),
