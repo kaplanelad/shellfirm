@@ -127,7 +127,7 @@ impl SettingsConfig {
                 fs::rename(
                     &self.config_file_path,
                     format!(
-                        "{}.back.{}",
+                        "{}.{}.bak",
                         self.config_file_path,
                         SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
                     ),
