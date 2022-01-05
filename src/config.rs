@@ -6,7 +6,9 @@ use anyhow::Result as AnyResult;
 use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
+use std::io;
 use std::io::{Read, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Default configuration file.
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
@@ -108,7 +110,33 @@ impl SettingsConfig {
     ///
     // TODO:: need to test this function
     pub fn reset_config(&self) -> AnyResult<()> {
-        self.create_default_config_file()?;
+        eprintln!(
+            "Rest configuration will reset all checks settings. Select how to continue...\n{}\n{}\n{}",
+            "1. Yes, i want to override the current configuration".to_string(),
+            "2. Override and backup the existing file".to_string(),
+            "3. Cancel Or ^C".to_string()
+        );
+        let mut answer = String::new();
+        io::stdin()
+            .read_line(&mut answer)
+            .expect("Failed to read line");
+
+        match answer.trim() {
+            "1" => self.create_default_config_file()?,
+            "2" => {
+                fs::rename(
+                    &self.config_file_path,
+                    format!(
+                        "{}.{}.bak",
+                        self.config_file_path,
+                        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
+                    ),
+                )?;
+                self.create_default_config_file()?
+            }
+            _ => return Err(anyhow!("unexpected option")),
+        };
+
         Ok(())
     }
 
