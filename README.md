@@ -54,12 +54,12 @@ plugins=(... shellfirm)
 
 
 ## Risky command:
-| Group | Path | Enable By Default |
-| --- | --- | --- |
-| `base` | [base.yaml](./checks/base.yaml) | `true` |
-| `git` | [git.yaml](./checks/git.yaml) | `true` |
-| `fs` | [fs.yaml](./checks/fs.yaml) | `true` |
-| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` |
+| Group | Path | Enable By Default | Explanation and Examples|
+| --- | --- | --- | --- |
+| `base` | [base.yaml](./checks/base.yaml) | `true` | [read more](./docs/checks/base.md) |
+| `git` | [git.yaml](./checks/git.yaml) | `true` | [read more](./docs/checks/git.md) |
+| `fs` | [fs.yaml](./checks/fs.yaml) | `true` | [read more](./docs/checks/fs.md) |
+| `kubernetes` | [kubernetes.yaml](./checks/kubernetes.yaml) | `false` <br/> `shellfirm config update --check-group kubernetes` | [read more](./docs/checks/kubernetes.md) |
 
 
 ## Checks examples:
