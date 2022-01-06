@@ -59,6 +59,7 @@ plugins=(... shellfirm)
 | [base](./docs/checks/base.md) | `true` |
 | [git](./docs/checks/git.md) | `true` |
 | [fs](./docs/checks/fs.md) | `true` |
+| [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update --check-group fs-strict` |
 | [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update --check-group kubernetes` |
 
 
