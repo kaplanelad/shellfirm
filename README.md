@@ -3,17 +3,16 @@
 <div align="center">
 <h1>Opppppsss <b>you</b> did it again? :scream: :scream: :cold_sweat:</h1>
 </div>
-Protect yourself from yourself!
 
+How do I save myself from myself?
 * `rm -rf *`
-* `git reset --hard` before saving?
-* `kubectl delete ns` which going to delete all resources under this namespace?
-* And more!
+* `git reset --hard` Before hitting the enter key?
+* `kubectl delete ns` Stop! you are going to delete a lot of resources
+* And many more!
 
+Do you want to learn from other people mistakes?
 
-Do you want to learn from people that made those mistakes??
-
-`shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal.
+`shellfirm` will intercept any risky patterns (defined by default or any other user custom additions) it will immediately prompt a small challenge that will double verify your action, think of a captcha for your terminal.
 
 ```bash
 $ rm -rf /
@@ -25,10 +24,9 @@ $ rm -rf /
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
 
-## How it works?
-`shellfirm` evaluate all shell command behind the scene. 
-If a risky pattern is detected, you will get a prompt with a warning and double verification will requests.
-
+## How dose it work?
+`shellfirm` will evaluate all the shell commands behind the scenes.
+If a risky pattern is detected, you will immediately get a prompt with the relevant warning for verification you command.
 
 ## Example
 ![](./docs/media/example.gif)
@@ -41,30 +39,32 @@ brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 ### Oh My Zsh
-
 * Download zsh plugin:
 ```bash
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 
 ```
-* Add the `shellfirm` to the list of plugins for Oh My Zsh to load (inside ~/.zshrc):
+* Add `shellfirm` as part of the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
 ```bash
 plugins=(... shellfirm)
 ```
 
 
-## Risky command:
-| Group |  Enable By Default |
+## Risky commands
+We have defined  a baseline of risky groups command that will be enabled by default ,these risky group commands might be destructive.
+
+| Group |  Enabled By Default |
 | --- | --- |
 | [base](./docs/checks/base.md) | `true` |
 | [git](./docs/checks/git.md) | `true` |
 | [fs](./docs/checks/fs.md) | `true` |
+| [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update --check-group fs-strict` |
 | [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update --check-group kubernetes` |
 
 
-## Checks examples:
+## Custom checks definition examples
 
-After installing `shellfirm` creates config file in the path: `~/.shellfirm/config.yaml`. make sure that you not editing this file. to add/remove checks you can mange via `shellfirm config --help`
+`shellfirm` creates by default a configuration file at `~/.shellfirm/config.yaml`.  Make sure that you only edit `enable` field (in case you want to disable a specific check), all the rest fields are managed by `shellfirm` command (`shellfirm config --help`).
 
 ```yaml
 challenge: Math # Math, Enter, Yes
@@ -97,49 +97,49 @@ checks:
     from: fs
 ```
 
-:information_source: to define custom check (that not include int the `shillfirm` check) add new check to config.yaml file with `from: custom`.
+:information_source: To define custom checks that are not part of `shillfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
 ```yaml
-  - test: "special check"
+  - test: "command to check"
     method: Regex
     enable: true
     description: "Example of custom check."
     from: custom
 ```
 
-### Add new group checks:
+### Add new group checks
 ```bash
-$ shellfirm config update --check-group {group} {group}
+$ shellfirm config update --check-group {risky-command-group-a} {risky-command-group-b}
 ```
 
-### Remove new group checks:
+### Remove new group checks
 ```bash
 $ shellfirm config update --check-group {group} {group} --remove
 ```
 
-### Disable specific check
-Edit configuration file in `~/.shellfirm/config.yaml` and change the check to `enable:false`.
+### Disable specific checks
+Edit the configuration file in `~/.shellfirm/config.yaml` and change the check to `enable:false`.
 
 
-## Change challenge
-currently we supporting 3 different challenges when a command is detected:
+## Change challenge:
+Currently we support 3 different challenges when a risky command is intercepted:
 * `Math` - Default challenge which requires you to solve a math question.
-* `Enter` - Requite only `Enter` to continue.
-* `Yes` - Requite `yes` to continue.
+* `Enter` - Required only to press `Enter` to continue.
+* `Yes` - Required typing `yes` to continue.
 
 You can change the default challenge by running the command:
 ```bash
 $ shellfirm config challenge --challenge Math
 ```
 
-*At any time you can exit with the challenge by `^C`*
+*At any time you can cancel risky command by hitting `^C`*
 
-
-## Updates
-* Update `shellfirm`:
+## Upgrades
+* Upgrade `shellfirm`:
 ```bash
 $ brew upgrade shellfirm
 ```
 * [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Contributing
-See the [contributing](./docs/contributing.md) directory for more developer documentation.
+Thank you for your interest in contributing! Please refer to [contribution guidelines](./docs/contributing.md) for guidance.
+

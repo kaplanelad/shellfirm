@@ -1,10 +1,9 @@
 # Config
 
 When you install `shellfirm` the first time it creates a new config file in the home directory in the path: `~/.shellfirm/config.yaml`.
-The main configuration file manage in [config.yaml](../src/config.yaml). 
 
 You can always change your config file content and the `shellfirm` will never change it back. 
-[read here how to add and test new command](./contributing.md#test-new-command)
+[read here how to add and test new command](../readme.md#custom-checks-definition-examples)
 
 
 ## Config
@@ -14,14 +13,14 @@ You can always change your config file content and the `shellfirm` will never ch
 | `includes` | List of group checks. | `list` |
 | `checks[].test` | The value of the check | `String` |
 | `checks[].method` | How to make the check | `Contains`, `Regex`, `StartWith` |
-| `checks[].enable` | Enable disable the check | `true`, `false` |
-| `checks[].description` | Prompt description when risky command directed | `String` |
+| `checks[].enable` | Enable/disable | `true`, `false` |
+| `checks[].description` | Prompt description when a risky command detected | `String` |
 | `checks[].from` | Group name | `String` |
 
 
 ## Update config file
 
-### Adding new groups:
+### Add new groups
 ```bash
 $ shellfirm config update --check-group {group} {group}
 ```

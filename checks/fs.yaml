@@ -1,5 +1,5 @@
 - from: fs
-  test: rm.+(-r|-fr|-rf)(\s*)(/|\*)(\s*)\z
+  test: rm.+(-r|-fr|-rf)(\s*)(/|\*|.|./)(\s*)\z
   method: Regex
   enable: true
   description: "You are going to delete everything in the path."
@@ -14,7 +14,7 @@
   enable: true
   description: "The above command is used to flush the content of a file."
 - from: fs
-  test: chmod.+(-R)\s+[0-9].+(/|\*)(\s*)\z
+  test: chmod.+(-R)\s+[0-9].+(/|\*|.|./)(\s*)\z
   method: Regex
   enable: true
   description: "Change permission to all root files can brake your some thinks like SSH keys."
