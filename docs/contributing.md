@@ -4,13 +4,13 @@ You are more than welcome to help the community with the following options
 
 ## Add more risky commands
 
-Add more risky command patters to one of the check group in `checks` folder or add a bew group and open a PR.
+Add more risky command patterns to one of the check groups in the `checks` folder or add a bew group and open a PR.
 
 
 ### Test new command
 1. Add new check to one of the groups/create new group.
 2. Run `pre-command` command with `-t`
-```bash
+```bash˜
 $ shellfirm pre-command --command 'rm -rf' -t
 
 ---
@@ -19,11 +19,12 @@ method: Regex
 enable: true
 description: You are going to delete everything in the path.
 ```
-You will get all finding checks to STDOUT
+
+All the findings will be directed to STDOUT
 
 ## Open issues
 
-Open an issue with your problems/requirements that you think will helpful.
+Feel free to open any issues you have encountered
 
 ## Run it locally
 Run it locally by running the command:
@@ -31,8 +32,7 @@ Run it locally by running the command:
 cargo run -- pre-command --command "git reset"
 ```
 
-## Test
-See all tests and more validation by running the command:
+## Make file options
 ```bash
 make help
 ```

@@ -6,13 +6,13 @@
 
 How do I save myself from myself?
 * `rm -rf *`
-* `git reset --hard` before hitting the enter key?
+* `git reset --hard` Before hitting the enter key?
 * `kubectl delete ns` Stop! you are going to delete a lot of resources
 * And many more!
 
 Do you want to learn from other people mistakes?
 
-`shellfirm` will intercept any risky patterns (defined by defaul or any other user custom additions) it will immediately prompt a small challenge that will double verify your action think of a captcha for your terminal.
+`shellfirm` will intercept any risky patterns (defined by default or any other user custom additions) it will immediately prompt a small challenge that will double verify your action, think of a captcha for your terminal.
 
 ```bash
 $ rm -rf /
@@ -24,10 +24,9 @@ $ rm -rf /
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
 
-## How dose it it work?
-`shellfirm` will evaluate all shell commands behind the scene. 
-If a risky pattern is detected, you will immediately get a prompt with the relevant a warning ato verify you and approve your risky actions.
-
+## How dose it work?
+`shellfirm` will evaluate all the shell commands behind the scenes.
+If a risky pattern is detected, you will immediately get a prompt with the relevant warning for verification you command.
 
 ## Example
 ![](./docs/media/example.gif)
@@ -40,7 +39,6 @@ brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 ### Oh My Zsh
-
 * Download zsh plugin:
 ```bash
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
@@ -53,6 +51,8 @@ plugins=(... shellfirm)
 
 
 ## Risky commands
+We have defined  a baseline of risky groups command that will be enabled by default ,these risky group commands might be destructive.
+
 | Group |  Enabled By Default |
 | --- | --- |
 | [base](./docs/checks/base.md) | `true` |
@@ -62,9 +62,9 @@ plugins=(... shellfirm)
 | [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update --check-group kubernetes` |
 
 
-## Custom checks definition examples:
+## Custom checks definition examples
 
-`shellfirm` create by default a configuration file at `~/.shellfirm/config.yaml`.  Make sure that you edit only `enable` field (in case you want to disable a specific check), all the rest check manage by `shellfirm` command (`shellfirm config --help`).
+`shellfirm` creates by default a configuration file at `~/.shellfirm/config.yaml`.  Make sure that you only edit `enable` field (in case you want to disable a specific check), all the rest fields are managed by `shellfirm` command (`shellfirm config --help`).
 
 ```yaml
 challenge: Math # Math, Enter, Yes
@@ -97,34 +97,34 @@ checks:
     from: fs
 ```
 
-:information_source: To define custom checks that are not part of the baseline of `shillfirm` add new checks to the config.yaml with the following field: `from: custom`.
+:information_source: To define custom checks that are not part of `shillfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
 ```yaml
-  - test: "special check"
+  - test: "command to check"
     method: Regex
     enable: true
     description: "Example of custom check."
     from: custom
 ```
 
-### Add new group checks:
+### Add new group checks
 ```bash
 $ shellfirm config update --check-group {risky-command-group-a} {risky-command-group-b}
 ```
 
-### Remove new group checks:
+### Remove new group checks
 ```bash
 $ shellfirm config update --check-group {group} {group} --remove
 ```
 
-### Disable specific check
-Edit configuration file in `~/.shellfirm/config.yaml` and change the check to `enable:false`.
+### Disable specific checks
+Edit the configuration file in `~/.shellfirm/config.yaml` and change the check to `enable:false`.
 
 
 ## Change challenge:
-currently we support 3 different challenges when a risky command is intercepted:
+Currently we support 3 different challenges when a risky command is intercepted:
 * `Math` - Default challenge which requires you to solve a math question.
-* `Enter` - Requite only to press `Enter` to continue.
-* `Yes` - Requite to type `yes` to continue.
+* `Enter` - Required only to press `Enter` to continue.
+* `Yes` - Required typing `yes` to continue.
 
 You can change the default challenge by running the command:
 ```bash
@@ -133,13 +133,13 @@ $ shellfirm config challenge --challenge Math
 
 *At any time you can cancel risky command by hitting `^C`*
 
-
 ## Upgrades
-* Update `shellfirm`:
+* Upgrade `shellfirm`:
 ```bash
 $ brew upgrade shellfirm
 ```
 * [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Contributing
-See the [contributing](./docs/contributing.md) directory for more developer documentation.
+Thank you for your interest in contributing! Please refer to [contribution guidelines](./docs/contributing.md) for guidance.
+
