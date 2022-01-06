@@ -1,0 +1,16 @@
+- from: fs-strict
+  test: chmod.+-R.+[0-9].+(/|\*|.|./)([0-9A-Za-z])
+  method: Regex
+  enable: true
+  description: "Are you sure that you want to change the permissions?"
+- from: fs-strict
+  test: rm.+(-r|-f|-fr|-rf)(\s*)(/|\*|.|./)([0-9A-Za-z])
+  method: Regex
+  enable: true
+  description: "Are you sure that you want to delete it?"
+- from: fs-strict
+  test: ([[:alnum:]]|[[:punct:]])> *.+
+  method: Regex
+  enable: true
+  description: "Override file content"
+

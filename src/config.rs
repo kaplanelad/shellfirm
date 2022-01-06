@@ -24,6 +24,8 @@ pub enum Method {
     Contains,
     /// Run regex check.
     Regex,
+    /// Check Working dir regex. 
+    WorkingDir
 }
 
 /// The user challenge when user need to confirm the command.

@@ -23,3 +23,16 @@
   method: Regex
   enable: true
   description: "Did you -delete flag in the wrong order? find -delete going to delete all the file under your current path."
+- from: fs
+  description: "Careful inside SSH"
+  multiple:
+  - test: rm.+(-r|-fr|-rf)(\s*)(/|\*)(\s*)\z
+    method: Regex
+    enable: true
+    description: "Careful youre working on an SSH key"
+  - test: '*ssh'
+    method: WorkingDir
+    enable: true
+  - test: vim.+(-r|-fr|-rf)(\s*)(/|\*)(\s*)\z
+    method: Regex
+    enable: true

@@ -21,6 +21,8 @@ pub struct Check {
     pub description: String,
     /// the group of the check see files in `checks` folder
     pub from: String,
+    /// multiple checks 
+    pub multiple: Option<Vec<Check>>,
 }
 
 impl Check {
@@ -145,6 +147,7 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
         .collect()
 }
 
+
 /// Check if the given command match to one of the existing checks
 ///
 /// # Arguments
@@ -152,10 +155,22 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
 /// * `check` - Check struct
 /// * `command` - command for the check
 fn is_match(check: &Check, command: &str) -> bool {
-    match check.method {
-        Method::Contains => is_contains(&check.test, command),
-        Method::StartWith => is_start_with(&check.test, command),
-        Method::Regex => is_regex(&check.test, command),
+    match &check.multiple {
+        Some(multiple) => {
+            println!("multiple eval!!!");
+            return false 
+        }, 
+        None => {
+            match check.method {
+                Method::Contains => is_contains(&check.test, command),
+                Method::StartWith => is_start_with(&check.test, command),
+                Method::Regex => is_regex(&check.test, command),
+                Method::WorkingDir => {
+                    println!("single working dir found!! ");
+                    return false;
+                }
+            }
+        }
     }
 }
 
