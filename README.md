@@ -4,7 +4,7 @@
 <h1>Opppppsss <b>you</b> did it again? :scream: :scream: :cold_sweat:</h1>
 </div>
 
-How do i save mysql from myself?
+How do I save myself from myself?
 * `rm -rf *`
 * `git reset --hard` before hitting the enter key?
 * `kubectl delete ns` Stop! you are going to delete a lot of resources
