@@ -240,7 +240,7 @@ impl SettingsConfig {
                 debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
             },
-            Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
+            Err(e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml. Try resolving by running `shellfirm config reset` Error: {}", (e))
         }
     }
 

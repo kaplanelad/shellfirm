@@ -10,7 +10,7 @@ shellfirm --version >/dev/null 2>&1
 if [ "$?" != 0 ]; then
     # show this message to the user and don't register to terminal hook
     # we want to show the user that he not protected with `shellfirm`
-    echo "`shellfirm` binarry is missing. see installation guide: https://github.com/kaplanelad/shellfirm#installation."
+    echo "`shellfirm` binary is missing. see installation guide: https://github.com/kaplanelad/shellfirm#installation."
     return
 fi
 
