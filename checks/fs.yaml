@@ -12,7 +12,7 @@
   test: ^\s*> *.+
   method: Regex
   enable: true
-  description: "The above command is used to flush the content of file."
+  description: "The above command is used to flush the content of a file."
 - from: fs
   test: chmod.+(-R)\s+[0-9].+(/|\*|.|./)(\s*)\z
   method: Regex
@@ -22,4 +22,4 @@
   test: \s*find\s*-delete
   method: Regex
   enable: true
-  description: "Did you messing the order of -delete flag? find -delete going to delete all the file under your current path."
+  description: "Did you -delete flag in the wrong order? find -delete going to delete all the file under your current path."
