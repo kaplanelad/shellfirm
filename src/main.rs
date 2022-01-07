@@ -9,6 +9,7 @@
 mod checks;
 mod cli;
 mod config;
+use colored::Colorize;
 use config::Challenge;
 use log::debug;
 use std::process::exit;
@@ -39,7 +40,11 @@ fn main() {
         let conf = match config_dir.load_config_from_file() {
             Ok(conf) => conf,
             Err(e) => {
-                eprintln!("Could not load config from file: {}", e.to_string());
+                eprintln!(
+                    "Could not load config from file. Try resolving by running `{}`\nError: {}",
+                    "shellfirm config reset".bold().italic().underline(),
+                    e.to_string()
+                );
                 exit(1)
             }
         };
