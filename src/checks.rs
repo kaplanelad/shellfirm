@@ -21,6 +21,8 @@ pub struct Check {
     pub description: String,
     /// the group of the check see files in `checks` folder
     pub from: String,
+    #[serde(default)]
+    pub challenge: Challenge,
 }
 
 impl Check {
@@ -40,7 +42,13 @@ impl Check {
             eprintln!("{}", self.to_yaml().unwrap());
             return true;
         }
-        match challenge {
+        let show_challenge: Challenge = if self.challenge == Challenge::Default {
+            challenge.clone()
+        } else {
+            self.challenge.clone()
+        };
+        match show_challenge {
+            Challenge::Default => self.prompt_math(),
             Challenge::Math => self.prompt_math(),
             Challenge::Enter => self.prompt_enter(),
             Challenge::Yes => self.prompt_yes(),
@@ -201,6 +209,7 @@ mod checks {
             enable: true,
             description: String::from(""),
             from: String::from(""),
+            challenge: Challenge::Default,
         };
         let contains_check = Check {
             test: String::from("test"),
@@ -208,6 +217,7 @@ mod checks {
             enable: true,
             description: String::from(""),
             from: String::from(""),
+            challenge: Challenge::Default,
         };
         let startwith_check = Check {
             test: String::from("start"),
@@ -215,6 +225,7 @@ mod checks {
             enable: true,
             description: String::from(""),
             from: String::from(""),
+            challenge: Challenge::Default,
         };
         assert!(is_match(&regex_check, "rm -rf"));
         assert!(is_match(&contains_check, "test command"));
@@ -246,10 +257,11 @@ mod checks {
             enable: true,
             description: String::from("desc"),
             from: String::from(""),
+            challenge: Challenge::Default,
         };
         assert_eq!(
             check.to_yaml().unwrap(),
-            "---\ntest: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\n"
+            "---\ntest: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\nchallenge: Default\n"
         );
     }
 }

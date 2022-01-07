@@ -27,7 +27,7 @@ pub enum Method {
 }
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -35,6 +35,14 @@ pub enum Challenge {
     Enter,
     /// only yes typing will approve the command.
     Yes,
+    /// Default application challenge
+    Default,
+}
+
+impl Default for Challenge {
+    fn default() -> Self {
+        Challenge::Default
+    }
 }
 
 #[derive(Debug)]
@@ -370,6 +378,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from("from"),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
@@ -398,6 +407,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from(""),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
@@ -422,6 +432,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from("test"),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
