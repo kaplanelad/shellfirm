@@ -6,6 +6,8 @@ IMPROVEMENTS:
 * Adding strict file sytem command. [PR-36](https://github.com/kaplanelad/shellfirm/pull/36)
 * FS checks - adding to `rm`/`chmod` pattern the chars `.` and `./` as risky command. [PR-38](https://github.com/kaplanelad/shellfirm/pull/38)
 * Adding a better error message when config file is invalid. [PR-42](https://github.com/kaplanelad/shellfirm/pull/42)
+* Adding kubernetes strict risky patters. [PR-41](https://github.com/kaplanelad/shellfirm/pull/41)
+* Allow to override deafult per pattern. [PR-43](https://github.com/kaplanelad/shellfirm/pull/43)
 
 FEATURES:
 * Promt message while using `config reset` + ading the option to backup file. [PR-31](https://github.com/kaplanelad/shellfirm/pull/31)
