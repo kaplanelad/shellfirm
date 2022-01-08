@@ -1,4 +1,4 @@
-## 0.1.3 - Unreleased
+## 0.1.3 
 
 IMPROVEMENTS:
 * Improve FS checks. [PR-30](https://github.com/kaplanelad/shellfirm/pull/30)
