@@ -60,6 +60,7 @@ We have defined  a baseline of risky groups command that will be enabled by defa
 | [fs](./docs/checks/fs.md) | `true` |
 | [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update --check-group fs-strict` |
 | [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update --check-group kubernetes` |
+| [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` <br/> `shellfirm config update --check-group kubernetes-strict` |
 
 
 ## Custom checks definition examples

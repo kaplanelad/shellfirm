@@ -1,0 +1,20 @@
+- from: kubernetes-strict
+  test: \s*(k|kubectl)\s*(.*)delete[[:space:]][^ns]
+  method: Regex
+  enable: true
+  description: "This command will going to delete a given resource."
+- from: kubernetes-strict
+  test: \s*(kubectl|k)\s*set
+  method: Regex
+  enable: true
+  description: "This command will update the given given resource."
+- from: kubernetes-strict
+  test: \s*(kubectl|k)\s*scale
+  method: Regex
+  enable: true
+  description: "This command will set a new size for a given resource."
+- from: kubernetes-strict
+  test: \s*(kubectl|k)\s*rollout
+  method: Regex
+  enable: true
+  description: "This command will manage a rollout for a given resource."
