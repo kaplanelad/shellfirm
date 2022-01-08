@@ -81,21 +81,25 @@ checks:
     enable: true
     description: "This command going to reset all your local changes."
     from: git
+    challenge: Default
   - test: "rm.+(-r|-f|-rf|-fr)*"
     method: Regex
     enable: true
     description: "You are going to delete everything in the path."
     from: fs
+    challenge: Default
   - test: ">.+/dev/sda"
     method: Regex
     enable: true
     description: "Writing the data directly to the hard disk drive and damaging your file system."
     from: fs
+    challenge: Default
   - test: "mv+.*/dev/null"
     method: Regex
     enable: true
     description: "The files will be discarded and destroyed."
     from: fs
+    challenge: Default
 ```
 
 :information_source: To define custom checks that are not part of `shillfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
@@ -105,7 +109,11 @@ checks:
     enable: true
     description: "Example of custom check."
     from: custom
+    challenge: Default
 ```
+
+:information_source: To define different challenge for a checks you can change the field `challenge: Default` with a [different check](./README.md#change-challenge).
+
 
 ### Add new group checks
 ```bash

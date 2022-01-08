@@ -27,7 +27,7 @@ pub enum Method {
 }
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -35,6 +35,14 @@ pub enum Challenge {
     Enter,
     /// only yes typing will approve the command.
     Yes,
+    /// Default application challenge
+    Default,
+}
+
+impl Default for Challenge {
+    fn default() -> Self {
+        Challenge::Default
+    }
 }
 
 #[derive(Debug)]
@@ -220,18 +228,19 @@ impl SettingsConfig {
                 }
                 debug!("new list of includes groups: {:?}", checks_group);
 
-                // getting the check that disable
-                let disable_checks = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable).cloned().collect::<Vec<Check>>();
-                debug!("disabled checks: {:?}", disable_checks);
+                // List of checks that the user disable or change the challenge type
+                let override_check_settings = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable || c.challenge != Challenge::Default).cloned().collect::<Vec<Check>>();
+                debug!("override checks settings: {:?}", override_check_settings);
 
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
                 checks.extend( self.get_default_checks(checks_group)?);
 
-                for need_to_disable in disable_checks{
+                for override_check in override_check_settings{
                     for c in  &mut checks{
-                        if c.test == need_to_disable.test{
-                            c.enable = false;
+                        if c.test == override_check.test{
+                            c.enable = override_check.enable;
+                            c.challenge = override_check.challenge.clone();
                         }
                     }
                 }
@@ -370,6 +379,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from("from"),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
@@ -398,6 +408,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from(""),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
@@ -422,6 +433,7 @@ mod config {
             enable: true,
             description: String::from("description"),
             from: String::from("test"),
+            challenge: Challenge::Default,
         }];
 
         assert!(settings_config
