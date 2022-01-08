@@ -58,7 +58,7 @@ $ git reset --hard
 
 You should expect to get `shellfirm` prompt challenge. 
 
-*If you didn't got the prompt challenge:*
+**If you didn't got the prompt challenge:**
 1. Make sure the `shellfirm --version` return you valid response.
 2. Make sure that you download the Zsh plugin and load as part of Oh My Zsh plugins.
 
