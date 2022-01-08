@@ -1,5 +1,5 @@
 - from: kubernetes
-  test: "((kubectl|k).*.delete.*.(ns|namespace))|(kubectl.*.-n*.*delete)"
+  test: \s*(kubectl|k)\s*delete\s*(ns|namespace)
   method: Regex
   enable: true
   description: "Deleting the namespace also deletes all the residing components."
