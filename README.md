@@ -53,7 +53,7 @@ plugins=(... shellfirm)
 ```
 $ mkdir /tmp/shellfirm
 $ cd /tmp/shellfirm
-$ git reset --hart
+$ git reset --hard
 ```
 
 You should expect see `shellfirm` prompt challenge. 
