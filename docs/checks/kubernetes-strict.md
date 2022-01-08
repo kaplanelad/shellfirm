@@ -1,9 +1,12 @@
 # Kubernetes-Strict Checks:
 
-:warning: make sure that `fs` group also enabled :warning: 
+:warning: make sure that `kubernetes` group also enabled :warning: 
 
-* Detect any deletion (`rm`) command.  
+* Detect any deletion (`kubectl delete ...`) command.  
 
-* Detect and permissions changes (`chmod`) command.
+* Detect any resource update (`kubectl set ...`) command.
 
-* Detect and file text override `some text > file.txt`.
+* Detect any pod scale (`kubectl scale ...`) command.
+
+* Detect any pod rollout (`kubectl scarolloutle ...`) command.
+
