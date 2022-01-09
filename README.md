@@ -38,13 +38,14 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
+OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases).
+
+
 ### Oh My Zsh
 * Download zsh plugin:
 ```bash
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
-
-OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases).
 
 
 * Add `shellfirm` as part of the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
