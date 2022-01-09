@@ -38,7 +38,7 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
-OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases).
+OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
 
 
 ### Oh My Zsh
