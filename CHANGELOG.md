@@ -1,3 +1,9 @@
+## 0.1.3 - Unreleased
+
+IMPROVMENTS:
+* Update config file from baseline checks when `shellfirm` binary update. [PR-46](https://github.com/kaplanelad/shellfirm/pull/46)
+
+
 ## 0.1.3 
 
 IMPROVEMENTS:
