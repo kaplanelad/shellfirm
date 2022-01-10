@@ -61,6 +61,9 @@ pub struct Config {
     pub challenge: Challenge,
     /// List of all include files
     pub includes: Vec<String>,
+    /// App version.
+    #[serde(default)]
+    pub version: String,
     /// List of checks.
     // #[serde(skip_deserializing)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -76,6 +79,12 @@ impl SettingsConfig {
     /// Return default app config.
     pub fn load_default_config(&self) -> AnyResult<Config> {
         Ok(serde_yaml::from_str(DEFAULT_CONFIG_FILE)?)
+    }
+
+    /// update config file with the updated baseline checks.
+    pub fn update_config_version(&self, config: Config) -> AnyResult<()> {
+        let mut config = self.add_checks_group(&config.includes)?;
+        Ok(self.save_config_file_from_struct(&mut config)?)
     }
 
     /// Manage configuration folder & file.
@@ -107,9 +116,9 @@ impl SettingsConfig {
         check_groups: &[String],
     ) -> AnyResult<()> {
         if remove_checks {
-            self.save_config_file_from_struct(&self.remove_checks_group(check_groups)?)?;
+            self.save_config_file_from_struct(&mut self.remove_checks_group(check_groups)?)?;
         } else {
-            self.save_config_file_from_struct(&self.add_checks_group(check_groups)?)?;
+            self.save_config_file_from_struct(&mut self.add_checks_group(check_groups)?)?;
         }
         Ok(())
     }
@@ -158,7 +167,7 @@ impl SettingsConfig {
     pub fn update_challenge(&self, challenge: Challenge) -> AnyResult<()> {
         let mut conf = self.load_config_from_file()?;
         conf.challenge = challenge;
-        self.save_config_file_from_struct(&conf)?;
+        self.save_config_file_from_struct(&mut conf)?;
         Ok(())
     }
 
@@ -181,13 +190,7 @@ impl SettingsConfig {
     fn create_default_config_file(&self) -> AnyResult<()> {
         let mut conf = self.load_default_config()?;
         conf.checks = self.get_default_checks(&conf.includes)?;
-        let mut file = fs::File::create(&self.config_file_path)?;
-        file.write_all(serde_yaml::to_string(&conf)?.as_bytes())?;
-        debug!(
-            "config file crated in path: {}. config data: {:?}",
-            &self.config_file_path, conf
-        );
-        Ok(())
+        Ok(self.save_config_file_from_struct(&mut conf)?)
     }
 
     /// Convert the given config to YAML format and the file.
@@ -195,11 +198,15 @@ impl SettingsConfig {
     /// # Arguments
     ///
     /// * `config` - Config struct
-    fn save_config_file_from_struct(&self, config: &Config) -> AnyResult<()> {
+    fn save_config_file_from_struct(&self, mut config: &mut Config) -> AnyResult<()> {
+        config.version = format!(env!("CARGO_PKG_VERSION"));
         let content = serde_yaml::to_string(config)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(content.as_bytes())?;
-        debug!("cerated new configuration file: {:?}", config);
+        debug!(
+            "config file crated in path: {}. config data: {:?}",
+            &self.config_file_path, config
+        );
         Ok(())
     }
 
