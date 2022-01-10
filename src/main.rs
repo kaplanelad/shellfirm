@@ -49,6 +49,16 @@ fn main() {
             }
         };
 
+        // to be able push changes when releasing new version,
+        // we can check if the config file is different then app version.
+        // if yes we should do the following steps:
+        // 1. update the config version
+        // 2. adding/remove checks the changed from the baseline code
+        if conf.version != env!("CARGO_PKG_VERSION") {
+            config_dir.update_config_version(conf).unwrap();
+            return;
+        }
+
         let matches = checks::run_check_on_command(&conf.checks, command);
 
         debug!("matches found {}. {:?}", matches.len(), matches);
