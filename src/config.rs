@@ -84,7 +84,7 @@ impl SettingsConfig {
     /// update config file with the updated baseline checks.
     pub fn update_config_version(&self, config: Config) -> AnyResult<()> {
         let mut config = self.add_checks_group(&config.includes)?;
-        Ok(self.save_config_file_from_struct(&mut config)?)
+        self.save_config_file_from_struct(&mut config)
     }
 
     /// Manage configuration folder & file.
@@ -190,7 +190,7 @@ impl SettingsConfig {
     fn create_default_config_file(&self) -> AnyResult<()> {
         let mut conf = self.load_default_config()?;
         conf.checks = self.get_default_checks(&conf.includes)?;
-        Ok(self.save_config_file_from_struct(&mut conf)?)
+        self.save_config_file_from_struct(&mut conf)
     }
 
     /// Convert the given config to YAML format and the file.
@@ -199,7 +199,7 @@ impl SettingsConfig {
     ///
     /// * `config` - Config struct
     fn save_config_file_from_struct(&self, mut config: &mut Config) -> AnyResult<()> {
-        config.version = format!(env!("CARGO_PKG_VERSION"));
+        config.version = env!("CARGO_PKG_VERSION").to_string();
         let content = serde_yaml::to_string(config)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(content.as_bytes())?;
@@ -390,7 +390,7 @@ mod config {
         }];
 
         assert!(settings_config
-            .save_config_file_from_struct(&config)
+            .save_config_file_from_struct(&mut config)
             .is_ok());
         assert_eq!(
             settings_config
@@ -419,7 +419,7 @@ mod config {
         }];
 
         assert!(settings_config
-            .save_config_file_from_struct(&config)
+            .save_config_file_from_struct(&mut config)
             .is_ok());
         let groups: Vec<String> = vec!["base".into()];
         let new_config = settings_config.add_checks_group(&groups).unwrap();
@@ -444,7 +444,7 @@ mod config {
         }];
 
         assert!(settings_config
-            .save_config_file_from_struct(&config)
+            .save_config_file_from_struct(&mut config)
             .is_ok());
         let groups: Vec<String> = vec!["test".into()];
         let new_config = settings_config.remove_checks_group(&groups).unwrap();
