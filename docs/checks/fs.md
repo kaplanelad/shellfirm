@@ -1,6 +1,6 @@
 # FS Checks:
 
-* `rm -rf /` - This command will delete anything under `/` or `*` directory.  
+* `rm -r ` - This command will delete anything under directory. the patterns that will catch is remove recursively when the target is `/`, `*`, `.`, `..` .
 
 * `mv {PATH} /dev/null` - This command transfers the given path to a virtual device that does not exist. Therefore, data will be completely lost.
 
