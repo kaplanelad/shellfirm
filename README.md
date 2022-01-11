@@ -33,25 +33,29 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 
 
 ## Installation 
-* Install via brew
+
+1) Install via brew
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
 
+2) select shell type:
 
-### Oh My Zsh
+#### If you use Oh My Zsh
 * Download zsh plugin:
 ```bash
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
 
-
 * Add `shellfirm` as part of the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
 ```bash
 plugins=(... shellfirm)
 ```
+
+#### If you use basic Bash
+[Read bash installation guid](./docs/installation/bash.md)
 
 ## :eyes: How to check the installation? :eyes:
 ```
