@@ -1,8 +1,8 @@
 - from: fs-strict
-  test: chmod.+-R.+[0-9].+(/|\*|.|./)([0-9A-Za-z])
-  method: Regex
+  test: chmod -R
+  method: Contains
   enable: true
-  description: "Are you sure that you want to change the permissions?"
+  description: "Are you sure that you want to change permissions?"
 - from: fs-strict
   test: rm\s*(-fr|-rf|-r|-f)
   method: Regex
