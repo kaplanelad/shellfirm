@@ -1,12 +1,12 @@
 //! Manage command checks
+
 ///
 use crate::config::{Challenge, Method};
+use crate::prompt;
 use colored::Colorize;
-use rand::Rng;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
-use std::io;
 
 /// Describe single check
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -25,116 +25,26 @@ pub struct Check {
     pub challenge: Challenge,
 }
 
-impl Check {
-    /// Return current check struct as yaml format.
-    pub fn to_yaml(&self) -> Result<String, serde_yaml::Error> {
-        serde_yaml::to_string(self)
+pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool {
+    if dryrun {
+        eprintln!("{}", serde_yaml::to_string(checks).unwrap());
+        return true;
+    }
+    eprintln!("{}", "#######################".yellow().bold());
+    eprintln!("{}", "# RISKY COMMAND FOUND #".yellow().bold());
+    eprintln!("{}", "#######################".yellow().bold());
+
+    for check in checks {
+        eprintln!("* {}", check.description)
     }
 
-    /// Show prompt challenge text to the user.
-    ///
-    /// # Arguments
-    ///
-    /// * `challenge` - type of the challenge
-    /// * `dry_run` - if true the check will print to stderr.
-    pub fn show(&self, challenge: &Challenge, dry_run: bool) -> bool {
-        if dry_run {
-            eprintln!("{}", self.to_yaml().unwrap());
-            return true;
-        }
-        let show_challenge: Challenge = if self.challenge == Challenge::Default {
-            challenge.clone()
-        } else {
-            self.challenge.clone()
-        };
-        match show_challenge {
-            Challenge::Default => self.prompt_math(),
-            Challenge::Math => self.prompt_math(),
-            Challenge::Enter => self.prompt_enter(),
-            Challenge::Yes => self.prompt_yes(),
-        }
-    }
+    let show_challenge = challenge;
 
-    /// Show prompt text + details of the challenge.
-    ///
-    /// # Arguments
-    ///
-    /// * `extra` - String with more text to the prompt question (usually for more detail of how solve the question).
-    fn prompt_text(&self, extra: String) {
-        eprintln!("{}", "#######################".yellow().bold());
-        eprintln!("{}", "# RISKY COMMAND FOUND #".yellow().bold());
-        eprintln!("{}", "#######################".yellow().bold());
-
-        eprintln!(
-            "* {}\n {} ({})",
-            self.description.underline(),
-            extra,
-            "^C to cancel".underline().bold().italic()
-        )
-    }
-
-    /// Show math challenge prompt question to the user. creates random number between 0-10.
-    fn prompt_math(&self) -> bool {
-        let mut rng = rand::thread_rng();
-        let num_a = rng.gen_range(0..10);
-        let num_b = rng.gen_range(0..10);
-        let expected_answer = num_a + num_b;
-
-        self.prompt_text(format!(
-            "\nSolve the challenge: {} + {} = ?",
-            num_a.to_string(),
-            num_b.to_string()
-        ));
-        loop {
-            let answer = self.show_stdin_prompt();
-
-            let answer: u32 = match answer.trim().parse() {
-                Ok(num) => num,
-                Err(_) => continue,
-            };
-            if answer == expected_answer {
-                break;
-            }
-            eprintln!("wrong answer, try again...");
-        }
-        true
-    }
-
-    /// Show enter challenge to the user.
-    fn prompt_enter(&self) -> bool {
-        self.prompt_text("\nType `Enter` to continue".to_string());
-
-        loop {
-            let answer = self.show_stdin_prompt();
-            if answer == "\n" {
-                break;
-            }
-            eprintln!("wrong answer, try again...");
-        }
-        true
-    }
-
-    /// Show yes challenge to the user.
-    fn prompt_yes(&self) -> bool {
-        self.prompt_text("\nType `yes` to continue".to_string());
-
-        loop {
-            if self.show_stdin_prompt().trim() == "yes" {
-                break;
-            }
-            eprintln!("wrong answer, try again...");
-        }
-        true
-    }
-
-    /// Catch user stdin. and return the user type
-    fn show_stdin_prompt(&self) -> String {
-        let mut answer = String::new();
-        io::stdin()
-            .read_line(&mut answer)
-            .expect("Failed to read line");
-
-        answer
+    match show_challenge {
+        Challenge::Default => prompt::math_challenge(),
+        Challenge::Math => prompt::math_challenge(),
+        Challenge::Enter => prompt::enter_challenge(),
+        Challenge::Yes => prompt::yes_challenge(),
     }
 }
 
@@ -247,21 +157,5 @@ mod checks {
     fn can_check_is_regex_match() {
         assert!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
         assert!(!is_regex("^f", "rm -rf"));
-    }
-
-    #[test]
-    fn can_convert_check_to_yaml() {
-        let check = Check {
-            test: String::from("start"),
-            method: Method::StartWith,
-            enable: true,
-            description: String::from("desc"),
-            from: String::from(""),
-            challenge: Challenge::Default,
-        };
-        assert_eq!(
-            check.to_yaml().unwrap(),
-            "---\ntest: start\nmethod: StartWith\nenable: true\ndescription: desc\nfrom: \"\"\nchallenge: Default\n"
-        );
     }
 }
