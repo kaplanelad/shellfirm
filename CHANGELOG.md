@@ -1,7 +1,8 @@
-## 0.1.3 - Unreleased
+## 0.1.4 - Unreleased
 
 IMPROVMENTS:
 * Update config file from baseline checks when `shellfirm` binary update. [PR-46](https://github.com/kaplanelad/shellfirm/pull/46)
+* Show single prompt verification when multiple pattern is detected. [PR-51](https://github.com/kaplanelad/shellfirm/pull/51)
 
 
 ## 0.1.3 
