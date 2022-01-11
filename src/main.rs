@@ -9,6 +9,7 @@
 mod checks;
 mod cli;
 mod config;
+mod prompt;
 use colored::Colorize;
 use config::Challenge;
 use log::debug;
@@ -63,15 +64,13 @@ fn main() {
 
         debug!("matches found {}. {:?}", matches.len(), matches);
 
-        let mut exit_code = 0;
-        for m in matches {
-            if !m.show(&conf.challenge, validate_matches.is_present("test")) {
-                exit_code = 1;
-                break;
-            }
-        }
+        let success = checks::challenge(
+            &conf.challenge,
+            &matches,
+            validate_matches.is_present("test"),
+        );
 
-        exit(exit_code);
+        exit(!success as i32);
     } else if let Some(validate_matches) = matches.subcommand_matches("config") {
         if let Some(update_matches) = validate_matches.subcommand_matches("update") {
             let check_groups: Vec<&str> =
