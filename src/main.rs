@@ -64,7 +64,7 @@ fn main() {
 
         debug!("matches found {}. {:?}", matches.len(), matches);
         let mut success = true;
-        if matches.len() > 0 {
+        if !matches.is_empty() {
             success = checks::challenge(
                 &conf.challenge,
                 &matches,
