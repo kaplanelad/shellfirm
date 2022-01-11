@@ -63,12 +63,14 @@ fn main() {
         let matches = checks::run_check_on_command(&conf.checks, command);
 
         debug!("matches found {}. {:?}", matches.len(), matches);
-
-        let success = checks::challenge(
-            &conf.challenge,
-            &matches,
-            validate_matches.is_present("test"),
-        );
+        let mut success = true;
+        if !matches.is_empty() {
+            success = checks::challenge(
+                &conf.challenge,
+                &matches,
+                validate_matches.is_present("test"),
+            );
+        }
 
         exit(!success as i32);
     } else if let Some(validate_matches) = matches.subcommand_matches("config") {

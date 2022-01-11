@@ -4,10 +4,10 @@
   enable: true
   description: "Are you sure that you want to change the permissions?"
 - from: fs-strict
-  test: rm.+(-r|-f|-fr|-rf)(\s*)(/|\*|.|./)([0-9A-Za-z])
+  test: rm\s*(-fr|-rf|-r|-f)
   method: Regex
   enable: true
-  description: "Are you sure you want to delete?"
+  description: "Are you sure you want to continue with deletion?"
 - from: fs-strict
   test: ([[:alnum:]]|[[:punct:]])> *.+
   method: Regex
