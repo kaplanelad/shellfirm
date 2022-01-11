@@ -37,6 +37,8 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool 
     for check in checks {
         eprintln!("* {}", check.description)
     }
+    // new line
+    eprintln!("");
 
     let show_challenge = challenge;
 
