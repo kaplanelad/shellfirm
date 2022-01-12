@@ -1,5 +1,5 @@
 - from: fs
-  test: rm\s*(-r|-fr|-rf)\s*(\*|\.\z|\./\z|\.\.)
+  test: rm\s*(-r|-fr|-rf)\s*(\*|\.\z|\./\z|\.\.|/)
   method: Regex
   enable: true
   description: "You are going to delete everything in the path."
