@@ -5,7 +5,10 @@ IMPROVMENTS:
 * Show single prompt verification when multiple pattern is detected. [PR-51](https://github.com/kaplanelad/shellfirm/pull/51)
 * Improve `rm` pattern. [PR-53](https://github.com/kaplanelad/shellfirm/pull/53)
 * Improve `chmod` pattern. [PR-54](https://github.com/kaplanelad/shellfirm/pull/54)
+* Adding reboot and shutdown risky pattern. [PR-56](https://github.com/kaplanelad/shellfirm/pull/56)
 
+BUG:
+* Ignore text between quotes. [PR-57](https://github.com/kaplanelad/shellfirm/pull/57)
 
 ## 0.1.3 
 
