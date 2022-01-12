@@ -10,7 +10,7 @@ curl https://raw.githubusercontent.com/rcaloras/bash-preexec/master/bash-preexec
 echo '[[ -f ~/.bash-preexec.sh ]] && source ~/.bash-preexec.sh' >> ~/.bashrc
 
 # Download shellfirm pre-exec function
-curl https://github.com/kaplanelad/shellfirm/blob/main/shellfirm.plugin.sh -o ~/.shellfirm-plugin.sh
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.sh -o ~/.shellfirm-plugin.sh
 
 # Load pre-exec command on shell initialized
 echo 'source ~/.shellfirm-plugin.sh' >> ~/.bashrc
