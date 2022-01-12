@@ -13,6 +13,7 @@ mod prompt;
 use colored::Colorize;
 use config::Challenge;
 use log::debug;
+use regex::Regex;
 use std::process::exit;
 
 fn main() {
@@ -38,6 +39,11 @@ fn main() {
     if let Some(validate_matches) = matches.subcommand_matches("pre-command") {
         let command = validate_matches.value_of("command").unwrap();
 
+        let command = Regex::new(r#"('|")([\s\S]*?)('|")"#)
+            .unwrap()
+            .replace_all(command, "")
+            .to_string();
+
         let conf = match config_dir.load_config_from_file() {
             Ok(conf) => conf,
             Err(e) => {
@@ -60,7 +66,7 @@ fn main() {
             return;
         }
 
-        let matches = checks::run_check_on_command(&conf.checks, command);
+        let matches = checks::run_check_on_command(&conf.checks, &command);
 
         debug!("matches found {}. {:?}", matches.len(), matches);
         let mut success = true;
