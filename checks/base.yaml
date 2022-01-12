@@ -8,3 +8,13 @@
   method: Regex
   enable: true
   description: "You are going to executes every command from the command log that you have already executed."
+- from: base
+  test: (\.*)reboot[^."'](\.*)
+  method: Regex
+  enable: true
+  description: "You are going to reboot your machine."
+- from: base
+  test: (\.*)shutdown[^."'](\.*)
+  method: Regex
+  enable: true
+  description: "You are going to shutdown your machine."
