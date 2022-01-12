@@ -9,12 +9,12 @@
   enable: true
   description: "You are going to executes every command from the command log that you have already executed."
 - from: base
-  test: (\.*)reboot[^."'](\.*)
+  test: (\.*)reboot[^."']*{0,}
   method: Regex
   enable: true
   description: "You are going to reboot your machine."
 - from: base
-  test: (\.*)shutdown[^."'](\.*)
+  test: (\.*)shutdown[^."']*{0,}
   method: Regex
   enable: true
   description: "You are going to shutdown your machine."
