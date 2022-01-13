@@ -24,7 +24,7 @@ $ rm -rf /
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
 
-## How dose it work?
+## How does it work?
 `shellfirm` will evaluate all the shell commands behind the scenes.
 If a risky pattern is detected, you will immediately get a prompt with the relevant warning for verification you command.
 
