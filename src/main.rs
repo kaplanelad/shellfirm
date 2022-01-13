@@ -96,7 +96,7 @@ fn main() {
             exit(0);
         } else if validate_matches.subcommand_matches("reset").is_some() {
             if let Err(err) = config_dir.reset_config() {
-                eprintln!("Could not reset settings{}", err.to_string());
+                eprintln!("Could not reset settings {}", err.to_string());
                 exit(1)
             }
 

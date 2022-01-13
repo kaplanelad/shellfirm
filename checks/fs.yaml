@@ -9,10 +9,12 @@
   enable: true
   description: "The files will be discarded and destroyed."
 - from: fs
-  test: ^\s*> *.+
+  test: .*>(.*)
   method: Regex
   enable: true
   description: "The above command is used to flush the content of a file."
+  filters:
+    IsFileExists: "1"
 - from: fs
   test: chmod\s*(-R)\s+[0-9]{1,}\s*(\*|\.\z|\./\z|\.\.|\.|/)
   method: Regex

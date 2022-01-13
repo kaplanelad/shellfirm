@@ -16,7 +16,7 @@ pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
 pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
 
 /// The method type go the check.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum Method {
     /// Run start with check.
     StartWith,
@@ -387,6 +387,7 @@ mod config {
             description: String::from("description"),
             from: String::from("from"),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
@@ -416,6 +417,7 @@ mod config {
             description: String::from("description"),
             from: String::from(""),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
@@ -441,6 +443,7 @@ mod config {
             description: String::from("description"),
             from: String::from("test"),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
