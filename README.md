@@ -54,7 +54,7 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/s
 plugins=(... shellfirm)
 ```
 
-* Open new shell session
+* :information_source: Open a new shell session
 
 
 ### More supported shell
