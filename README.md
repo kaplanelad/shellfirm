@@ -70,7 +70,7 @@ You should expect to get `shellfirm` prompt challenge.
 
 **If you didn't got the prompt challenge:**
 1. Make sure the `shellfirm --version` return you valid response.
-2. Make sure that you download the Zsh plugin and load as part of Oh My Zsh plugins.
+2. Make sure that you download the Zsh plugin and load as part of Oh My Zsh plugins or download the download plugin files exists.
 
 ## Risky commands
 We have defined  a baseline of risky groups command that will be enabled by default ,these risky group commands might be destructive.
