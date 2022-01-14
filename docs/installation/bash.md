@@ -16,4 +16,7 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/s
 echo 'source ~/.shellfirm-plugin.sh' >> ~/.bashrc
 ```
 
+:information_source: Open a new shell session
+
+
 :eyes: :eyes: [Verify installation](../../README.md#verify-installation) :eyes: :eyes:
