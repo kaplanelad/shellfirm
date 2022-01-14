@@ -34,14 +34,14 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 
 ## Installation 
 
-1) Install via brew
+### 1. Install via brew
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
 
-2) select shell type:
+### 2. select shell type:
 
 #### If you use Oh My Zsh
 * Download zsh plugin:
@@ -54,7 +54,7 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/s
 plugins=(... shellfirm)
 ```
 
-#### More supported shell
+### More supported shell
 
 * [bash](./docs/installation/bash.md)
 * [fish](./docs/installation/fishshell.md)
