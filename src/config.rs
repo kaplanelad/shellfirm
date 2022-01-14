@@ -128,10 +128,10 @@ impl SettingsConfig {
     // TODO:: need to test this function
     pub fn reset_config(&self) -> AnyResult<()> {
         eprintln!(
-            "Rest configuration will reset all checks settings. Select how to continue...\n{}\n{}\n{}",
-            "1. Yes, i want to override the current configuration".to_string(),
-            "2. Override and backup the existing file".to_string(),
-            "3. Cancel Or ^C".to_string()
+            "Rest configuration will reset all checks settings. Select how to continue...\n \
+            1. Yes, i want to override the current configuration\n \
+            2. Override and backup the existing file\n \
+            3. Cancel Or ^C"
         );
         let mut answer = String::new();
         io::stdin()
@@ -177,7 +177,7 @@ impl SettingsConfig {
     fn create_config_folder(&self) -> AnyResult<()> {
         if let Err(err) = fs::create_dir(&self.path) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(anyhow!("could not create folder: {}", err.to_string()));
+                return Err(anyhow!("could not create folder: {}", err));
             }
             debug!("configuration folder found: {}", &self.path);
         } else {
