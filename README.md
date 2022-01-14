@@ -54,6 +54,9 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/s
 plugins=(... shellfirm)
 ```
 
+* Open new shell session
+
+
 ### More supported shell
 
 * [bash](./docs/installation/bash.md)
