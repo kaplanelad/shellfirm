@@ -1,4 +1,8 @@
-## 0.1.4 - Unreleased
+## 0.1.5 - Unreleased
+
+IMPROVMENTS:
+* Ading custom check - for check if file exsits before prompt a delete/flush verification. [PR-46](https://github.com/kaplanelad/shellfirm/pull/60)
+## 0.1.4 
 
 IMPROVMENTS:
 * Update config file from baseline checks when `shellfirm` binary update. [PR-46](https://github.com/kaplanelad/shellfirm/pull/46)
