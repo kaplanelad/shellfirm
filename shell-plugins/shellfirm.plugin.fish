@@ -23,4 +23,4 @@ end
 
 function fish_user_key_bindings
     bind \r pre_exec
-end§
+end
