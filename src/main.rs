@@ -25,14 +25,14 @@ fn main() {
     let config_dir = match config::get_config_folder() {
         Ok(config_dir) => config_dir,
         Err(err) => {
-            eprintln!("Loading config error: {}", err.to_string());
+            eprintln!("Loading config error: {}", err);
             exit(1)
         }
     };
 
     // make sure that the application and configuration file ins exists and updated with the current version
     if let Err(err) = config_dir.manage_config_file() {
-        eprintln!("{}", err.to_string());
+        eprintln!("{}", err);
         exit(1);
     }
 
@@ -50,7 +50,7 @@ fn main() {
                 eprintln!(
                     "Could not load config from file. Try resolving by running `{}`\nError: {}",
                     "shellfirm config reset".bold().italic().underline(),
-                    e.to_string()
+                    e
                 );
                 exit(1)
             }
@@ -89,14 +89,14 @@ fn main() {
             if let Err(err) =
                 config_dir.update_config_content(update_matches.is_present("remove"), &res)
             {
-                eprintln!("Could not update checks group{}", err.to_string());
+                eprintln!("Could not update checks group{}", err);
                 exit(1)
             }
 
             exit(0);
         } else if validate_matches.subcommand_matches("reset").is_some() {
             if let Err(err) = config_dir.reset_config() {
-                eprintln!("Could not reset settings{}", err.to_string());
+                eprintln!("Could not reset settings {}", err);
                 exit(1)
             }
 
@@ -110,7 +110,7 @@ fn main() {
             };
 
             if let Err(err) = config_dir.update_challenge(challenge) {
-                eprintln!("Could not update challenge: {}", err.to_string());
+                eprintln!("Could not update challenge: {}", err);
                 exit(1)
             }
 

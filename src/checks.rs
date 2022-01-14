@@ -4,9 +4,17 @@
 use crate::config::{Challenge, Method};
 use crate::prompt;
 use colored::Colorize;
+use log::debug;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// list of custom filter
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
+pub enum FilterType {
+    IsFileExists,
+}
 
 /// Describe single check
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -23,6 +31,8 @@ pub struct Check {
     pub from: String,
     #[serde(default)]
     pub challenge: Challenge,
+    #[serde(default)]
+    pub filters: HashMap<FilterType, String>,
 }
 
 pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool {
@@ -61,8 +71,49 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
         .par_iter()
         .filter(|&v| v.enable)
         .filter(|&v| is_match(v, command))
+        .filter(|&v| check_custom_filter(v, command))
         .map(|v| v.clone())
         .collect()
+}
+
+/// filter custom checks
+///
+/// When true is returned it mean the filter should keep the check and not filter our the check.
+///
+/// # Arguments
+///
+/// * `check` - Check struct
+/// * `command` - Command.
+fn check_custom_filter(check: &Check, command: &str) -> bool {
+    // if check is not regex type or custom filters are not configure return true.
+    if check.method != Method::Regex || check.filters.is_empty() {
+        return true;
+    }
+    // Capture command groups from the current check
+    let caps = Regex::new(&check.test).unwrap().captures(command).unwrap();
+
+    // by default true is return. it mean the check not filter out (safe side security).
+    let mut keep_check = true;
+    for (filter_type, filter_params) in &check.filters {
+        debug!(
+            "filter information: command {} include filter: {:?} filter_params: {}",
+            command, filter_type, filter_params
+        );
+
+        let keep_filter = match filter_type {
+            FilterType::IsFileExists => filter_is_file_exists(
+                caps.get(filter_params.parse().unwrap())
+                    .map_or("", |m| m.as_str()),
+            ),
+        };
+
+        if !keep_filter {
+            keep_check = false;
+            break;
+        }
+    }
+
+    keep_check
 }
 
 /// Check if the given command match to one of the existing checks
@@ -109,6 +160,15 @@ fn is_regex(test_r: &str, command: &str) -> bool {
     Regex::new(test_r).unwrap().is_match(command)
 }
 
+/// check if the path exists (file and folder).
+///
+/// # Arguments
+///
+/// * `file_path` - check path.
+fn filter_is_file_exists(file_path: &str) -> bool {
+    return std::path::Path::new(file_path.trim()).exists();
+}
+
 #[cfg(test)]
 mod checks {
     use super::*;
@@ -122,6 +182,7 @@ mod checks {
             description: String::from(""),
             from: String::from(""),
             challenge: Challenge::Default,
+            filters: HashMap::new(),
         };
         let contains_check = Check {
             test: String::from("test"),
@@ -130,6 +191,7 @@ mod checks {
             description: String::from(""),
             from: String::from(""),
             challenge: Challenge::Default,
+            filters: HashMap::new(),
         };
         let startwith_check = Check {
             test: String::from("start"),
@@ -138,6 +200,7 @@ mod checks {
             description: String::from(""),
             from: String::from(""),
             challenge: Challenge::Default,
+            filters: HashMap::new(),
         };
         assert!(is_match(&regex_check, "rm -rf"));
         assert!(is_match(&contains_check, "test command"));
