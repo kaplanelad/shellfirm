@@ -23,8 +23,8 @@ pub fn math_challenge() -> bool {
     eprintln!(
         "{}: {} + {} = ? {}",
         SOLVE_MATH_TEXT,
-        num_a.to_string(),
-        num_b.to_string(),
+        num_a,
+        num_b,
         get_cancel_string()
     );
     loop {

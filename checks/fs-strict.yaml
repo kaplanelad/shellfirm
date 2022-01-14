@@ -8,8 +8,3 @@
   method: Regex
   enable: true
   description: "Are you sure you want to continue with deletion?"
-- from: fs-strict
-  test: ([[:alnum:]]|[[:punct:]])> *.+
-  method: Regex
-  enable: true
-  description: "The command going to override your file content."

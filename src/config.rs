@@ -16,7 +16,7 @@ pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
 pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
 
 /// The method type go the check.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub enum Method {
     /// Run start with check.
     StartWith,
@@ -128,10 +128,10 @@ impl SettingsConfig {
     // TODO:: need to test this function
     pub fn reset_config(&self) -> AnyResult<()> {
         eprintln!(
-            "Rest configuration will reset all checks settings. Select how to continue...\n{}\n{}\n{}",
-            "1. Yes, i want to override the current configuration".to_string(),
-            "2. Override and backup the existing file".to_string(),
-            "3. Cancel Or ^C".to_string()
+            "Rest configuration will reset all checks settings. Select how to continue...\n \
+            1. Yes, i want to override the current configuration\n \
+            2. Override and backup the existing file\n \
+            3. Cancel Or ^C"
         );
         let mut answer = String::new();
         io::stdin()
@@ -177,7 +177,7 @@ impl SettingsConfig {
     fn create_config_folder(&self) -> AnyResult<()> {
         if let Err(err) = fs::create_dir(&self.path) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(anyhow!("could not create folder: {}", err.to_string()));
+                return Err(anyhow!("could not create folder: {}", err));
             }
             debug!("configuration folder found: {}", &self.path);
         } else {
@@ -387,6 +387,7 @@ mod config {
             description: String::from("description"),
             from: String::from("from"),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
@@ -416,6 +417,7 @@ mod config {
             description: String::from("description"),
             from: String::from(""),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
@@ -441,6 +443,7 @@ mod config {
             description: String::from("description"),
             from: String::from("test"),
             challenge: Challenge::Default,
+            filters: std::collections::HashMap::new(),
         }];
 
         assert!(settings_config
