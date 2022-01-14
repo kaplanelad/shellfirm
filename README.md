@@ -46,7 +46,7 @@ OR download the binary file from [releases page](https://github.com/kaplanelad/s
 #### If you use Oh My Zsh
 * Download zsh plugin:
 ```bash
-curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
 
 * Add `shellfirm` as part of the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
@@ -54,10 +54,12 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shellfirm.plugi
 plugins=(... shellfirm)
 ```
 
-#### If you use basic Bash
-[Read bash installation guid](./docs/installation/bash.md)
+#### More supported shell
 
-## :eyes: How to check the installation? :eyes:
+* [bash](./docs/installation/bash.md)
+* [fish](./docs/installation/fishshell.md)
+
+## Verify installation
 ```
 $ mkdir /tmp/shellfirm
 $ cd /tmp/shellfirm
