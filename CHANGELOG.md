@@ -2,6 +2,9 @@
 
 IMPROVMENTS:
 * Ading custom check - for check if file exsits before prompt a delete/flush verification. [PR-46](https://github.com/kaplanelad/shellfirm/pull/60)
+
+BUG
+* Replace `~` char with home directory path. [PR-63](https://github.com/kaplanelad/shellfirm/pull/63)
 ## 0.1.4 
 
 IMPROVMENTS:
