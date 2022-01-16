@@ -2,7 +2,7 @@
 
 IMPROVMENTS:
 * Ading custom check - for check if file exsits before prompt a delete/flush verification. [PR-46](https://github.com/kaplanelad/shellfirm/pull/60)
-* Support multiple commands in one line. (MR)[https://github.com/kaplanelad/shellfirm/commit/c2c4d0633dcdac38b6b44d5351179f6e1421096d]
+* Support multiple commands in one line. [MR](https://github.com/kaplanelad/shellfirm/commit/c2c4d0633dcdac38b6b44d5351179f6e1421096d)
 
 BUG
 * Replace `~` char with home directory path. [PR-63](https://github.com/kaplanelad/shellfirm/pull/63)
