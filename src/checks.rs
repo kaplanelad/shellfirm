@@ -166,6 +166,16 @@ fn is_regex(test_r: &str, command: &str) -> bool {
 ///
 /// * `file_path` - check path.
 fn filter_is_file_exists(file_path: &str) -> bool {
+    let mut file_path: String = file_path.trim().into();
+    if file_path.starts_with('~') {
+        match home::home_dir() {
+            Some(path) => {
+                file_path = file_path.replace('~', &path.display().to_string());
+            }
+            None => return true,
+        };
+    }
+    debug!("check is file {} exists", file_path);
     return std::path::Path::new(file_path.trim()).exists();
 }
 
