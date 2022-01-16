@@ -66,7 +66,15 @@ fn main() {
             return;
         }
 
-        let matches = checks::run_check_on_command(&conf.checks, &command);
+        let splitted_command: Vec<&str> = command
+            .split(|c| c == '&' || c == '|' || c == "&&".chars().next().unwrap())
+            .collect();
+
+        debug!("splitted_command {:?}", splitted_command);
+        let mut matches: Vec<checks::Check> = Vec::new();
+        for command in splitted_command {
+            matches.append(&mut checks::run_check_on_command(&conf.checks, command));
+        }
 
         debug!("matches found {}. {:?}", matches.len(), matches);
         let mut success = true;

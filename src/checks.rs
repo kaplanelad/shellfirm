@@ -44,10 +44,15 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool 
     eprintln!("{}", "# RISKY COMMAND FOUND #".yellow().bold());
     eprintln!("{}", "#######################".yellow().bold());
 
+    let mut descriptions: Vec<String> = Vec::new();
     for check in checks {
-        eprintln!("* {}", check.description)
+        if !descriptions.contains(&check.description) {
+            descriptions.push(check.description.to_string());
+        }
     }
-    // new line
+    for description in descriptions {
+        eprintln!("* {}", description)
+    }
     eprintln!();
 
     let show_challenge = challenge;
