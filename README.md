@@ -10,9 +10,9 @@ How do I save myself from myself?
 * `kubectl delete ns` Stop! you are going to delete a lot of resources
 * And many more!
 
-Do you want to learn from other people mistakes?
+Do you want to learn from other people's mistakes?
 
-`shellfirm` will intercept any risky patterns (defined by default or any other user custom additions) it will immediately prompt a small challenge that will double verify your action, think of a captcha for your terminal.
+`shellfirm` will intercept any risky patterns (predefined or user's custom additions) and will immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
 
 ```bash
 $ rm -rf /
@@ -26,7 +26,7 @@ Solve the challenge: 8 + 0 = ? (^C to cancel)
 
 ## How does it work?
 `shellfirm` will evaluate all the shell commands behind the scenes.
-If a risky pattern is detected, you will immediately get a prompt with the relevant warning for verification you command.
+If a risky pattern is detected, you will immediately get a prompt with the relevant warning to verify your command.
 
 ## Example
 ![](./docs/media/example.gif)
@@ -39,7 +39,7 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
-OR download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
+Or download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
 
 ### 2. select shell type:
 
@@ -49,7 +49,7 @@ OR download the binary file from [releases page](https://github.com/kaplanelad/s
 curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
 ```
 
-* Add `shellfirm` as part of the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
+* Add `shellfirm` to the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
 ```bash
 plugins=(... shellfirm)
 ```
@@ -57,7 +57,7 @@ plugins=(... shellfirm)
 * :information_source: Open a new shell session
 
 
-### More supported shell
+### More supported shells
 
 * [bash](./docs/installation/bash.md)
 * [fish](./docs/installation/fishshell.md)
@@ -69,14 +69,14 @@ $ cd /tmp/shellfirm
 $ git reset --hard
 ```
 
-You should expect to get `shellfirm` prompt challenge. 
+You should get a `shellfirm` prompt challenge. 
 
-**If you didn't got the prompt challenge:**
-1. Make sure the `shellfirm --version` return you valid response.
-2. Make sure that you download the Zsh plugin and load as part of Oh My Zsh plugins or download the download plugin files exists.
+**If you didn't get the prompt challenge:**
+1. Make sure the `shellfirm --version` returns a valid response.
+2. Make sure that you downloaded the Zsh plugin and added it to the Oh My Zsh plugins in .zshrc.
 
 ## Risky commands
-We have defined  a baseline of risky groups command that will be enabled by default ,these risky group commands might be destructive.
+We have predefined a baseline of risky groups command that will be enabled by default, these are risky commands that might be destructive.
 
 | Group |  Enabled By Default |
 | --- | --- |
@@ -165,10 +165,9 @@ You can change the default challenge by running the command:
 $ shellfirm config challenge --challenge Math
 ```
 
-*At any time you can cancel risky command by hitting `^C`*
+*At any time you can cancel a risky command by hitting `^C`*
 
-## Upgrades
-* Upgrade `shellfirm`:
+## To Upgrade `shellfirm`
 ```bash
 $ brew upgrade shellfirm
 ```
