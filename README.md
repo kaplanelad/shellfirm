@@ -2,6 +2,7 @@
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/ci.yaml/badge.svg"/>
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/release.yml/badge.svg"/>
 </p>
+
 # shellfirm
 
 <div align="center">
