@@ -301,10 +301,15 @@ pub fn get_config_folder() -> AnyResult<SettingsConfig> {
 
     match home::home_dir() {
         Some(path) => {
-            let config_folder = format!("{}/.{}", path.display(), package_name);
+            let config_folder = path.join(format!(".{}", package_name));
+
             let setting_config = SettingsConfig {
-                path: config_folder.clone(),
-                config_file_path: format!("{}/config.yaml", config_folder),
+                path: config_folder.to_str().unwrap().to_string(),
+                config_file_path: config_folder
+                    .join("config.yaml")
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
             };
             debug!("configuration settings: {:?}", setting_config);
             Ok(setting_config)
@@ -329,15 +334,23 @@ mod test_config {
     }
 
     fn get_temp_config_folder(file_name: &str) -> AnyResult<SettingsConfig> {
-        let tmp_folder = format!("{}/tmp", get_current_project_path());
-        let config_file_path = format!("{}/{}", &tmp_folder, file_name);
+        let tmp_folder = Path::new(&get_current_project_path())
+            .join("tmp")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let config_file_path = Path::new(&tmp_folder)
+            .join(file_name)
+            .to_str()
+            .unwrap()
+            .to_string();
         if fs::metadata(&config_file_path).is_ok() {
             fs::remove_file(&config_file_path).unwrap();
         }
 
         Ok(SettingsConfig {
-            path: format!("{}", tmp_folder),
-            config_file_path: config_file_path,
+            path: tmp_folder,
+            config_file_path,
         })
     }
 
@@ -345,7 +358,12 @@ mod test_config {
     fn can_load_config_from_file() -> AnyResult<()> {
         let settings_config = SettingsConfig {
             path: get_current_project_path(),
-            config_file_path: format!("{}/src/config.yaml", get_current_project_path()),
+            config_file_path: Path::new(&get_current_project_path())
+                .join("src")
+                .join("config.yaml")
+                .to_str()
+                .unwrap()
+                .to_string(),
         };
 
         assert_debug_snapshot!(settings_config.load_config_from_file());
