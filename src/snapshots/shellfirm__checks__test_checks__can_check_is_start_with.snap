@@ -1,0 +1,5 @@
+---
+source: src/checks.rs
+expression: "is_start_with(\"test is\", \"test is valid\")"
+---
+true

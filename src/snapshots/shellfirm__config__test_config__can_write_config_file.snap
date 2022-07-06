@@ -1,0 +1,7 @@
+---
+source: src/config.rs
+expression: settings_config.manage_config_file()
+---
+Ok(
+    (),
+)

@@ -1,0 +1,5 @@
+---
+source: src/checks.rs
+expression: "is_regex(\"^f\", \"rm -rf\")"
+---
+false

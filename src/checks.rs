@@ -185,8 +185,9 @@ fn filter_is_file_exists(file_path: &str) -> bool {
 }
 
 #[cfg(test)]
-mod checks {
+mod test_checks {
     use super::*;
+    use insta::assert_debug_snapshot;
 
     #[test]
     fn is_match_command() {
@@ -217,25 +218,25 @@ mod checks {
             challenge: Challenge::Default,
             filters: HashMap::new(),
         };
-        assert!(is_match(&regex_check, "rm -rf"));
-        assert!(is_match(&contains_check, "test command"));
-        assert!(is_match(&startwith_check, "start command"));
+        assert_debug_snapshot!(&regex_check);
+        assert_debug_snapshot!(&contains_check);
+        assert_debug_snapshot!(&startwith_check);
     }
     #[test]
     fn can_check_is_contains() {
-        assert!(is_contains("test", "test is valid"));
-        assert!(!is_contains("test is valid", "not-found"));
+        assert_debug_snapshot!(is_contains("test", "test is valid"));
+        assert_debug_snapshot!(is_contains("test is valid", "not-found"));
     }
 
     #[test]
     fn can_check_is_start_with() {
-        assert!(is_start_with("test is", "test is valid"));
-        assert!(!is_start_with("test is valid", "is"));
+        assert_debug_snapshot!(is_start_with("test is", "test is valid"));
+        assert_debug_snapshot!(is_start_with("test is valid", "is"));
     }
 
     #[test]
     fn can_check_is_regex_match() {
-        assert!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
-        assert!(!is_regex("^f", "rm -rf"));
+        assert_debug_snapshot!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
+        assert_debug_snapshot!(is_regex("^f", "rm -rf"));
     }
 }

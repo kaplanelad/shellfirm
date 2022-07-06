@@ -1,0 +1,5 @@
+---
+source: src/checks.rs
+expression: "is_contains(\"test\", \"test is valid\")"
+---
+true

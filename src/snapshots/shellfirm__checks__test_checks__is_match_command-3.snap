@@ -1,0 +1,13 @@
+---
+source: src/checks.rs
+expression: "&startwith_check"
+---
+Check {
+    test: "start",
+    method: StartWith,
+    enable: true,
+    description: "",
+    from: "",
+    challenge: Default,
+    filters: {},
+}

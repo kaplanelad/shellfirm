@@ -1,0 +1,5 @@
+---
+source: src/config.rs
+expression: "Path::new(&settings_config.config_file_path).exists()"
+---
+true
