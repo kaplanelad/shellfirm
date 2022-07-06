@@ -1,0 +1,5 @@
+---
+source: src/checks.rs
+expression: "is_regex(\"rm.+(-r|-f|-rf|-fr)*\", \"rm -rf\")"
+---
+true

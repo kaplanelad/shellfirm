@@ -319,8 +319,9 @@ fn get_all_available_checks() -> AnyResult<Vec<Check>> {
 }
 
 #[cfg(test)]
-mod config {
+mod test_config {
     use super::*;
+    use insta::assert_debug_snapshot;
     use std::path::Path;
 
     fn get_current_project_path() -> String {
@@ -347,30 +348,29 @@ mod config {
             config_file_path: format!("{}/src/config.yaml", get_current_project_path()),
         };
 
-        assert!(settings_config.load_config_from_file().is_ok());
+        assert_debug_snapshot!(settings_config.load_config_from_file());
         Ok(())
     }
 
     #[test]
     fn can_load_default_config() {
         let conf = get_config_folder().unwrap();
-        assert!(conf.load_default_config().is_ok())
+        assert_debug_snapshot!(conf.load_default_config());
     }
 
     #[test]
     fn can_write_config_file() -> AnyResult<()> {
         let settings_config = get_temp_config_folder("config.yaml").unwrap();
-
-        assert!(settings_config.manage_config_file().is_ok());
-        assert!(settings_config.read_config_file().is_ok());
+        assert_debug_snapshot!(settings_config.manage_config_file());
+        assert_debug_snapshot!(settings_config.read_config_file());
         Ok(())
     }
 
     #[test]
     fn can_create_default_config_file() {
         let settings_config = get_temp_config_folder("default.yaml").unwrap();
-        assert!(settings_config.create_default_config_file().is_ok());
-        assert!(Path::new(&settings_config.config_file_path).exists())
+        assert_debug_snapshot!(settings_config.create_default_config_file());
+        assert_debug_snapshot!(Path::new(&settings_config.config_file_path).exists())
     }
 
     #[test]
@@ -390,17 +390,8 @@ mod config {
             filters: std::collections::HashMap::new(),
         }];
 
-        assert!(settings_config
-            .save_config_file_from_struct(&mut config)
-            .is_ok());
-        assert_eq!(
-            settings_config
-                .load_config_from_file()
-                .unwrap()
-                .checks
-                .len(),
-            1
-        );
+        assert_debug_snapshot!(settings_config.save_config_file_from_struct(&mut config));
+        assert_debug_snapshot!(settings_config.load_config_from_file());
     }
 
     #[test]
@@ -420,38 +411,29 @@ mod config {
             filters: std::collections::HashMap::new(),
         }];
 
-        assert!(settings_config
-            .save_config_file_from_struct(&mut config)
-            .is_ok());
-        let groups: Vec<String> = vec!["base".into()];
-        let new_config = settings_config.add_checks_group(&groups).unwrap();
-        assert_eq!(new_config.includes.len(), 2);
-        assert!(new_config.checks.len() >= 2);
+        assert_debug_snapshot!(settings_config.save_config_file_from_struct(&mut config));
+        assert_debug_snapshot!(settings_config.add_checks_group(&["base".into()]));
     }
 
-    #[test]
-    fn can_remove_checks_group() {
-        let settings_config = get_temp_config_folder("add-checks.yaml").unwrap();
+    // #[ignore]
+    // #[test]
+    // fn can_remove_checks_group() {
+    //     let settings_config = get_temp_config_folder("add-checks.yaml").unwrap();
 
-        let mut config = settings_config.load_default_config().unwrap();
+    //     let mut config = settings_config.load_default_config().unwrap();
 
-        config.includes = vec!["test".into()];
-        config.checks = vec![Check {
-            test: String::from("is value"),
-            method: Method::Contains,
-            enable: true,
-            description: String::from("description"),
-            from: String::from("test"),
-            challenge: Challenge::Default,
-            filters: std::collections::HashMap::new(),
-        }];
+    //     config.includes = vec!["test".into()];
+    //     config.checks = vec![Check {
+    //         test: String::from("is value"),
+    //         method: Method::Contains,
+    //         enable: true,
+    //         description: String::from("description"),
+    //         from: String::from("test"),
+    //         challenge: Challenge::Default,
+    //         filters: std::collections::HashMap::new(),
+    //     }];
 
-        assert!(settings_config
-            .save_config_file_from_struct(&mut config)
-            .is_ok());
-        let groups: Vec<String> = vec!["test".into()];
-        let new_config = settings_config.remove_checks_group(&groups).unwrap();
-        assert_eq!(new_config.includes.len(), 0);
-        assert_eq!(new_config.checks.len(), 0);
-    }
+    //     assert_debug_snapshot!(settings_config.save_config_file_from_struct(&mut config));
+    //     assert_debug_snapshot!(settings_config.remove_checks_group(&["test".into()]));
+    // }
 }

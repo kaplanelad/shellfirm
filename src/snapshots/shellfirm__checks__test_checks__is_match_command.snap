@@ -1,0 +1,13 @@
+---
+source: src/checks.rs
+expression: "&regex_check"
+---
+Check {
+    test: "rm.+(-r|-f|-rf|-fr)*",
+    method: Regex,
+    enable: true,
+    description: "",
+    from: "",
+    challenge: Default,
+    filters: {},
+}

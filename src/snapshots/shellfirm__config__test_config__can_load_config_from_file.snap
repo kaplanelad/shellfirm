@@ -1,0 +1,16 @@
+---
+source: src/config.rs
+expression: settings_config.load_config_from_file()
+---
+Ok(
+    Config {
+        challenge: Math,
+        includes: [
+            "base",
+            "fs",
+            "git",
+        ],
+        version: "",
+        checks: [],
+    },
+)

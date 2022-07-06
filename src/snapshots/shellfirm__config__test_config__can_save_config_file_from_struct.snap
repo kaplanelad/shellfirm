@@ -1,0 +1,7 @@
+---
+source: src/config.rs
+expression: settings_config.save_config_file_from_struct(&mut config)
+---
+Ok(
+    (),
+)

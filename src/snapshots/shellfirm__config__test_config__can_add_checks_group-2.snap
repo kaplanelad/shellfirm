@@ -1,0 +1,61 @@
+---
+source: src/config.rs
+expression: "settings_config.add_checks_group(&[\"base\".into()])"
+---
+Ok(
+    Config {
+        challenge: Math,
+        includes: [
+            "test",
+            "base",
+        ],
+        version: "0.1.6",
+        checks: [
+            Check {
+                test: "is value",
+                method: Contains,
+                enable: true,
+                description: "description",
+                from: "",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: ":(){ :|: & };:",
+                method: Contains,
+                enable: true,
+                description: "This short line defines a shell function that creates new copies of itself.\nThe process continually replicates itself, and its copies continually replicate themselves, quickly taking up all your CPU time and memory.\nThis can cause your computer to freeze. It’s basically a denial-of-service attack.",
+                from: "base",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "\\s*history.*.[|].*.(bash|sh)",
+                method: Regex,
+                enable: true,
+                description: "You are going to executes every command from the command log that you have already executed.",
+                from: "base",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "(\\.*)reboot[^.\"']*{0,}",
+                method: Regex,
+                enable: true,
+                description: "You are going to reboot your machine.",
+                from: "base",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "(\\.*)shutdown[^.\"']*{0,}",
+                method: Regex,
+                enable: true,
+                description: "You are going to shutdown your machine.",
+                from: "base",
+                challenge: Default,
+                filters: {},
+            },
+        ],
+    },
+)
