@@ -1,4 +1,14 @@
-## 0.1.5 - Unreleased
+## 0.1.7 - Unreleased
+IMPROVMENTS:
+* Improve test [PR-71](https://github.com/kaplanelad/shellfirm/pull/71)
+* replace / with path join [PR-72](https://github.com/kaplanelad/shellfirm/pull/72)
+
+## 0.1.6
+IMPROVMENTS
+* change ~ to home dir in IsFileExists FILTER: [PR-63](https://github.com/kaplanelad/shellfirm/pull/63)
+* Fish shell support: [PR-61](https://github.com/kaplanelad/shellfirm/pull/61)
+
+## 0.1.5 
 
 IMPROVMENTS:
 * Ading custom check - for check if file exsits before prompt a delete/flush verification. [PR-46](https://github.com/kaplanelad/shellfirm/pull/60)
