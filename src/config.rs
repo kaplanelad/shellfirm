@@ -333,7 +333,7 @@ mod test_config {
         std::env::current_dir().unwrap().to_str().unwrap().into()
     }
 
-    fn get_temp_config_folder(file_name: &str) -> AnyResult<SettingsConfig> {
+    fn get_temp_config_folder(file_name: &str) -> SettingsConfig {
         let tmp_folder = Path::new(&get_current_project_path())
             .join("tmp")
             .to_str()
@@ -348,14 +348,14 @@ mod test_config {
             fs::remove_file(&config_file_path).unwrap();
         }
 
-        Ok(SettingsConfig {
+        SettingsConfig {
             path: tmp_folder,
             config_file_path,
-        })
+        }
     }
 
     #[test]
-    fn can_load_config_from_file() -> AnyResult<()> {
+    fn can_load_config_from_file() {
         let settings_config = SettingsConfig {
             path: get_current_project_path(),
             config_file_path: Path::new(&get_current_project_path())
@@ -367,7 +367,6 @@ mod test_config {
         };
 
         assert_debug_snapshot!(settings_config.load_config_from_file());
-        Ok(())
     }
 
     #[test]
@@ -377,23 +376,21 @@ mod test_config {
     }
 
     #[test]
-    fn can_write_config_file() -> AnyResult<()> {
-        let settings_config = get_temp_config_folder("config.yaml").unwrap();
+    fn can_write_config_file() {
+        let settings_config = get_temp_config_folder("config.yaml");
         assert_debug_snapshot!(settings_config.manage_config_file());
-        assert_debug_snapshot!(settings_config.read_config_file());
-        Ok(())
     }
 
     #[test]
     fn can_create_default_config_file() {
-        let settings_config = get_temp_config_folder("default.yaml").unwrap();
+        let settings_config = get_temp_config_folder("default.yaml");
         assert_debug_snapshot!(settings_config.create_default_config_file());
-        assert_debug_snapshot!(Path::new(&settings_config.config_file_path).exists())
+        assert_debug_snapshot!(Path::new(&settings_config.config_file_path).exists());
     }
 
     #[test]
     fn can_save_config_file_from_struct() {
-        let settings_config = get_temp_config_folder("save-from-struct.yaml").unwrap();
+        let settings_config = get_temp_config_folder("save-from-struct.yaml");
 
         let mut config = settings_config.load_default_config().unwrap();
 
@@ -414,7 +411,7 @@ mod test_config {
 
     #[test]
     fn can_add_checks_group() {
-        let settings_config = get_temp_config_folder("add-checks.yaml").unwrap();
+        let settings_config = get_temp_config_folder("add-checks.yaml");
 
         let mut config = settings_config.load_default_config().unwrap();
 
