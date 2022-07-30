@@ -1,0 +1,100 @@
+- from: heroku
+  test: heroku ps:restart
+  method: Regex
+  enable: true
+  description: "Restarting app dynos"
+- from: heroku
+  test: heroku ps:stop
+  method: Regex
+  enable: true
+  description: "Stop app dynos"
+- from: heroku
+  test: heroku ps:kill
+  method: Regex
+  enable: true
+  description: "Kill app dyno"
+- from: heroku
+  test: heroku ps:kill
+  method: Regex
+  enable: true
+  description: "Kill app dyno"
+- from: heroku
+  test: heroku maintenance:on
+  method: Regex
+  enable: true
+  description: "Put the app into maintenance mode?"
+- from: heroku
+  test: heroku members:remove
+  method: Regex
+  enable: true
+  description: "Removes a user from a team"
+- from: heroku
+  test: heroku features:disable
+  method: Regex
+  enable: true
+  description: "Disables an app feature"
+- from: heroku
+  test: heroku container:rm
+  method: Regex
+  enable: true
+  description: "Remove the process type from your app"
+- from: heroku
+  test: heroku config:unset
+  method: Regex
+  enable: true
+  description: "unset one or more config vars"
+- from: heroku
+  test: heroku clients:destroy
+  method: Regex
+  enable: true
+  description: "Delete client by ID"
+- from: heroku
+  test: heroku clients:rotate
+  method: Regex
+  enable: true
+  description: "Rotate OAuth client secret"
+- from: heroku
+  test: heroku clients:update
+  method: Regex
+  enable: true
+  description: "Update OAuth client"
+- from: heroku
+  test: heroku apps:destroy
+  method: Regex
+  enable: true
+  description: "Permanently destroy an app"
+- from: heroku
+  test: heroku apps:leave
+  method: Regex
+  enable: true
+  description: "Remove yourself from a team app"
+- from: heroku
+  test: heroku apps:rename
+  method: Regex
+  enable: true
+  description: "Rename an app"
+- from: heroku
+  test: heroku addons:destroy
+  method: Regex
+  enable: true
+  description: "Permanently destroy an add-on resource"
+- from: heroku
+  test: heroku addons:detach
+  method: Regex
+  enable: true
+  description: "Detach an existing add-on resource from an app"
+- from: heroku
+  test: heroku access:remove
+  method: Regex
+  enable: true
+  description: "Remove users from a team app"
+- from: heroku
+  test: heroku access:update
+  method: Regex
+  enable: true
+  description: "Update existing collaborators on an team app"
+- from: heroku
+  test: heroku repo:reset
+  method: Regex
+  enable: true
+  description: "Reset heroku repo"
