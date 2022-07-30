@@ -380,7 +380,7 @@ mod test_config {
     fn can_write_config_file() -> AnyResult<()> {
         let settings_config = get_temp_config_folder("config.yaml").unwrap();
         assert_debug_snapshot!(settings_config.manage_config_file());
-        assert_debug_snapshot!(settings_config.read_config_file());
+        assert_debug_snapshot!(settings_config.read_config_file().unwrap());
         Ok(())
     }
 
