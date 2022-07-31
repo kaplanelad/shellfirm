@@ -7,6 +7,8 @@ on:
 env:
   BIN_NAME: shellfirm
   PROJECT_NAME: shellfirm
+  REPO_NAME: kaplanelad/shellfirm
+  BREW_TAP: kaplanelad/shellfirm
 
 jobs:
   dist:
@@ -148,3 +150,18 @@ jobs:
           file_glob: true
           tag: ${{ steps.tagname.outputs.val }}
           overwrite: true
+
+      # update homebrew
+
+      - name: Extract version
+        id: extract-version
+        run: |
+          printf "::set-output name=%s::%s\n" tag-name "${GITHUB_REF#refs/tags/}"
+      - uses: mislav/bump-homebrew-formula-action@v1
+        with:
+          formula-path: ${{env.PROJECT_NAME}}.rb
+          homebrew-tap: ${{ env.BREW_TAP }}
+          download-url: "https://github.com/${{ env.REPO_NAME }}/releases/download/${{ steps.extract-version.outputs.tag-name }}/${{env.PROJECT_NAME}}-${{ steps.extract-version.outputs.tag-name }}-x86_64-macos.tar.xz"
+          commit-message: updating formula for ${{ env.PROJECT_NAME }}
+        env:
+          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
