@@ -88,10 +88,10 @@ We have predefined a baseline of risky groups command that will be enabled by de
 | [base](./docs/checks/base.md) | `true` |
 | [git](./docs/checks/git.md) | `true` |
 | [fs](./docs/checks/fs.md) | `true` |
-| [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update --check-group fs-strict` |
-| [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update --check-group kubernetes` |
-| [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` <br/> `shellfirm config update --check-group kubernetes-strict` |
-| [heroku](./docs/checks/heroku.md) | `false` <br/> `shellfirm config update --check-group heroku` |
+| [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update fs-strict` |
+| [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update kubernetes` |
+| [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` <br/> `shellfirm config update kubernetes-strict` |
+| [heroku](./docs/checks/heroku.md) | `false` <br/> `shellfirm config update heroku` |
 
 
 ## Custom checks definition examples
