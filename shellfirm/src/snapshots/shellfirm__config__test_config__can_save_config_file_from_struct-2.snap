@@ -10,7 +10,7 @@ Ok(
             "fs",
             "git",
         ],
-        version: "0.2.0",
+        version: "0.2.2",
         checks: [
             Check {
                 test: "is value",
