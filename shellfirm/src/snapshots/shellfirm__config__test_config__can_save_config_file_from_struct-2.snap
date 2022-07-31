@@ -1,9 +1,9 @@
 ---
-source: src/config.rs
+source: shellfirm/src/config.rs
 expression: settings_config.load_config_from_file()
 ---
 Ok(
-    Config {
+    Context {
         challenge: Math,
         includes: [
             "base",

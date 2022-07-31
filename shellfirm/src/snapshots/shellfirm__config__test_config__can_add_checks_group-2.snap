@@ -1,9 +1,9 @@
 ---
-source: src/config.rs
+source: shellfirm/src/config.rs
 expression: "settings_config.add_checks_group(&[\"base\".into()])"
 ---
 Ok(
-    Config {
+    Context {
         challenge: Math,
         includes: [
             "test",
