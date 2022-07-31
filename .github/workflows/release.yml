@@ -8,7 +8,7 @@ env:
   BIN_NAME: shellfirm
   PROJECT_NAME: shellfirm
   REPO_NAME: kaplanelad/shellfirm
-  BREW_TAP: kaplanelad/shellfirm
+  BREW_TAP: kaplanelad/homebrew-tap
 
 jobs:
   dist:
