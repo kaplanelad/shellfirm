@@ -3,7 +3,8 @@
 ///
 use crate::config::{Challenge, Method};
 use crate::prompt;
-use colored::Colorize;
+use anyhow::Result;
+use console::style;
 use log::debug;
 use rayon::prelude::*;
 use regex::Regex;
@@ -35,14 +36,19 @@ pub struct Check {
     pub filters: HashMap<FilterType, String>,
 }
 
-pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool {
+/// prompt a challenge to the user
+///
+/// # Errors
+///
+/// Will return `Err` when could not convert checks to yaml
+pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Result<bool> {
     if dryrun {
-        eprintln!("{}", serde_yaml::to_string(checks).unwrap());
-        return true;
+        eprintln!("{}", serde_yaml::to_string(checks)?);
+        return Ok(true);
     }
-    eprintln!("{}", "#######################".yellow().bold());
-    eprintln!("{}", "# RISKY COMMAND FOUND #".yellow().bold());
-    eprintln!("{}", "#######################".yellow().bold());
+    eprintln!("{}", style("#######################").yellow().bold());
+    eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
+    eprintln!("{}", style("#######################").yellow().bold());
 
     let mut descriptions: Vec<String> = Vec::new();
     for check in checks {
@@ -51,18 +57,17 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool 
         }
     }
     for description in descriptions {
-        eprintln!("* {}", description)
+        eprintln!("* {}", description);
     }
     eprintln!();
 
     let show_challenge = challenge;
 
-    match show_challenge {
-        Challenge::Default => prompt::math_challenge(),
-        Challenge::Math => prompt::math_challenge(),
+    Ok(match show_challenge {
+        Challenge::Math | Challenge::Default => prompt::math_challenge(),
         Challenge::Enter => prompt::enter_challenge(),
         Challenge::Yes => prompt::yes_challenge(),
-    }
+    })
 }
 
 /// Check if the given command matched to on of the checks
@@ -71,13 +76,14 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> bool 
 ///
 /// * `checks` - List of checks that we want to validate.
 /// * `command` - Command check.
+#[must_use]
 pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
     checks
         .par_iter()
         .filter(|&v| v.enable)
         .filter(|&v| is_match(v, command))
         .filter(|&v| check_custom_filter(v, command))
-        .map(|v| v.clone())
+        .map(std::clone::Clone::clone)
         .collect()
 }
 
@@ -173,7 +179,7 @@ fn is_regex(test_r: &str, command: &str) -> bool {
 fn filter_is_file_exists(file_path: &str) -> bool {
     let mut file_path: String = file_path.trim().into();
     if file_path.starts_with('~') {
-        match home::home_dir() {
+        match dirs::home_dir() {
             Some(path) => {
                 file_path = file_path.replace('~', &path.display().to_string());
             }

@@ -1,4 +1,4 @@
-use colored::{ColoredString, Colorize};
+use console::style;
 use rand::Rng;
 use std::io;
 
@@ -78,6 +78,6 @@ fn show_stdin_prompt() -> String {
 }
 
 /// return cancel string with colorize format
-fn get_cancel_string() -> ColoredString {
-    CANCEL_PROMPT_TEXT.underline().bold().italic()
+fn get_cancel_string() -> String {
+    format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic())
 }

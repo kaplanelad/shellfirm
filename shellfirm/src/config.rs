@@ -47,7 +47,7 @@ impl Default for Challenge {
 
 #[derive(Debug)]
 /// describe configuration folder
-pub struct SettingsConfig {
+pub struct Config {
     /// Configuration folder path.
     pub path: String,
     /// config file.
@@ -56,7 +56,7 @@ pub struct SettingsConfig {
 
 /// Describe the configuration yaml
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Config {
+pub struct Context {
     /// Type of the challenge.
     pub challenge: Challenge,
     /// List of all include files
@@ -70,19 +70,30 @@ pub struct Config {
     pub checks: Vec<Check>,
 }
 
-impl SettingsConfig {
+impl Config {
     /// Convert user config yaml to struct.
-    pub fn load_config_from_file(&self) -> AnyResult<Config> {
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` has an error when loading the config file
+    pub fn load_config_from_file(&self) -> AnyResult<Context> {
         Ok(serde_yaml::from_str(&self.read_config_file()?)?)
     }
 
     /// Return default app config.
-    pub fn load_default_config(&self) -> AnyResult<Config> {
+    /// # Errors
+    ///
+    /// Will return `Err` could not parse default config to yaml file
+    pub fn load_default_config(&self) -> AnyResult<Context> {
         Ok(serde_yaml::from_str(DEFAULT_CONFIG_FILE)?)
     }
 
     /// update config file with the updated baseline checks.
-    pub fn update_config_version(&self, config: Config) -> AnyResult<()> {
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` adding check group return an error
+    pub fn update_config_version(&self, config: &Context) -> AnyResult<()> {
         let mut config = self.add_checks_group(&config.includes)?;
         self.save_config_file_from_struct(&mut config)
     }
@@ -91,7 +102,9 @@ impl SettingsConfig {
     /// * Create config folder if not exists.
     /// * Create default config yaml file if not exists.
     ///
-    // TODO:: need to test this function
+    /// # Errors
+    ///
+    /// Will return `Err` file could not created or loaded
     pub fn manage_config_file(&self) -> AnyResult<()> {
         self.create_config_folder()?;
         if fs::metadata(&self.config_file_path).is_err() {
@@ -106,10 +119,12 @@ impl SettingsConfig {
     ///
     /// # Arguments
     ///
-    /// * remove_checks - if true the given `check_group` parameter will remove from configuration / if false will add.
-    /// * check_groups - list of check groups to act.
+    /// * `remove_checks` - if true the given `check_group` parameter will remove from configuration / if false will add.
+    /// * `check_groups` - list of check groups to act.
     ///
-    // TODO:: need to test this function
+    /// # Errors
+    ///
+    /// Will return `Err` group didn't added/removed
     pub fn update_config_content(
         &self,
         remove_checks: bool,
@@ -125,7 +140,9 @@ impl SettingsConfig {
 
     /// Reset user configuration to the default app.
     ///
-    // TODO:: need to test this function
+    /// # Errors
+    ///
+    /// Will return `Err` create config folder return an error
     pub fn reset_config(&self) -> AnyResult<()> {
         eprintln!(
             "Rest configuration will reset all checks settings. Select how to continue...\n \
@@ -149,7 +166,7 @@ impl SettingsConfig {
                         SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
                     ),
                 )?;
-                self.create_default_config_file()?
+                self.create_default_config_file()?;
             }
             _ => return Err(anyhow!("unexpected option")),
         };
@@ -163,7 +180,9 @@ impl SettingsConfig {
     ///
     /// * `challenge` - new challenge to update
     ///
-    // TODO:: need to test this function
+    /// # Errors
+    ///
+    /// Will return `Err` error return on load/save config
     pub fn update_challenge(&self, challenge: Challenge) -> AnyResult<()> {
         let mut conf = self.load_config_from_file()?;
         conf.challenge = challenge;
@@ -172,8 +191,6 @@ impl SettingsConfig {
     }
 
     /// Create config folder if not exists.
-    ///
-    // TODO:: need to test this function
     fn create_config_folder(&self) -> AnyResult<()> {
         if let Err(err) = fs::create_dir(&self.path) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
@@ -198,7 +215,7 @@ impl SettingsConfig {
     /// # Arguments
     ///
     /// * `config` - Config struct
-    fn save_config_file_from_struct(&self, mut config: &mut Config) -> AnyResult<()> {
+    fn save_config_file_from_struct(&self, mut config: &mut Context) -> AnyResult<()> {
         config.version = env!("CARGO_PKG_VERSION").to_string();
         let content = serde_yaml::to_string(config)?;
         let mut file = fs::File::create(&self.config_file_path)?;
@@ -223,7 +240,7 @@ impl SettingsConfig {
     /// # Arguments
     ///
     /// * `checks_group` - list of groups to add.
-    fn add_checks_group(&self, checks_group: &[String]) -> AnyResult<Config> {
+    fn add_checks_group(&self, checks_group: &[String]) -> AnyResult<Context> {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
@@ -265,7 +282,7 @@ impl SettingsConfig {
     /// # Arguments
     ///
     /// * `checks_group` - list of groups to add.
-    fn remove_checks_group(&self, checks_group: &[String]) -> AnyResult<Config> {
+    fn remove_checks_group(&self, checks_group: &[String]) -> AnyResult<Context> {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
@@ -296,21 +313,27 @@ impl SettingsConfig {
 }
 
 /// Get application  setting config.
-pub fn get_config_folder() -> AnyResult<SettingsConfig> {
+///
+/// # Errors
+///
+/// Will return `Err` error return on load/save config
+pub fn get_config_folder() -> AnyResult<Config> {
     let package_name = env!("CARGO_PKG_NAME");
 
-    match home::home_dir() {
+    match dirs::home_dir() {
         Some(path) => {
             let config_folder = path.join(format!(".{}", package_name));
 
-            let setting_config = SettingsConfig {
-                path: config_folder.to_str().unwrap().to_string(),
+            let setting_config = Config {
+                path: config_folder.to_str().unwrap_or("").to_string(),
                 config_file_path: config_folder
                     .join("config.yaml")
                     .to_str()
-                    .unwrap()
+                    .unwrap_or("")
                     .to_string(),
             };
+
+            setting_config.manage_config_file()?;
             debug!("configuration settings: {:?}", setting_config);
             Ok(setting_config)
         }
@@ -333,7 +356,7 @@ mod test_config {
         std::env::current_dir().unwrap().to_str().unwrap().into()
     }
 
-    fn get_temp_config_folder(file_name: &str) -> SettingsConfig {
+    fn get_temp_config_folder(file_name: &str) -> Config {
         let tmp_folder = Path::new(&get_current_project_path())
             .join("tmp")
             .to_str()
@@ -348,7 +371,7 @@ mod test_config {
             fs::remove_file(&config_file_path).unwrap();
         }
 
-        SettingsConfig {
+        Config {
             path: tmp_folder,
             config_file_path,
         }
@@ -356,7 +379,7 @@ mod test_config {
 
     #[test]
     fn can_load_config_from_file() {
-        let settings_config = SettingsConfig {
+        let settings_config = Config {
             path: get_current_project_path(),
             config_file_path: Path::new(&get_current_project_path())
                 .join("src")
