@@ -13,8 +13,6 @@ pub fn command() -> Command<'static> {
                 .about("add/remove check group")
                 .arg(
                     Arg::new("check-group")
-                        .short('c')
-                        .long("check-group")
                         .help("Check group")
                         .possible_values(ALL_GROUP_CHECKS)
                         .multiple_values(true)
@@ -33,8 +31,6 @@ pub fn command() -> Command<'static> {
         .subcommand(
             App::new("challenge").about("Reset configuration").arg(
                 Arg::new("challenge")
-                    .long("challenge")
-                    .help("Change challenge prompt")
                     .possible_values(&["Math", "Enter", "Yes"])
                     .required(true)
                     .takes_value(true),

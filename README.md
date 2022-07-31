@@ -148,12 +148,12 @@ checks:
 
 ### Add new group checks
 ```bash
-$ shellfirm config update --check-group {risky-command-group-a} {risky-command-group-b}
+$ shellfirm config update {risky-command-group-a} {risky-command-group-b}
 ```
 
 ### Remove new group checks
 ```bash
-$ shellfirm config update --check-group {group} {group} --remove
+$ shellfirm config update {group} {group} --remove
 ```
 
 ### Disable specific checks
@@ -168,7 +168,7 @@ Currently we support 3 different challenges when a risky command is intercepted:
 
 You can change the default challenge by running the command:
 ```bash
-$ shellfirm config challenge --challenge Math
+$ shellfirm config challenge Math
 ```
 
 *At any time you can cancel a risky command by hitting `^C`*

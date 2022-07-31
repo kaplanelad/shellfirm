@@ -55,8 +55,6 @@ pub fn run(arg_matches: &ArgMatches, context: &Context) -> Result<shellfirm::Cmd
         .flat_map(|c| checks::run_check_on_command(&context.checks, c))
         .collect();
 
-    println!("{:?}", matches.len());
-
     log::debug!("matches found {}. {:?}", matches.len(), matches);
     if !matches.is_empty() {
         checks::challenge(&context.challenge, &matches, arg_matches.is_present("test"))?;

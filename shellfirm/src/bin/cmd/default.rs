@@ -5,7 +5,7 @@ pub fn command() -> Command<'static> {
     Command::new("shellfirm")
         .version(env!("VERGEN_GIT_SEMVER"))
         .version(crate_version!())
-        .about("XXX")
+        .about("Intercept any risky patterns")
         .arg(
             Arg::new("log")
                 .long("log")
