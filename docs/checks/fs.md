@@ -1,11 +1,11 @@
 # FS Checks:
 
-* `rm -r ` - This command will delete anything under directory. the patterns that will catch is remove recursively when the target is `/`, `*`, `.`, `..` .
+* `rm -r {PATH}` - This command will delete everything in the path given. A path matching these patterns will be caught: `/`, `*`, `.`, `..` .
 
-* `mv {PATH} /dev/null` - This command transfers the given path to a virtual device that does not exist. Therefore, data will be completely lost.
+* `mv {PATH} /dev/null` - This command transfers given file to the place of the "black hole" virtual device and replaces it. The data will be lost the next time something writes to `/dev/null`.
 
-* `>{FILE NAME}` - The command is used to flush the content of file.
+* `>{FILE NAME}` - This command will flush the contents of the file.
 
-* `chmod -R {MODE} /` - The command allows all users to read, write, and execute all files on the system, which compromises security. Additionally, certain systems may malfunction if the permissions are too open and prevent the system from booting.
+* `chmod -R {MODE} /` - This command changes the permissions of all files in the system. It is likely to compromise its security and make the system unusable, or unable to boot altogether.
 
-* `find -delete` - You may have been confused with `-delete` flag order. this command going to delete all find files in your current path.
+* `find -delete` - The `find` command relies heavily on the order of the flags. Therefore, with `-delete` flag as the first one, this command is going to delete everything in your current path, recursively.
