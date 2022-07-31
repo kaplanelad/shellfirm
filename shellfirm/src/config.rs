@@ -393,12 +393,6 @@ mod test_config {
     }
 
     #[test]
-    fn can_load_default_config() {
-        let conf = get_config_folder().unwrap();
-        assert_debug_snapshot!(conf.load_default_config());
-    }
-
-    #[test]
     fn can_write_config_file() {
         let settings_config = get_temp_config_folder("config.yaml");
         assert_debug_snapshot!(settings_config.manage_config_file());
