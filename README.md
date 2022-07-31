@@ -133,7 +133,7 @@ checks:
     challenge: Default
 ```
 
-:information_source: To define custom checks that are not part of `shillfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
+:information_source: To define custom checks that are not part of `shellfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
 ```yaml
   - test: "command to check"
     method: Regex
