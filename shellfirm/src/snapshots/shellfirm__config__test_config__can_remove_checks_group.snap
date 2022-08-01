@@ -1,0 +1,44 @@
+---
+source: shellfirm/src/config.rs
+expression: "&context"
+---
+Ok(
+    Context {
+        challenge: Math,
+        includes: [
+            "default-check",
+            "test-1",
+            "test-2",
+        ],
+        version: "0.2.2",
+        checks: [
+            Check {
+                test: "default-check",
+                method: Regex,
+                enable: true,
+                description: "",
+                from: "default-check",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "test-1",
+                method: Regex,
+                enable: true,
+                description: "",
+                from: "test-1",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "test-2",
+                method: Regex,
+                enable: true,
+                description: "",
+                from: "test-2",
+                challenge: Default,
+                filters: {},
+            },
+        ],
+    },
+)
