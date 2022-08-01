@@ -1,4 +1,4 @@
-# Bash Installation
+# Fish Installation
 
 
 ```bash
