@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/config.rs
+expression: config.load_config_from_file().unwrap().challenge
+---
+Math

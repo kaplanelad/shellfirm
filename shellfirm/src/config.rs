@@ -370,10 +370,9 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
 mod test_config {
     use super::*;
     use insta::assert_debug_snapshot;
-    use rayon::vec;
     use std::fs::File;
     use std::io::Write;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use tempdir::TempDir;
 
     const CONFIG: &str = r###"---
@@ -448,7 +447,7 @@ checks:
             context
         };
         assert_debug_snapshot!(config.update_config_version(&context));
-        assert_debug_snapshot!(fs::read_to_string(config.config_file_path));
+        assert_debug_snapshot!(config.read_config_file());
         temp_dir.close().unwrap()
     }
 
@@ -475,9 +474,9 @@ checks:
         let config = initialize_config_folder(&temp_dir);
 
         assert_debug_snapshot!(config.update_config_content(false, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(fs::read_to_string(&config.config_file_path));
+        assert_debug_snapshot!(config.read_config_file());
         assert_debug_snapshot!(config.update_config_content(true, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(fs::read_to_string(config.config_file_path));
+        assert_debug_snapshot!(config.read_config_file());
         temp_dir.close().unwrap()
     }
 
@@ -487,35 +486,71 @@ checks:
         let config = initialize_config_folder(&temp_dir);
 
         assert_debug_snapshot!(config.update_config_content(false, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(fs::read_to_string(&config.config_file_path));
+        assert_debug_snapshot!(config.read_config_file());
         assert_debug_snapshot!(config.reset_config(Some("1".to_string())));
-        assert_debug_snapshot!(fs::read_to_string(config.config_file_path));
+        assert_debug_snapshot!(config.read_config_file());
     }
 
-    // // #[test]
-    // fn can_update_challenge(){
+    #[test]
+    fn can_update_challenge() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        assert_debug_snapshot!(config.load_config_from_file().unwrap().challenge);
+        config.update_challenge(Challenge::Yes);
+        assert_debug_snapshot!(config.read_config_file());
+    }
 
-    // }
+    #[test]
+    fn can_create_config_folder() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let app_path = temp_dir.path().join("app");
+        let config = Config {
+            latest_version: "0.0.0".to_string(),
+            all_checks: vec![],
+            path: app_path.display().to_string(),
+            config_file_path: app_path.to_str().unwrap().to_string(),
+        };
 
-    // // #[test]
-    // fn can_create_config_folder(){
+        assert_debug_snapshot!(Path::new(&config.path).is_dir());
+        assert_debug_snapshot!(config.create_config_folder());
+        assert_debug_snapshot!(Path::new(&config.path).is_dir());
+        temp_dir.close().unwrap()
+    }
 
-    // }
+    #[test]
+    fn can_create_default_config_file() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        assert_debug_snapshot!(config.create_default_config_file());
+        assert_debug_snapshot!(config.read_config_file());
+    }
 
-    // // #[test]
-    // fn can_create_default_config_file(){
+    #[test]
+    fn can_save_config_file_from_struct() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let mut context = {
+            let mut context = config.load_config_from_file().unwrap();
+            context.includes.extend([
+                "check-1".to_string(),
+                "check-2".to_string(),
+                "test-disabled".to_string(),
+            ]);
+            context.checks = vec![Check {
+                test: String::from("test-value"),
+                method: Method::Contains,
+                enable: true,
+                description: String::from("description"),
+                from: String::from("test"),
+                challenge: Challenge::Default,
+                filters: std::collections::HashMap::new(),
+            }];
+            context
+        };
 
-    // }
-
-    // // #[test]
-    // fn can_save_config_file_from_struct(){
-
-    // }
-
-    // // #[test]
-    // fn can_read_config_file(){
-
-    // }
+        assert_debug_snapshot!(config.save_config_file_from_struct(&mut context));
+        assert_debug_snapshot!(config.read_config_file());
+    }
 
     // // #[test]
     // fn can_add_checks_group(){
