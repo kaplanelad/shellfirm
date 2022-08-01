@@ -1,0 +1,24 @@
+---
+source: shellfirm/src/config.rs
+expression: "config.get_default_checks(&[\"test-1\".to_string(), \"test-2\".to_string()])"
+---
+[
+    Check {
+        test: "test-1",
+        method: Regex,
+        enable: true,
+        description: "",
+        from: "test-1",
+        challenge: Default,
+        filters: {},
+    },
+    Check {
+        test: "test-2",
+        method: Regex,
+        enable: true,
+        description: "",
+        from: "test-2",
+        challenge: Default,
+        filters: {},
+    },
+]

@@ -1,6 +1,6 @@
 ---
 source: shellfirm/src/config.rs
-expression: "config.add_checks_group(&[\"test-1\".to_string(), \"test-2\".to_string()])"
+expression: "&context"
 ---
 Ok(
     Context {

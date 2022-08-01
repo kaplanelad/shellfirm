@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/config.rs
+expression: "Path::new(&config.path).is_dir()"
+---
+true

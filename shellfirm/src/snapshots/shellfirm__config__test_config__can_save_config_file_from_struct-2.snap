@@ -1,26 +1,7 @@
 ---
 source: shellfirm/src/config.rs
-expression: settings_config.load_config_from_file()
+expression: config.read_config_file()
 ---
 Ok(
-    Context {
-        challenge: Math,
-        includes: [
-            "base",
-            "fs",
-            "git",
-        ],
-        version: "0.0.0",
-        checks: [
-            Check {
-                test: "is value",
-                method: Contains,
-                enable: true,
-                description: "description",
-                from: "from",
-                challenge: Default,
-                filters: {},
-            },
-        ],
-    },
+    "---\nchallenge: Math\nincludes:\n  - default-check\n  - test-1\n  - test-2\n  - test-disabled\nversion: 0.0.0\nchecks:\n  - test: test-value\n    method: Contains\n    enable: true\n    description: description\n    from: test\n    challenge: Default\n    filters: {}\n",
 )

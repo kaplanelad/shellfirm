@@ -1,14 +1,15 @@
 ---
 source: shellfirm/src/config.rs
-expression: config.load_config_from_file()
+expression: "config.remove_checks_group(&[\"test-1\".to_string()])"
 ---
 Ok(
     Context {
         challenge: Math,
         includes: [
             "default-check",
+            "test-2",
         ],
-        version: "0.2.2",
+        version: "0.0.0",
         checks: [
             Check {
                 test: "default-check",
@@ -16,6 +17,15 @@ Ok(
                 enable: true,
                 description: "",
                 from: "default-check",
+                challenge: Default,
+                filters: {},
+            },
+            Check {
+                test: "test-2",
+                method: Regex,
+                enable: true,
+                description: "",
+                from: "test-2",
                 challenge: Default,
                 filters: {},
             },

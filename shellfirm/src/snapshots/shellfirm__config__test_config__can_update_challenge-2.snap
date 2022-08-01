@@ -1,6 +1,6 @@
 ---
 source: shellfirm/src/config.rs
-expression: config.create_default_config_file()
+expression: "config.update_challenge(Challenge::Yes)"
 ---
 Ok(
     (),

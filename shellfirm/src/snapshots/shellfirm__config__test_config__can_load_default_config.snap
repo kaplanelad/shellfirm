@@ -1,0 +1,16 @@
+---
+source: shellfirm/src/config.rs
+expression: config.load_default_config()
+---
+Ok(
+    Context {
+        challenge: Math,
+        includes: [
+            "base",
+            "fs",
+            "git",
+        ],
+        version: "",
+        checks: [],
+    },
+)

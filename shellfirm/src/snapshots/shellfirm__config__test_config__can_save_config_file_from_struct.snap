@@ -1,6 +1,6 @@
 ---
-source: src/config.rs
-expression: settings_config.save_config_file_from_struct(&mut config)
+source: shellfirm/src/config.rs
+expression: config.save_config_file_from_struct(&mut context)
 ---
 Ok(
     (),

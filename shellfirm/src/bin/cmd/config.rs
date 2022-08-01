@@ -74,7 +74,7 @@ pub fn run_update(matches: &ArgMatches, settings: &Config) -> Result<shellfirm::
 }
 
 pub fn run_reset(settings: &Config) -> Result<shellfirm::CmdExit> {
-    settings.reset_config()?;
+    settings.reset_config(None)?;
 
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
