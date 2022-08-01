@@ -48,6 +48,8 @@ impl Default for Challenge {
 #[derive(Debug)]
 /// describe configuration folder
 pub struct Config {
+    // Latest shellfirm version
+    pub latest_version: String,
     /// Configuration folder path.
     pub path: String,
     /// config file.
@@ -216,7 +218,7 @@ impl Config {
     ///
     /// * `config` - Config struct
     fn save_config_file_from_struct(&self, mut config: &mut Context) -> AnyResult<()> {
-        config.version = env!("CARGO_PKG_VERSION").to_string();
+        config.version = self.latest_version.to_string();
         let content = serde_yaml::to_string(config)?;
         let mut file = fs::File::create(&self.config_file_path)?;
         file.write_all(content.as_bytes())?;
@@ -334,6 +336,7 @@ pub fn get_config_folder() -> AnyResult<Config> {
             let config_folder = path.join(format!(".{}", package_name));
 
             let setting_config = Config {
+                latest_version: env!("CARGO_PKG_VERSION").to_string(),
                 path: config_folder.to_str().unwrap_or("").to_string(),
                 config_file_path: config_folder
                     .join("config.yaml")
@@ -381,6 +384,7 @@ mod test_config {
         }
 
         Config {
+            latest_version: "0.0.0".to_string(),
             path: tmp_folder,
             config_file_path,
         }
@@ -389,6 +393,7 @@ mod test_config {
     #[test]
     fn can_load_config_from_file() {
         let settings_config = Config {
+            latest_version: "0.0.0".to_string(),
             path: get_current_project_path(),
             config_file_path: Path::new(&get_current_project_path())
                 .join("src")
