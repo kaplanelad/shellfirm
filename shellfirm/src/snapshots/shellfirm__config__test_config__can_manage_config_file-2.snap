@@ -1,0 +1,7 @@
+---
+source: shellfirm/src/config.rs
+expression: config.manage_config_file()
+---
+Ok(
+    (),
+)

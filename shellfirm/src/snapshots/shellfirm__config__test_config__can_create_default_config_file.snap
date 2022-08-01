@@ -1,7 +1,0 @@
----
-source: src/config.rs
-expression: settings_config.create_default_config_file()
----
-Ok(
-    (),
-)

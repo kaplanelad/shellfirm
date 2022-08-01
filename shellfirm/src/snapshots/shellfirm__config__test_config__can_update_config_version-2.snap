@@ -1,0 +1,7 @@
+---
+source: shellfirm/src/config.rs
+expression: "fs::read_to_string(config.config_file_path)"
+---
+Ok(
+    "---\nchallenge: Math\nincludes:\n  - default-check\n  - check-1\nversion: 0.0.0\nchecks:\n  - test: test-1\n    method: Regex\n    enable: true\n    description: \"\"\n    from: check-1\n    challenge: Default\n    filters: {}\n",
+)

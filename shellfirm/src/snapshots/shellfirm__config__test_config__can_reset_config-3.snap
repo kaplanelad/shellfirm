@@ -1,0 +1,7 @@
+---
+source: shellfirm/src/config.rs
+expression: "config.reset_config(Some(\"1\".to_string()))"
+---
+Ok(
+    (),
+)

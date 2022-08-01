@@ -1,16 +1,24 @@
 ---
 source: shellfirm/src/config.rs
-expression: settings_config.load_config_from_file()
+expression: config.load_config_from_file()
 ---
 Ok(
     Context {
         challenge: Math,
         includes: [
-            "base",
-            "fs",
-            "git",
+            "default-check",
         ],
-        version: "",
-        checks: [],
+        version: "0.2.2",
+        checks: [
+            Check {
+                test: "default-check",
+                method: Regex,
+                enable: true,
+                description: "",
+                from: "default-check",
+                challenge: Default,
+                filters: {},
+            },
+        ],
     },
 )

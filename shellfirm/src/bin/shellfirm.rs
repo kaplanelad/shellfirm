@@ -7,6 +7,9 @@ use std::process::exit;
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
 
+/// String with all checks from `checks` folder (prepared in build.rs) in YAML format.
+pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
+
 fn main() {
     let app = cmd::default::command()
         .subcommand(cmd::command::command())
@@ -21,7 +24,7 @@ fn main() {
     env_logger::init_from_env(env);
 
     // load configuration
-    let config = match get_config_folder() {
+    let config = match get_config_folder(serde_yaml::from_str(ALL_CHECKS).unwrap()) {
         Ok(config) => config,
         Err(err) => {
             eprintln!("Loading config error: {}", err);
