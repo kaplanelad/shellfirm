@@ -260,7 +260,7 @@ impl Config {
                     .collect::<Vec<Check>>();
 
                 debug!("override checks settings: {:?}", override_check_settings);
-    
+
                 // remove checks group that we want to add for make sure that we not have duplicated checks
                 let mut checks = conf.checks.iter()
                     .filter(|&c| !checks_group.contains(&c.from))
@@ -476,9 +476,7 @@ mod test_config {
         };
 
         assert_debug_snapshot!(settings_config.save_config_file_from_struct(&mut config));
-        assert_debug_snapshot!(
-            settings_config.add_checks_group(&["test2".to_string()])
-        );
+        assert_debug_snapshot!(settings_config.add_checks_group(&["test2".to_string()]));
     }
 
     // #[ignore]
