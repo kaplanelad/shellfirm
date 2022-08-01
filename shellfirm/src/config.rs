@@ -253,11 +253,20 @@ impl Config {
                 debug!("new list of includes groups: {:?}", checks_group);
 
                 // List of checks that the user disable or change the challenge type
-                let override_check_settings = conf.checks.iter().filter(|&c| checks_group.contains(&c.from)).filter(|c| !c.enable || c.challenge != Challenge::Default).cloned().collect::<Vec<Check>>();
-                debug!("override checks settings: {:?}", override_check_settings);
+                let override_check_settings = conf.checks.iter()
+                    .filter(|&c| checks_group.contains(&c.from))
+                    .filter(|c| !c.enable || c.challenge != Challenge::Default)
+                    .cloned()
+                    .collect::<Vec<Check>>();
 
+                debug!("override checks settings: {:?}", override_check_settings);
+    
                 // remove checks group that we want to add for make sure that we not have duplicated checks
-                let mut checks = conf.checks.iter().filter(|&c| !checks_group.contains(&c.from)).cloned().collect::<Vec<Check>>();
+                let mut checks = conf.checks.iter()
+                    .filter(|&c| !checks_group.contains(&c.from))
+                    .cloned()
+                    .collect::<Vec<Check>>();
+
                 checks.extend( self.get_default_checks(checks_group)?);
 
                 for override_check in override_check_settings{
@@ -430,21 +439,46 @@ mod test_config {
     fn can_add_checks_group() {
         let settings_config = get_temp_config_folder("add-checks.yaml");
 
-        let mut config = settings_config.load_default_config().unwrap();
-
-        config.includes = vec!["test".into()];
-        config.checks = vec![Check {
-            test: String::from("is value"),
-            method: Method::Contains,
-            enable: true,
-            description: String::from("description"),
-            from: String::from(""),
+        // let mut config = settings_config.load_default_config().unwrap();
+        let mut config = Context {
             challenge: Challenge::Default,
-            filters: std::collections::HashMap::new(),
-        }];
+            includes: vec!["test".to_string()],
+            version: "0.0.1".to_string(),
+            checks: vec![
+                Check {
+                    test: String::from("test-value"),
+                    method: Method::Contains,
+                    enable: true,
+                    description: String::from("description"),
+                    from: String::from("test"),
+                    challenge: Challenge::Default,
+                    filters: std::collections::HashMap::new(),
+                },
+                Check {
+                    test: String::from("test-1value"),
+                    method: Method::Contains,
+                    enable: true,
+                    description: String::from("description"),
+                    from: String::from("test1"),
+                    challenge: Challenge::Default,
+                    filters: std::collections::HashMap::new(),
+                },
+                Check {
+                    test: String::from("test2-value"),
+                    method: Method::Contains,
+                    enable: true,
+                    description: String::from("description"),
+                    from: String::from("test2"),
+                    challenge: Challenge::Default,
+                    filters: std::collections::HashMap::new(),
+                },
+            ],
+        };
 
         assert_debug_snapshot!(settings_config.save_config_file_from_struct(&mut config));
-        assert_debug_snapshot!(settings_config.add_checks_group(&["base".into()]));
+        assert_debug_snapshot!(
+            settings_config.add_checks_group(&["test2".to_string()])
+        );
     }
 
     // #[ignore]
