@@ -1,58 +1,31 @@
 ---
 source: shellfirm/src/config.rs
-expression: "settings_config.add_checks_group(&[\"base\".into()])"
+expression: "settings_config.add_checks_group(&[\"test2\".to_string()])"
 ---
 Ok(
     Context {
-        challenge: Math,
+        challenge: Default,
         includes: [
             "test",
-            "base",
+            "test2",
         ],
         version: "0.2.2",
         checks: [
             Check {
-                test: "is value",
+                test: "test-value",
                 method: Contains,
                 enable: true,
                 description: "description",
-                from: "",
+                from: "test",
                 challenge: Default,
                 filters: {},
             },
             Check {
-                test: ":(){ :|: & };:",
+                test: "test-1value",
                 method: Contains,
                 enable: true,
-                description: "This short line defines a shell function that creates new copies of itself.\nThe process continually replicates itself, and its copies continually replicate themselves, quickly taking up all your CPU time and memory.\nThis can cause your computer to freeze. It’s basically a denial-of-service attack.",
-                from: "base",
-                challenge: Default,
-                filters: {},
-            },
-            Check {
-                test: "\\s*history.*.[|].*.(bash|sh)",
-                method: Regex,
-                enable: true,
-                description: "You are going to executes every command from the command log that you have already executed.",
-                from: "base",
-                challenge: Default,
-                filters: {},
-            },
-            Check {
-                test: "(\\.*)reboot[^.\"']*{0,}",
-                method: Regex,
-                enable: true,
-                description: "You are going to reboot your machine.",
-                from: "base",
-                challenge: Default,
-                filters: {},
-            },
-            Check {
-                test: "(\\.*)shutdown[^.\"']*{0,}",
-                method: Regex,
-                enable: true,
-                description: "You are going to shutdown your machine.",
-                from: "base",
+                description: "description",
+                from: "test1",
                 challenge: Default,
                 filters: {},
             },
