@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use anyhow::Result as AnyResult;
 use log::debug;
 use serde_derive::{Deserialize, Serialize};
+use std::env;
 use std::fs;
 use std::io;
 use std::io::{Read, Write};
@@ -340,12 +341,23 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
 
     match dirs::home_dir() {
         Some(path) => {
-            let config_folder = path.join(format!(".{}", package_name));
+            let config_folder = {
+                // The project started with $HOME path to save the config file. In order the requests
+                // to use $XDG_CACHE_HOME and keep backward compatibility if the folder $HOME/.shellform exists
+                // shillfirm continue work with that folder. If the folder does not exists, the default use config dir
+                let homedir = path.join(format!(".{}", package_name));
+                let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
+                if homedir.is_dir() {
+                    homedir
+                } else {
+                    confdir.join(package_name)
+                }
+            };
 
             let setting_config = Config {
                 latest_version: env!("CARGO_PKG_VERSION").to_string(),
                 all_checks,
-                path: config_folder.to_str().unwrap_or("").to_string(),
+                path: config_folder.display().to_string(),
                 config_file_path: config_folder
                     .join("config.yaml")
                     .to_str()
