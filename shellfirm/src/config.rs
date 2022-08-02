@@ -344,7 +344,7 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
             let config_folder = {
                 // The project started with $HOME path to save the config file. In order the requests
                 // to use $XDG_CACHE_HOME and keep backward compatibility if the folder $HOME/.shellform exists
-                // shillfirm continue work with that folder, if the folder not exists the default use config dir
+                // shillfirm continue work with that folder. If the folder does not exists, the default use config dir
                 let homedir = path.join(format!(".{}", package_name));
                 let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
                 if homedir.is_dir() {
