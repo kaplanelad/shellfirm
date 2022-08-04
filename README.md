@@ -109,6 +109,7 @@ echo 'source ~/.shellfirm-plugin.sh' >> ~/.zshrc
 
 <details>
 <summary>Docker</summary>
+
 * [bash](./docs/docker/bash/README.md)
 * [zsh](./docs/docker/zsh/README.md)
 </details>
