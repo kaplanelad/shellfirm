@@ -37,35 +37,84 @@ If a risky pattern is detected, you will immediately get a prompt with the relev
 ![](./docs/media/example.gif)
 
 
-## Installation 
+## Setup your shell  
 
-### 1. Install via brew
+### Install via brew
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 Or download the binary file from [releases page](https://github.com/kaplanelad/shellfirm/releases), unzip the file and move to `/usr/local/bin` folder.
 
-### 2. select shell type:
-
-#### If you use Oh My Zsh
-* Download zsh plugin:
-```bash
-curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+Validate shellfirm installation
+```
+shellfirm --version
 ```
 
-* Add `shellfirm` to the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
+### Select your shell
+<details>
+<summary>Oh My Zsh</summary>
+Download zsh plugin:
+
+```sh
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.oh-my-zsh.zsh --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
+```
+
+Add `shellfirm` to the list of Oh My Zsh plugins when Zsh is loaded(inside ~/.zshrc):
+
 ```bash
 plugins=(... shellfirm)
 ```
+</details>
 
-* :information_source: Open a new shell session
+<details>
+<summary>Bash</summary>
+Bash implementation is based on https://github.com/rcaloras/bash-preexec project, which adds a pre-exec hook to catch the command before executing.
+
+```sh
+# Download bash-preexec hook functions. 
+curl https://raw.githubusercontent.com/rcaloras/bash-preexec/master/bash-preexec.sh -o ~/.bash-preexec.sh
+
+# Source our file at the end of our bash profile (e.g. ~/.bashrc, ~/.profile, or ~/.bash_profile)
+echo '[[ -f ~/.bash-preexec.sh ]] && source ~/.bash-preexec.sh' >> ~/.bashrc
+
+# Download shellfirm pre-exec function
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.sh -o ~/.shellfirm-plugin.sh
+
+# Load pre-exec command on shell initialized
+echo 'source ~/.shellfirm-plugin.sh' >> ~/.bashrc
+```
+</details>
+
+<details>
+
+<summary>fish</summary>
 
 
-### More supported shells
+```sh
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.fish -o ~/.config/fish/conf.d/shellfirm.plugin.fish
+```
+</details>
 
-* [bash](./docs/installation/bash.md)
-* [fish](./docs/installation/fishshell.md)
+<details>
+<summary>Zsh</summary>
+
+
+```sh
+# Add shellfirm to conf.d fishshell folder
+curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.zsh -o ~/.shellfirm-plugin.sh
+echo 'source ~/.shellfirm-plugin.sh' >> ~/.zshrc
+```
+</details>
+
+<summary>Docker</summary>
+* [bash](./docs/docker/bash/README.md)
+* [zsh](./docs/docker/zsh/README.md)
+</details>
+
+:information_source: Open a new shell session
+
+:eyes: :eyes: [Verify installation](./README.md#verify-installation) :eyes: :eyes:
 
 ## Verify installation
 ```
