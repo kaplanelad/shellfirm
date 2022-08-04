@@ -22,4 +22,3 @@ RUN curl https://api.github.com/repos/kaplanelad/shellfirm/releases/latest | jq 
 
 # Load pre-exec command on shell initialized
 RUN echo 'source /root/.shellfirm-plugin.sh' >> ~/.bashrc
-RUN echo 'echo "?"' >> ~/.bashrc
