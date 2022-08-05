@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/config.rs
+expression: content
+---
+"---\nchallenge: Math\nincludes:\n  - default-check\nversion: 0.2.2\nchecks: \n- from: default-check\n  test: default-check\n  method: Regex\n  enable: true\n  description: \"\"\n"
