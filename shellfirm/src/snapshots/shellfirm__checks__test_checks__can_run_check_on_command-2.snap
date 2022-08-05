@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/checks.rs
+expression: "run_check_on_command(&checks, \"unknown command\")"
+---
+[]
