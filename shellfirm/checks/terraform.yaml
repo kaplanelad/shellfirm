@@ -1,0 +1,20 @@
+- from: terraform
+  test: terraform\s+(apply|state replace-provider)[^|&]*\s-auto-approve
+  method: Regex
+  enable: true
+  description: "Auto approving executes a command without asking for confirmation."
+- from: terraform
+  test: terraform\s+workspace delete[^|&]*\s-force
+  method: Regex
+  enable: true
+  description: "Forces a manual workspace deletion even if its state is not empty."
+- from: terraform
+  test: terraform\s+workspace delete[^|&]*\s-lock=false
+  method: Regex
+  enable: true
+  description: "Doesn't lock the state during the workspace delete operation."
+- from: terraform
+  test: terraform\s+force-unlock[^|&]*\s-force
+  method: Regex
+  enable: true
+  description: "Forces a manual unlock of the state without asking for confirmation."
