@@ -4,10 +4,10 @@ use crate::checks::Check;
 use anyhow::anyhow;
 use anyhow::Result as AnyResult;
 use log::debug;
+use requestty::{DefaultSeparator, Question};
 use serde_derive::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use std::io;
 use std::io::{Read, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -145,39 +145,34 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` create config folder return an error
-    pub fn reset_config(&self, force_selection: Option<String>) -> AnyResult<()> {
-        eprintln!(
-            "Rest configuration will reset all checks settings. Select how to continue...\n \
-            1. Yes, i want to override the current configuration\n \
-            2. Override and backup the existing file\n \
-            3. Cancel Or ^C"
-        );
-        let answer = force_selection.map_or_else(
-            || {
-                let mut answer = String::new();
-                io::stdin()
-                    .read_line(&mut answer)
-                    .expect("Failed to read line");
-                answer
-            },
-            |a| a,
-        );
-        match answer.trim() {
-            "1" => self.create_default_config_file()?,
-            "2" => {
-                fs::rename(
-                    &self.config_file_path,
-                    format!(
-                        "{}.{}.bak",
-                        self.config_file_path,
-                        SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
-                    ),
-                )?;
+    pub fn reset_config(&self, force_selection: Option<usize>) -> AnyResult<()> {
+        let selected = if let Some(force_selection) = force_selection {
+            force_selection
+        } else {
+            let questions = requestty::prompt_one(
+            Question::raw_select("reset")
+                .message(
+                    "Rest configuration will reset all checks settings. Select how to continue...",
+                )
+                .choices(vec![
+                    "Yes, i want to override the current configuration".into(),
+                    "Override and backup the existing file".into(),
+                    DefaultSeparator,
+                    "Cancel Or ^C".into(),
+                ])
+                .build(),
+        )?;
+            questions.as_list_item().map_or(3, |s| s.index)
+        };
+
+        match selected {
+            0 => self.create_default_config_file()?,
+            1 => {
+                self.backup()?;
                 self.create_default_config_file()?;
             }
             _ => return Err(anyhow!("unexpected option")),
         };
-
         Ok(())
     }
 
@@ -322,6 +317,16 @@ impl Config {
         }
     }
 
+    fn backup(&self) -> AnyResult<String> {
+        let backup_to = format!(
+            "{}.{}.bak",
+            self.config_file_path,
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
+        );
+        fs::rename(&self.config_file_path, &backup_to)?;
+        Ok(backup_to)
+    }
+
     fn get_default_checks(&self, includes: &[String]) -> Vec<Check> {
         self.all_checks
             .iter()
@@ -438,7 +443,7 @@ checks:
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
         assert_debug_snapshot!(config.load_config_from_file());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -446,7 +451,7 @@ checks:
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
         assert_debug_snapshot!(config.load_default_config());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -460,7 +465,7 @@ checks:
         };
         assert_debug_snapshot!(config.update_config_version(&context));
         assert_debug_snapshot!(config.read_config_file());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -477,7 +482,7 @@ checks:
         assert_debug_snapshot!(Path::new(&config.path).is_dir());
         assert_debug_snapshot!(config.manage_config_file());
         assert_debug_snapshot!(Path::new(&config.path).is_dir());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -489,7 +494,7 @@ checks:
         assert_debug_snapshot!(config.read_config_file());
         assert_debug_snapshot!(config.update_config_content(true, &vec!["test-2".to_string()]));
         assert_debug_snapshot!(config.read_config_file());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -499,7 +504,7 @@ checks:
 
         assert_debug_snapshot!(config.update_config_content(false, &vec!["test-2".to_string()]));
         assert_debug_snapshot!(config.read_config_file());
-        assert_debug_snapshot!(config.reset_config(Some("1".to_string())));
+        assert_debug_snapshot!(config.reset_config(Some(1)));
         assert_debug_snapshot!(config.read_config_file());
     }
 
@@ -526,7 +531,7 @@ checks:
         assert_debug_snapshot!(Path::new(&config.path).is_dir());
         assert_debug_snapshot!(config.create_config_folder());
         assert_debug_snapshot!(Path::new(&config.path).is_dir());
-        temp_dir.close().unwrap()
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -535,6 +540,7 @@ checks:
         let config = initialize_config_folder(&temp_dir);
         assert_debug_snapshot!(config.create_default_config_file());
         assert_debug_snapshot!(config.read_config_file());
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -562,6 +568,7 @@ checks:
 
         assert_debug_snapshot!(config.save_config_file_from_struct(&mut context));
         assert_debug_snapshot!(config.read_config_file());
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -571,6 +578,7 @@ checks:
         assert_debug_snapshot!(
             config.add_checks_group(&["test-1".to_string(), "test-2".to_string()])
         );
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -581,6 +589,7 @@ checks:
         assert_debug_snapshot!(&context);
         assert_debug_snapshot!(config.save_config_file_from_struct(&mut context.unwrap()));
         assert_debug_snapshot!(config.remove_checks_group(&["test-1".to_string()]));
+        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -590,5 +599,21 @@ checks:
         assert_debug_snapshot!(
             config.get_default_checks(&["test-1".to_string(), "test-2".to_string()])
         );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_backup() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let backup = config.backup();
+
+        assert_debug_snapshot!(backup.is_ok());
+        let mut file = std::fs::File::open(&backup.unwrap()).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).unwrap();
+
+        assert_debug_snapshot!(content);
+        temp_dir.close().unwrap();
     }
 }
