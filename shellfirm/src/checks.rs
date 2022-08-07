@@ -249,21 +249,49 @@ mod test_checks {
         assert_debug_snapshot!(&startwith_check);
     }
     #[test]
-    fn can_check_is_contains() {
-        assert_debug_snapshot!(is_contains("test", "test is valid"));
-        assert_debug_snapshot!(is_contains("test is valid", "not-found"));
+    fn can_is_match_contains() {
+        let check = Check {
+            test: String::from("test"),
+            method: Method::Contains,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+
+        assert_debug_snapshot!(is_match(&check, "test is valid"));
+        assert_debug_snapshot!(is_match(&check, "not-found"));
     }
 
     #[test]
-    fn can_check_is_start_with() {
-        assert_debug_snapshot!(is_start_with("test is", "test is valid"));
-        assert_debug_snapshot!(is_start_with("test is valid", "is"));
+    fn can_is_match_start_with() {
+        let check = Check {
+            test: String::from("test"),
+            method: Method::StartWith,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+        assert_debug_snapshot!(is_match(&check, "test is valid"));
+        assert_debug_snapshot!(is_match(&check, "1test not valid"));
     }
 
     #[test]
     fn can_check_is_regex_match() {
-        assert_debug_snapshot!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
-        assert_debug_snapshot!(is_regex("^f", "rm -rf"));
+        let check = Check {
+            test: String::from(r#"rm\s*(-r|-fr|-rf)\s*(\*)"#),
+            method: Method::Regex,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+        assert_debug_snapshot!(is_match(&check, "rm -rf *"));
+        assert_debug_snapshot!(is_match(&check, "rm -rf /test"));
     }
 
     #[test]
