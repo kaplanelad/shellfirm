@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/checks.rs
+expression: "is_match(&check, \"test is valid\")"
+---
+true

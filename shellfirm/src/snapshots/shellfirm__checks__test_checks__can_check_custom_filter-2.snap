@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/checks.rs
+expression: "check_custom_filter(&check, command.as_ref())"
+---
+true
