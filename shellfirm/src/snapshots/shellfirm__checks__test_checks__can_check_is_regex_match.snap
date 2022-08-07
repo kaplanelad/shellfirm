@@ -1,5 +1,5 @@
 ---
-source: src/checks.rs
-expression: "is_regex(\"rm.+(-r|-f|-rf|-fr)*\", \"rm -rf\")"
+source: shellfirm/src/checks.rs
+expression: "is_match(&check, \"rm -rf *\")"
 ---
 true

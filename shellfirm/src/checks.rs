@@ -194,6 +194,26 @@ fn filter_is_file_exists(file_path: &str) -> bool {
 mod test_checks {
     use super::*;
     use insta::assert_debug_snapshot;
+    use std::fs;
+    use tempdir::TempDir;
+
+    const CHECKS: &str = r###"
+- from: test-1
+  test: test-(1)
+  method: Regex
+  enable: true
+  description: ""
+- from: test-2
+  test: test-(1|2)
+  method: Regex
+  enable: true
+  description: ""
+- from: test-disabled
+  test: test-disabled
+  method: Regex
+  enable: true
+  description: ""
+"###;
 
     #[test]
     fn is_match_command() {
@@ -229,20 +249,81 @@ mod test_checks {
         assert_debug_snapshot!(&startwith_check);
     }
     #[test]
-    fn can_check_is_contains() {
-        assert_debug_snapshot!(is_contains("test", "test is valid"));
-        assert_debug_snapshot!(is_contains("test is valid", "not-found"));
+    fn can_is_match_contains() {
+        let check = Check {
+            test: String::from("test"),
+            method: Method::Contains,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+
+        assert_debug_snapshot!(is_match(&check, "test is valid"));
+        assert_debug_snapshot!(is_match(&check, "not-found"));
     }
 
     #[test]
-    fn can_check_is_start_with() {
-        assert_debug_snapshot!(is_start_with("test is", "test is valid"));
-        assert_debug_snapshot!(is_start_with("test is valid", "is"));
+    fn can_is_match_start_with() {
+        let check = Check {
+            test: String::from("test"),
+            method: Method::StartWith,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+        assert_debug_snapshot!(is_match(&check, "test is valid"));
+        assert_debug_snapshot!(is_match(&check, "1test not valid"));
     }
 
     #[test]
     fn can_check_is_regex_match() {
-        assert_debug_snapshot!(is_regex("rm.+(-r|-f|-rf|-fr)*", "rm -rf"));
-        assert_debug_snapshot!(is_regex("^f", "rm -rf"));
+        let check = Check {
+            test: String::from(r#"rm\s*(-r|-fr|-rf)\s*(\*)"#),
+            method: Method::Regex,
+            enable: true,
+            description: String::from(""),
+            from: String::from(""),
+            challenge: Challenge::Default,
+            filters: HashMap::new(),
+        };
+        assert_debug_snapshot!(is_match(&check, "rm -rf *"));
+        assert_debug_snapshot!(is_match(&check, "rm -rf /test"));
+    }
+
+    #[test]
+    fn can_run_check_on_command() {
+        let checks: Vec<Check> = serde_yaml::from_str(CHECKS).unwrap();
+        assert_debug_snapshot!(run_check_on_command(&checks, "test-1"));
+        assert_debug_snapshot!(run_check_on_command(&checks, "unknown command"));
+    }
+
+    #[test]
+    fn can_check_custom_filter() {
+        let mut filters: HashMap<FilterType, String> = HashMap::new();
+        filters.insert(FilterType::IsFileExists, "1".to_string());
+
+        let check = Check {
+            test: ".*>(.*)".to_string(),
+            method: Method::Regex,
+            enable: true,
+            description: "some description".to_string(),
+            from: "test".to_string(),
+            challenge: Challenge::Default,
+            filters,
+        };
+
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let app_path = temp_dir.path().join("app");
+        fs::create_dir_all(&app_path).unwrap();
+        let message_file = app_path.join("message.txt");
+
+        let command = format!("cat 'write message' > {}", message_file.display());
+        assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
+        std::fs::File::create(message_file).unwrap();
+        assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
     }
 }
