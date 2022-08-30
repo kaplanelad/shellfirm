@@ -3,7 +3,6 @@ use clap::{Arg, Command};
 
 pub fn command() -> Command<'static> {
     Command::new("shellfirm")
-        .version(env!("VERGEN_GIT_SEMVER"))
         .version(crate_version!())
         .about("Intercept any risky patterns")
         .arg(

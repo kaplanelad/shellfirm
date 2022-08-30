@@ -35,8 +35,6 @@ tempdir = "0.3"
 
 [build-dependencies]
 anyhow = "1.0.51"
-vergen = "7"
-
 
 [features]
 default = ["cli"]
