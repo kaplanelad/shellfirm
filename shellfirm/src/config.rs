@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
 
 /// The method type go the check.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum Method {
     /// Run start with check.
     StartWith,
@@ -26,7 +26,7 @@ pub enum Method {
 }
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -284,7 +284,7 @@ impl Config {
                 debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
             },
-            Err(e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml. Try resolving by running `shellfirm config reset` Error: {}", e))
+            Err(e) => Err(anyhow!("could not parse current config file. please try to fix the yaml. Try resolving by running `shellfirm config reset` Error: {}", e))
         }
     }
 
@@ -313,7 +313,7 @@ impl Config {
                 debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
             },
-            Err(_e) => return Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
+            Err(_e) => Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
         }
     }
 
@@ -374,7 +374,7 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
             debug!("configuration settings: {:?}", setting_config);
             Ok(setting_config)
         }
-        None => return Err(anyhow!("could not get directory path")),
+        None => Err(anyhow!("could not get directory path")),
     }
 }
 
