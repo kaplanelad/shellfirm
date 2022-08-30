@@ -4,10 +4,8 @@ use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use vergen::{vergen, Config};
 
 fn main() -> Result<()> {
-    vergen(Config::default())?;
     println!("cargo:rerun-if-changed=checks/");
 
     let out_dir = env::var("OUT_DIR")?;
