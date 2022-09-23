@@ -1,15 +1,18 @@
 //! Manage command checks
 
-///
-use crate::config::{Challenge, Method};
-use crate::prompt;
+use std::collections::HashMap;
+
 use anyhow::Result;
 use console::style;
 use log::debug;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
+
+use crate::{
+    config::{Challenge, Method},
+    prompt,
+};
 
 // list of custom filter
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
@@ -89,7 +92,8 @@ pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
 
 /// filter custom checks
 ///
-/// When true is returned it mean the filter should keep the check and not filter our the check.
+/// When true is returned it mean the filter should keep the check and not
+/// filter our the check.
 ///
 /// # Arguments
 ///
@@ -103,7 +107,8 @@ fn check_custom_filter(check: &Check, command: &str) -> bool {
     // Capture command groups from the current check
     let caps = Regex::new(&check.test).unwrap().captures(command).unwrap();
 
-    // by default true is return. it mean the check not filter out (safe side security).
+    // by default true is return. it mean the check not filter out (safe side
+    // security).
     let mut keep_check = true;
     for (filter_type, filter_params) in &check.filters {
         debug!(
@@ -192,10 +197,12 @@ fn filter_is_file_exists(file_path: &str) -> bool {
 
 #[cfg(test)]
 mod test_checks {
-    use super::*;
-    use insta::assert_debug_snapshot;
     use std::fs;
+
+    use insta::assert_debug_snapshot;
     use tempdir::TempDir;
+
+    use super::*;
 
     const CHECKS: &str = r###"
 - from: test-1

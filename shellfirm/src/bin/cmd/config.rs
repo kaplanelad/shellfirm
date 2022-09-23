@@ -1,5 +1,4 @@
-use anyhow::anyhow;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{App, Arg, ArgMatches, Command};
 use shellfirm::{Challenge, Config};
 

@@ -1,13 +1,14 @@
 mod cmd;
-use anyhow::anyhow;
-use console::style;
-use console::Style;
-use shellfirm::get_config_folder;
 use std::process::exit;
+
+use anyhow::anyhow;
+use console::{style, Style};
+use shellfirm::get_config_folder;
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
 
-/// String with all checks from `checks` folder (prepared in build.rs) in YAML format.
+/// String with all checks from `checks` folder (prepared in build.rs) in YAML
+/// format.
 pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
 
 fn main() {
