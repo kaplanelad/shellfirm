@@ -1,6 +1,7 @@
+use std::io;
+
 use console::style;
 use rand::Rng;
-use std::io;
 
 /// wrong answer text show when user solve the challenge incorrectly
 const WRONG_ANSWER: &str = "wrong answer, try again...";

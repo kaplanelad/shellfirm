@@ -1,5 +1,4 @@
-use clap::crate_version;
-use clap::{Arg, Command};
+use clap::{crate_version, Arg, Command};
 
 pub fn command() -> Command<'static> {
     Command::new("shellfirm")

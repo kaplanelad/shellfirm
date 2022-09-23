@@ -1,15 +1,18 @@
-//! Manage the app configuration by creating, deleting and modify the configuration
+//! Manage the app configuration by creating, deleting and modify the
+//! configuration
 
-use crate::checks::Check;
-use anyhow::anyhow;
-use anyhow::Result as AnyResult;
+use std::{
+    env, fs,
+    io::{Read, Write},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use anyhow::{anyhow, Result as AnyResult};
 use log::debug;
 use requestty::{DefaultSeparator, Question};
 use serde_derive::{Deserialize, Serialize};
-use std::env;
-use std::fs;
-use std::io::{Read, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::checks::Check;
 
 /// Default configuration file.
 pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
@@ -121,7 +124,8 @@ impl Config {
     ///
     /// # Arguments
     ///
-    /// * `remove_checks` - if true the given `check_group` parameter will remove from configuration / if false will add.
+    /// * `remove_checks` - if true the given `check_group` parameter will
+    ///   remove from configuration / if false will add.
     /// * `check_groups` - list of check groups to act.
     ///
     /// # Errors
@@ -150,18 +154,19 @@ impl Config {
             force_selection
         } else {
             let questions = requestty::prompt_one(
-            Question::raw_select("reset")
-                .message(
-                    "Rest configuration will reset all checks settings. Select how to continue...",
-                )
-                .choices(vec![
-                    "Yes, i want to override the current configuration".into(),
-                    "Override and backup the existing file".into(),
-                    DefaultSeparator,
-                    "Cancel Or ^C".into(),
-                ])
-                .build(),
-        )?;
+                Question::raw_select("reset")
+                    .message(
+                        "Rest configuration will reset all checks settings. Select how to \
+                         continue...",
+                    )
+                    .choices(vec![
+                        "Yes, i want to override the current configuration".into(),
+                        "Override and backup the existing file".into(),
+                        DefaultSeparator,
+                        "Cancel Or ^C".into(),
+                    ])
+                    .build(),
+            )?;
             questions.as_list_item().map_or(3, |s| s.index)
         };
 
@@ -246,16 +251,17 @@ impl Config {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
-
-                for c in checks_group{
-                    if !conf.includes.contains(c){
+                for c in checks_group {
+                    if !conf.includes.contains(c) {
                         conf.includes.push(c.clone());
                     }
                 }
                 debug!("new list of includes groups: {:?}", checks_group);
 
                 // List of checks that the user disable or change the challenge type
-                let override_check_settings = conf.checks.iter()
+                let override_check_settings = conf
+                    .checks
+                    .iter()
                     .filter(|&c| checks_group.contains(&c.from))
                     .filter(|c| !c.enable || c.challenge != Challenge::Default)
                     .cloned()
@@ -263,17 +269,20 @@ impl Config {
 
                 debug!("override checks settings: {:?}", override_check_settings);
 
-                // remove checks group that we want to add for make sure that we not have duplicated checks
-                let mut checks = conf.checks.iter()
+                // remove checks group that we want to add for make sure that we not have
+                // duplicated checks
+                let mut checks = conf
+                    .checks
+                    .iter()
                     .filter(|&c| !checks_group.contains(&c.from))
                     .cloned()
                     .collect::<Vec<Check>>();
 
-                checks.extend( self.get_default_checks(checks_group));
+                checks.extend(self.get_default_checks(checks_group));
 
-                for override_check in override_check_settings{
-                    for c in  &mut checks{
-                        if c.test == override_check.test{
+                for override_check in override_check_settings {
+                    for c in &mut checks {
+                        if c.test == override_check.test {
                             c.enable = override_check.enable;
                             c.challenge = override_check.challenge.clone();
                         }
@@ -283,8 +292,12 @@ impl Config {
                 conf.checks = checks;
                 debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
-            },
-            Err(e) => Err(anyhow!("could not parse current config file. please try to fix the yaml. Try resolving by running `shellfirm config reset` Error: {}", e))
+            }
+            Err(e) => Err(anyhow!(
+                "could not parse current config file. please try to fix the yaml. Try resolving \
+                 by running `shellfirm config reset` Error: {}",
+                e
+            )),
         }
     }
 
@@ -297,23 +310,36 @@ impl Config {
         //load user config file
         match self.load_config_from_file() {
             Ok(mut conf) => {
-
-                for c in checks_group{
-                    if conf.includes.contains(c){
+                for c in checks_group {
+                    if conf.includes.contains(c) {
                         conf.includes.retain(|x| x != c);
                     }
                 }
                 debug!("new list of includes groups: {:?}", checks_group);
-                // remove checks group that we want to add for make sure that we not have duplicated checks
-                conf.checks = conf.checks.iter().filter(|&c|{
-                        println!("{:?}.containn.{} => {}", conf.includes, &c.from, conf.includes.contains(&c.from));
-                     conf.includes.contains(&c.from)
-                }).cloned().collect::<Vec<Check>>();
+                // remove checks group that we want to add for make sure that we not have
+                // duplicated checks
+                conf.checks = conf
+                    .checks
+                    .iter()
+                    .filter(|&c| {
+                        println!(
+                            "{:?}.containn.{} => {}",
+                            conf.includes,
+                            &c.from,
+                            conf.includes.contains(&c.from)
+                        );
+                        conf.includes.contains(&c.from)
+                    })
+                    .cloned()
+                    .collect::<Vec<Check>>();
 
                 debug!("new check list: {:?}", conf.checks);
                 Ok(conf)
-            },
-            Err(_e) => Err(anyhow!("could not parse current config file. please try to fix the yaml file or override the current configuration by use the flag `--behavior override`"))
+            }
+            Err(_e) => Err(anyhow!(
+                "could not parse current config file. please try to fix the yaml file or override \
+                 the current configuration by use the flag `--behavior override`"
+            )),
         }
     }
 
@@ -347,9 +373,11 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
     match dirs::home_dir() {
         Some(path) => {
             let config_folder = {
-                // The project started with $HOME path to save the config file. In order the requests
-                // to use $XDG_CACHE_HOME and keep backward compatibility if the folder $HOME/.shellform exists
-                // shillfirm continue work with that folder. If the folder does not exists, the default use config dir
+                // The project started with $HOME path to save the config file. In order the
+                // requests to use $XDG_CACHE_HOME and keep backward
+                // compatibility if the folder $HOME/.shellform exists shillfirm
+                // continue work with that folder. If the folder does not exists, the default
+                // use config dir
                 let homedir = path.join(format!(".{}", package_name));
                 let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
                 if homedir.is_dir() {
@@ -385,12 +413,12 @@ pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
 
 #[cfg(test)]
 mod test_config {
-    use super::*;
+    use std::{fs::File, io::Write, path::Path};
+
     use insta::assert_debug_snapshot;
-    use std::fs::File;
-    use std::io::Write;
-    use std::path::Path;
     use tempdir::TempDir;
+
+    use super::*;
 
     const CONFIG: &str = r###"---
 challenge: Math
