@@ -284,18 +284,6 @@ mod test_config {
     fn initialize_config_folder(temp_dir: &TempDir) -> Config {
         let temp_dir = temp_dir.path().join("app");
         Config::new(Some(&temp_dir.display().to_string())).unwrap()
-
-        // let app_path = temp_dir.path().join("app");
-        // fs::create_dir_all(&app_path).unwrap();
-        // let config_file_path = app_path.join("settings.yaml");
-
-        // let mut f = File::create(&config_file_path).unwrap();
-        // f.write_all(CONFIG.as_bytes()).unwrap();
-        // f.sync_all().unwrap();
-        // Config {
-        //     root_folder: app_path.display().to_string(),
-        //     setting_file_path:
-        // config_file_path.to_str().unwrap().to_string(), }
     }
 
     #[test]
@@ -378,6 +366,41 @@ mod test_config {
         config.reset_config(Some(1)).unwrap();
         assert_debug_snapshot!(config.get_settings_from_file());
         assert_debug_snapshot!(read_dir(config.root_folder).unwrap().count());
+        temp_dir.close().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod test_settings {
+    use std::{fs::read_dir, path::Path};
+
+    use insta::assert_debug_snapshot;
+    use tempdir::TempDir;
+
+    use super::*;
+
+    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
+        let temp_dir = temp_dir.path().join("app");
+        Config::new(Some(&temp_dir.display().to_string())).unwrap()
+    }
+
+    #[test]
+    fn can_get_active_checks() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        assert_debug_snapshot!(config
+            .get_settings_from_file()
+            .unwrap()
+            .get_active_checks()
+            .is_ok());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_get_settings_from_file() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        assert_debug_snapshot!(config.get_settings_from_file().unwrap().get_active_groups());
         temp_dir.close().unwrap();
     }
 }

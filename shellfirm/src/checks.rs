@@ -342,4 +342,8 @@ mod test_checks {
         std::fs::File::create(message_file).unwrap();
         assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
     }
+    #[test]
+    fn can_get_all_checks() {
+        assert_debug_snapshot!(get_all_checks().is_ok());
+    }
 }

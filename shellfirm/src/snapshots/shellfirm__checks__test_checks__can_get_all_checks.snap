@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/checks.rs
+expression: get_all_checks().is_ok()
+---
+true
