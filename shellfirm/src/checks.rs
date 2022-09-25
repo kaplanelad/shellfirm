@@ -51,11 +51,7 @@ pub fn get_all_checks() -> Result<Vec<Check>> {
 /// # Errors
 ///
 /// Will return `Err` when could not convert checks to yaml
-pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Result<bool> {
-    if dryrun {
-        eprintln!("{}", serde_yaml::to_string(checks)?);
-        return Ok(true);
-    }
+pub fn challenge(challenge: &Challenge, checks: &[Check]) -> Result<bool> {
     eprintln!("{}", style("#######################").yellow().bold());
     eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
     eprintln!("{}", style("#######################").yellow().bold());

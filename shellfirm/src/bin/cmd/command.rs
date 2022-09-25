@@ -33,8 +33,20 @@ pub fn run(
     settings: &Settings,
     checks: &[Check],
 ) -> Result<shellfirm::CmdExit> {
-    let command = arg_matches.value_of("command").unwrap_or(""); // todo:: wrap me
+    run_pre_command(
+        arg_matches.value_of("command").unwrap_or(""),
+        settings,
+        checks,
+        arg_matches.is_present("test"),
+    )
+}
 
+pub fn run_pre_command(
+    command: &str,
+    settings: &Settings,
+    checks: &[Check],
+    dryrun: bool,
+) -> Result<shellfirm::CmdExit> {
     let command = REGEX_STRING_COMMAND_REPLACE
         .replace_all(command, "")
         .to_string();
@@ -50,16 +62,67 @@ pub fn run(
         .collect();
 
     log::debug!("matches found {}. {:?}", matches.len(), matches);
+
+    if dryrun {
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: Some(serde_yaml::to_string(&matches)?),
+        });
+    }
+
     if !matches.is_empty() {
-        checks::challenge(
-            &settings.challenge,
-            &matches,
-            arg_matches.is_present("test"),
-        )?;
+        checks::challenge(&settings.challenge, &matches)?;
     }
 
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
         message: None,
     })
+}
+
+#[cfg(test)]
+mod test_command_cli_command {
+
+    use insta::assert_debug_snapshot;
+    use shellfirm::Config;
+    use tempdir::TempDir;
+
+    use super::*;
+
+    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
+        let temp_dir = temp_dir.path().join("app");
+        Config::new(Some(&temp_dir.display().to_string())).unwrap()
+    }
+
+    #[test]
+    fn can_run_pre_command() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let settings = initialize_config_folder(&temp_dir)
+            .get_settings_from_file()
+            .unwrap();
+
+        assert_debug_snapshot!(run_pre_command(
+            "rm -rf /",
+            &settings,
+            &settings.get_active_checks().unwrap(),
+            true
+        ));
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_pre_command_without_match() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let settings = initialize_config_folder(&temp_dir)
+            .get_settings_from_file()
+            .unwrap();
+
+        assert_debug_snapshot!(run_pre_command(
+            "command",
+            &settings,
+            &settings.get_active_checks().unwrap(),
+            true
+        ));
+        temp_dir.close().unwrap();
+    }
 }

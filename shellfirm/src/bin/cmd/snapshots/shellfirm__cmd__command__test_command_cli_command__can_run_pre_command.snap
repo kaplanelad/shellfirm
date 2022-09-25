@@ -1,0 +1,12 @@
+---
+source: shellfirm/src/bin/cmd/command.rs
+expression: "run_pre_command(\"rm -rf /\", &settings, &settings.get_active_checks().unwrap(),\n    true)"
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: Some(
+            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s*(-r|-fr|-rf)\\\\s*(\\\\*|\\\\.\\\\z|\\\\./\\\\z|\\\\.\\\\.|/)\"\n  method: Regex\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters: {}\n",
+        ),
+    },
+)
