@@ -1,0 +1,13 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: config.get_settings_from_file()
+---
+Ok(
+    Settings {
+        challenge: Math,
+        includes: [
+            "test-1",
+        ],
+        ignores: [],
+    },
+)

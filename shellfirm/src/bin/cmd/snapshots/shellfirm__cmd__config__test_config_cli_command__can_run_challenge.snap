@@ -1,0 +1,10 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: "run_challenge(&config, Some(Challenge::Yes))"
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: None,
+    },
+)
