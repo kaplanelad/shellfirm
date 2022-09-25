@@ -1,5 +1,5 @@
 ---
 source: shellfirm/src/config.rs
-expression: "Path::new(&config.path).is_dir()"
+expression: "Path::new(&config.setting_file_path).is_file()"
 ---
 false

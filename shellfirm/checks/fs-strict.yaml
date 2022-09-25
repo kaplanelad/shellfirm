@@ -1,10 +1,10 @@
 - from: fs-strict
   test: chmod -R
   method: Contains
-  enable: true
   description: "Are you sure that you want to change permissions?"
+  id: fs-strict:change_permissions
 - from: fs-strict
   test: rm\s*(-fr|-rf|-r|-f)
   method: Regex
-  enable: true
   description: "Are you sure you want to continue with deletion?"
+  id: fs-strict:recursively_delete_in_any_path

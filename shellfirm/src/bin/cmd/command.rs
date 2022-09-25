@@ -2,21 +2,11 @@ use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
 use lazy_static::lazy_static;
 use regex::Regex;
-use shellfirm::{checks, Context};
+use shellfirm::{checks, checks::Check, Settings};
 
 lazy_static! {
     static ref REGEX_STRING_COMMAND_REPLACE: Regex = Regex::new(r#"('|")([\s\S]*?)('|")"#).unwrap();
 }
-
-// lazy_static! {
-//     static ref REGEX_STRING_COMMAND_REPLACE: HashMap<u32, &'static str> = {
-//         let mut m = HashMap::new();
-//         m.insert(0, "foo");
-//         m.insert(1, "bar");
-//         m.insert(2, "baz");
-//         m
-//     };
-// }
 
 pub fn command() -> Command<'static> {
     Command::new("pre-command")
@@ -38,7 +28,11 @@ pub fn command() -> Command<'static> {
         )
 }
 
-pub fn run(arg_matches: &ArgMatches, context: &Context) -> Result<shellfirm::CmdExit> {
+pub fn run(
+    arg_matches: &ArgMatches,
+    settings: &Settings,
+    checks: &[Check],
+) -> Result<shellfirm::CmdExit> {
     let command = arg_matches.value_of("command").unwrap_or(""); // todo:: wrap me
 
     let command = REGEX_STRING_COMMAND_REPLACE
@@ -52,12 +46,16 @@ pub fn run(arg_matches: &ArgMatches, context: &Context) -> Result<shellfirm::Cmd
     log::debug!("splitted_command {:?}", splitted_command);
     let matches: Vec<checks::Check> = splitted_command
         .iter()
-        .flat_map(|c| checks::run_check_on_command(&context.checks, c))
+        .flat_map(|c| checks::run_check_on_command(checks, c))
         .collect();
 
     log::debug!("matches found {}. {:?}", matches.len(), matches);
     if !matches.is_empty() {
-        checks::challenge(&context.challenge, &matches, arg_matches.is_present("test"))?;
+        checks::challenge(
+            &settings.challenge,
+            &matches,
+            arg_matches.is_present("test"),
+        )?;
     }
 
     Ok(shellfirm::CmdExit {

@@ -3,13 +3,9 @@ use std::process::exit;
 
 use anyhow::anyhow;
 use console::{style, Style};
-use shellfirm::get_config_folder;
+use shellfirm::Config;
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
-
-/// String with all checks from `checks` folder (prepared in build.rs) in YAML
-/// format.
-pub const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
 
 fn main() {
     let app = cmd::default::command()
@@ -25,7 +21,7 @@ fn main() {
     env_logger::init_from_env(env);
 
     // load configuration
-    let config = match get_config_folder(serde_yaml::from_str(ALL_CHECKS).unwrap()) {
+    let config = match Config::new(None) {
         Ok(config) => config,
         Err(err) => {
             eprintln!("Loading config error: {}", err);
@@ -33,11 +29,11 @@ fn main() {
         }
     };
 
-    let context = match config.load_config_from_file() {
+    let settings = match config.get_settings_from_file() {
         Ok(c) => c,
         Err(e) => {
             eprintln!(
-                "Could not load config from file. Try resolving by running `{}`\nError: {}",
+                "Could not load setting from file. Try resolving by running `{}`\nError: {}",
                 style("shellfirm config reset").bold().italic().underlined(),
                 e
             );
@@ -45,22 +41,20 @@ fn main() {
         }
     };
 
-    // to be able push changes when releasing new version,
-    // we can check if the config file is different then app version.
-    // if yes we should do the following steps:
-    // 1. update the config version
-    // 2. adding/remove checks the changed from the baseline code
-    if context.version != env!("CARGO_PKG_VERSION") {
-        if let Err(err) = config.update_config_version(&context) {
-            log::debug!("could not update version configuration. err: {}", err);
+    let checks = match settings.get_active_checks() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Could not load checks. err: Error: {}", e);
             exit(1)
         }
-    }
+    };
 
     let res = match matches.subcommand() {
         None => Err(anyhow!("command not found")),
         Some(tup) => match tup {
-            ("pre-command", subcommand_matches) => cmd::command::run(subcommand_matches, &context),
+            ("pre-command", subcommand_matches) => {
+                cmd::command::run(subcommand_matches, &settings, &checks)
+            }
             ("config", subcommand_matches) => cmd::config::run(subcommand_matches, &config),
             _ => unreachable!(),
         },

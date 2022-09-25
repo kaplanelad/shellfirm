@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use clap::{App, Arg, ArgMatches, Command};
-use shellfirm::{Challenge, Config};
+use shellfirm::{dialog, Challenge, Config};
 
 const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_files.rs"));
 
@@ -8,23 +8,9 @@ pub fn command() -> Command<'static> {
     Command::new("config")
         .about("Manage app config")
         .subcommand(
-            App::new("update")
-                .about("add/remove check group")
-                .arg(
-                    Arg::new("check-group")
-                        .help("Check group")
-                        .possible_values(ALL_GROUP_CHECKS)
-                        .multiple_values(true)
-                        .required(true)
-                        .min_values(1),
-                )
-                .arg(
-                    Arg::new("remove")
-                        .long("remove")
-                        .help("remove the given checks")
-                        .possible_values(ALL_GROUP_CHECKS)
-                        .takes_value(false),
-                ),
+            App::new("update-groups")
+                .about("enable check group")
+                .arg(Arg::new("check-group").help("Check group")),
         )
         .subcommand(App::new("reset").about("Reset configuration"))
         .subcommand(
@@ -37,30 +23,35 @@ pub fn command() -> Command<'static> {
         )
 }
 
-pub fn run(matches: &ArgMatches, settings: &Config) -> Result<shellfirm::CmdExit> {
+pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
     match matches.subcommand() {
         None => Err(anyhow!("command not found")),
         Some(tup) => match tup {
-            ("update", subcommand_matches) => run_update(subcommand_matches, settings),
-            ("reset", _subcommand_matches) => run_reset(settings),
-            ("challenge", subcommand_matches) => run_challenge(subcommand_matches, settings),
+            ("update-groups", _subcommand_matches) => run_update_groups(config),
+            ("reset", _subcommand_matches) => run_reset(config),
+            ("challenge", subcommand_matches) => run_challenge(subcommand_matches, config),
             _ => unreachable!(),
         },
     }
 }
 
-pub fn run_update(matches: &ArgMatches, settings: &Config) -> Result<shellfirm::CmdExit> {
-    let check_groups: Vec<&str> = match matches.values_of("check-group") {
-        Some(g) => g.collect(),
-        None => return Err(anyhow!("check-group not found")),
-    };
+pub fn run_update_groups(config: &Config) -> Result<shellfirm::CmdExit> {
+    let all_groups = ALL_GROUP_CHECKS.iter().map(|f| f.to_string()).collect();
+    let settings = config.get_settings_from_file()?;
+
+    let check_groups = dialog::multi_choice(
+        "select checks",
+        all_groups,
+        settings.get_active_groups().to_vec(),
+        100,
+    )?;
 
     let res: Vec<String> = check_groups
         .iter()
         .map(std::string::ToString::to_string)
         .collect();
 
-    match settings.update_config_content(matches.is_present("remove"), &res) {
+    match config.update_check_groups(res) {
         Ok(()) => Ok(shellfirm::CmdExit {
             code: exitcode::OK,
             message: None,

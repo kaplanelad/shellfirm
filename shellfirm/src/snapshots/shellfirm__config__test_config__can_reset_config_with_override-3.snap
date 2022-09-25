@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/config.rs
+expression: read_dir(config.root_folder).unwrap().count()
+---
+1

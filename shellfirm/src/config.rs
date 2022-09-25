@@ -4,18 +4,24 @@
 use std::{
     env, fs,
     io::{Read, Write},
+    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Result as AnyResult};
 use log::debug;
-use requestty::{DefaultSeparator, Question};
 use serde_derive::{Deserialize, Serialize};
 
-use crate::checks::Check;
+use crate::{
+    checks::{get_all_checks, Check},
+    dialog,
+};
 
-/// Default configuration file.
-pub const DEFAULT_CONFIG_FILE: &str = include_str!("config.yaml");
+const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
+
+pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
+
+pub const DEFAULT_INCLUDE_CHECKS: [&'static str; 3] = ["base", "fs", "git"];
 
 /// The method type go the check.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -50,77 +56,94 @@ impl Default for Challenge {
 #[derive(Debug)]
 /// describe configuration folder
 pub struct Config {
-    // Latest shellfirm version
-    pub latest_version: String,
-    all_checks: Vec<Check>,
     /// Configuration folder path.
-    pub path: String,
+    pub root_folder: String,
     /// config file.
-    pub config_file_path: String,
+    pub setting_file_path: String,
 }
 
 /// Describe the configuration yaml
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Context {
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Settings {
     /// Type of the challenge.
     pub challenge: Challenge,
     /// List of all include files
     pub includes: Vec<String>,
-    /// App version.
-    #[serde(default)]
-    pub version: String,
-    /// List of checks.
-    // #[serde(skip_deserializing)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub checks: Vec<Check>,
+    /// List of all ignore checks
+    pub ignores: Vec<String>,
 }
 
 impl Config {
-    /// Convert user config yaml to struct.
+    /// Get application  setting config.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` error return on load/save config
+    pub fn new(path: Option<&str>) -> AnyResult<Config> {
+        let package_name = env!("CARGO_PKG_NAME");
+
+        let config_folder = match path {
+            Some(p) => PathBuf::from(p),
+            None => match dirs::home_dir() {
+                Some(p) => {
+                    // The project started with $HOME path to save the config file. In order the
+                    // requests to use $XDG_CACHE_HOME and keep backward
+                    // compatibility if the folder $HOME/.shellform exists shillfirm
+                    // continue work with that folder. If the folder does not exists, the default
+                    // use config dir
+                    let homedir = p.join(format!(".{}", package_name));
+                    let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
+                    if homedir.is_dir() {
+                        homedir
+                    } else {
+                        confdir.join(package_name)
+                    }
+                }
+                None => return Err(anyhow!("could not get directory path")),
+            },
+        };
+
+        let setting_config = Config {
+            root_folder: config_folder.display().to_string(),
+            setting_file_path: config_folder
+                .join(DEFAULT_SETTING_FILE_NAME)
+                .to_str()
+                .unwrap_or("")
+                .to_string(),
+        };
+
+        setting_config.create_config_folder()?;
+        setting_config.manage_setting_file()?;
+        debug!("configuration settings: {:?}", setting_config);
+        Ok(setting_config)
+    }
+
+    /// Convert user settings yaml to struct.
     ///
     /// # Errors
     ///
     /// Will return `Err` has an error when loading the config file
-    pub fn load_config_from_file(&self) -> AnyResult<Context> {
+    pub fn get_settings_from_file(&self) -> AnyResult<Settings> {
         Ok(serde_yaml::from_str(&self.read_config_file()?)?)
     }
 
-    /// Return default app config.
-    /// # Errors
-    ///
-    /// Will return `Err` could not parse default config to yaml file
-    pub fn load_default_config(&self) -> AnyResult<Context> {
-        Ok(serde_yaml::from_str(DEFAULT_CONFIG_FILE)?)
-    }
-
-    /// update config file with the updated baseline checks.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` adding check group return an error
-    pub fn update_config_version(&self, config: &Context) -> AnyResult<()> {
-        let mut config = self.add_checks_group(&config.includes)?;
-        self.save_config_file_from_struct(&mut config)
-    }
-
-    /// Manage configuration folder & file.
+    /// Manage setting folder & file.
     /// * Create config folder if not exists.
     /// * Create default config yaml file if not exists.
     ///
     /// # Errors
     ///
     /// Will return `Err` file could not created or loaded
-    pub fn manage_config_file(&self) -> AnyResult<()> {
-        self.create_config_folder()?;
-        if fs::metadata(&self.config_file_path).is_err() {
-            debug!("config file not found");
-            self.create_default_config_file()?;
+    pub fn manage_setting_file(&self) -> AnyResult<()> {
+        if fs::metadata(&self.setting_file_path).is_err() {
+            debug!("setting file file not found: {}", &self.setting_file_path);
+            self.create_default_settings_file()?;
         }
-        debug!("config content: {:?}", self.load_config_from_file()?);
+        debug!("setting file: {:?}", self.get_settings_from_file()?);
         Ok(())
     }
 
-    /// Update user settings files.
+    /// Update check groups
     ///
     /// # Arguments
     ///
@@ -131,54 +154,10 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` group didn't added/removed
-    pub fn update_config_content(
-        &self,
-        remove_checks: bool,
-        check_groups: &[String],
-    ) -> AnyResult<()> {
-        if remove_checks {
-            self.save_config_file_from_struct(&mut self.remove_checks_group(check_groups)?)?;
-        } else {
-            self.save_config_file_from_struct(&mut self.add_checks_group(check_groups)?)?;
-        }
-        Ok(())
-    }
-
-    /// Reset user configuration to the default app.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` create config folder return an error
-    pub fn reset_config(&self, force_selection: Option<usize>) -> AnyResult<()> {
-        let selected = if let Some(force_selection) = force_selection {
-            force_selection
-        } else {
-            let questions = requestty::prompt_one(
-                Question::raw_select("reset")
-                    .message(
-                        "Rest configuration will reset all checks settings. Select how to \
-                         continue...",
-                    )
-                    .choices(vec![
-                        "Yes, i want to override the current configuration".into(),
-                        "Override and backup the existing file".into(),
-                        DefaultSeparator,
-                        "Cancel Or ^C".into(),
-                    ])
-                    .build(),
-            )?;
-            questions.as_list_item().map_or(3, |s| s.index)
-        };
-
-        match selected {
-            0 => self.create_default_config_file()?,
-            1 => {
-                self.backup()?;
-                self.create_default_config_file()?;
-            }
-            _ => return Err(anyhow!("unexpected option")),
-        };
-        Ok(())
+    pub fn update_check_groups(&self, check_groups: Vec<String>) -> AnyResult<()> {
+        let mut settings = self.get_settings_from_file()?;
+        settings.includes = check_groups.to_vec();
+        Ok(self.save_settings_file_from_struct(&settings)?)
     }
 
     /// Update default user challenge.
@@ -191,457 +170,214 @@ impl Config {
     ///
     /// Will return `Err` error return on load/save config
     pub fn update_challenge(&self, challenge: Challenge) -> AnyResult<()> {
-        let mut conf = self.load_config_from_file()?;
-        conf.challenge = challenge;
-        self.save_config_file_from_struct(&mut conf)?;
+        let mut settings = self.get_settings_from_file()?;
+        settings.challenge = challenge;
+        self.save_settings_file_from_struct(&settings)?;
+        Ok(())
+    }
+    /// Reset user configuration to the default app.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` create config folder return an error
+    pub fn reset_config(&self, force_selection: Option<usize>) -> AnyResult<()> {
+        let selected = if let Some(force_selection) = force_selection {
+            force_selection
+        } else {
+            dialog::reset_config()?
+        };
+
+        match selected {
+            0 => self.create_default_settings_file()?,
+            1 => {
+                self.backup()?;
+                self.create_default_settings_file()?;
+            }
+            _ => return Err(anyhow!("unexpected option")),
+        };
         Ok(())
     }
 
     /// Create config folder if not exists.
     fn create_config_folder(&self) -> AnyResult<()> {
-        if let Err(err) = fs::create_dir(&self.path) {
+        if let Err(err) = fs::create_dir(&self.root_folder) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
                 return Err(anyhow!("could not create folder: {}", err));
             }
-            debug!("configuration folder found: {}", &self.path);
+            debug!("configuration folder found: {}", &self.root_folder);
         } else {
-            debug!("configuration created in path: {}", &self.path);
+            debug!("configuration created in path: {}", &self.root_folder);
         }
         Ok(())
     }
 
     /// Create config file from default template.
-    fn create_default_config_file(&self) -> AnyResult<()> {
-        let mut conf = self.load_default_config()?;
-        conf.checks = self.get_default_checks(&conf.includes);
-        self.save_config_file_from_struct(&mut conf)
+    fn create_default_settings_file(&self) -> AnyResult<()> {
+        self.save_settings_file_from_struct(&Settings {
+            challenge: DEFAULT_CHALLENGE,
+            includes: DEFAULT_INCLUDE_CHECKS
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<_>(),
+            ignores: vec![],
+        })
     }
 
     /// Convert the given config to YAML format and the file.
     ///
     /// # Arguments
     ///
-    /// * `config` - Config struct
-    fn save_config_file_from_struct(&self, mut config: &mut Context) -> AnyResult<()> {
-        config.version = self.latest_version.to_string();
-        let content = serde_yaml::to_string(config)?;
-        let mut file = fs::File::create(&self.config_file_path)?;
+    /// * `settings` - Config struct
+    fn save_settings_file_from_struct(&self, settings: &Settings) -> AnyResult<()> {
+        let content = serde_yaml::to_string(settings)?;
+        let mut file = fs::File::create(&self.setting_file_path)?;
         file.write_all(content.as_bytes())?;
         debug!(
-            "config file crated in path: {}. config data: {:?}",
-            &self.config_file_path, config
+            "settings file crated in path: {}. config data: {:?}",
+            &self.setting_file_path, settings
         );
         Ok(())
     }
 
     /// Return config content.
     fn read_config_file(&self) -> AnyResult<String> {
-        let mut file = std::fs::File::open(&self.config_file_path)?;
+        let mut file = std::fs::File::open(&self.setting_file_path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
         Ok(content)
     }
 
-    /// Add checks group to user configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `checks_group` - list of groups to add.
-    fn add_checks_group(&self, checks_group: &[String]) -> AnyResult<Context> {
-        //load user config file
-        match self.load_config_from_file() {
-            Ok(mut conf) => {
-                for c in checks_group {
-                    if !conf.includes.contains(c) {
-                        conf.includes.push(c.clone());
-                    }
-                }
-                debug!("new list of includes groups: {:?}", checks_group);
-
-                // List of checks that the user disable or change the challenge type
-                let override_check_settings = conf
-                    .checks
-                    .iter()
-                    .filter(|&c| checks_group.contains(&c.from))
-                    .filter(|c| !c.enable || c.challenge != Challenge::Default)
-                    .cloned()
-                    .collect::<Vec<Check>>();
-
-                debug!("override checks settings: {:?}", override_check_settings);
-
-                // remove checks group that we want to add for make sure that we not have
-                // duplicated checks
-                let mut checks = conf
-                    .checks
-                    .iter()
-                    .filter(|&c| !checks_group.contains(&c.from))
-                    .cloned()
-                    .collect::<Vec<Check>>();
-
-                checks.extend(self.get_default_checks(checks_group));
-
-                for override_check in override_check_settings {
-                    for c in &mut checks {
-                        if c.test == override_check.test {
-                            c.enable = override_check.enable;
-                            c.challenge = override_check.challenge.clone();
-                        }
-                    }
-                }
-
-                conf.checks = checks;
-                debug!("new check list: {:?}", conf.checks);
-                Ok(conf)
-            }
-            Err(e) => Err(anyhow!(
-                "could not parse current config file. please try to fix the yaml. Try resolving \
-                 by running `shellfirm config reset` Error: {}",
-                e
-            )),
-        }
-    }
-
-    /// Remove checks group from user configuration
-    ///
-    /// # Arguments
-    ///
-    /// * `checks_group` - list of groups to add.
-    fn remove_checks_group(&self, checks_group: &[String]) -> AnyResult<Context> {
-        //load user config file
-        match self.load_config_from_file() {
-            Ok(mut conf) => {
-                for c in checks_group {
-                    if conf.includes.contains(c) {
-                        conf.includes.retain(|x| x != c);
-                    }
-                }
-                debug!("new list of includes groups: {:?}", checks_group);
-                // remove checks group that we want to add for make sure that we not have
-                // duplicated checks
-                conf.checks = conf
-                    .checks
-                    .iter()
-                    .filter(|&c| {
-                        println!(
-                            "{:?}.containn.{} => {}",
-                            conf.includes,
-                            &c.from,
-                            conf.includes.contains(&c.from)
-                        );
-                        conf.includes.contains(&c.from)
-                    })
-                    .cloned()
-                    .collect::<Vec<Check>>();
-
-                debug!("new check list: {:?}", conf.checks);
-                Ok(conf)
-            }
-            Err(_e) => Err(anyhow!(
-                "could not parse current config file. please try to fix the yaml file or override \
-                 the current configuration by use the flag `--behavior override`"
-            )),
-        }
-    }
-
     fn backup(&self) -> AnyResult<String> {
         let backup_to = format!(
             "{}.{}.bak",
-            self.config_file_path,
+            self.setting_file_path,
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
         );
-        fs::rename(&self.config_file_path, &backup_to)?;
+        fs::rename(&self.setting_file_path, &backup_to)?;
         Ok(backup_to)
     }
+}
 
-    fn get_default_checks(&self, includes: &[String]) -> Vec<Check> {
-        self.all_checks
+impl Settings {
+    pub fn get_active_checks(&self) -> AnyResult<Vec<Check>> {
+        Ok(get_all_checks()?
             .iter()
-            .filter(|&c| includes.contains(&c.from))
+            .filter(|&c| self.includes.contains(&c.from))
             .cloned()
-            .collect::<Vec<Check>>()
+            .collect::<Vec<Check>>())
+    }
+
+    pub fn get_active_groups(&self) -> &Vec<String> {
+        &self.includes
     }
 }
-
-/// Get application  setting config.
-///
-/// # Errors
-///
-/// Will return `Err` error return on load/save config
-pub fn get_config_folder(all_checks: Vec<Check>) -> AnyResult<Config> {
-    let package_name = env!("CARGO_PKG_NAME");
-
-    match dirs::home_dir() {
-        Some(path) => {
-            let config_folder = {
-                // The project started with $HOME path to save the config file. In order the
-                // requests to use $XDG_CACHE_HOME and keep backward
-                // compatibility if the folder $HOME/.shellform exists shillfirm
-                // continue work with that folder. If the folder does not exists, the default
-                // use config dir
-                let homedir = path.join(format!(".{}", package_name));
-                let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
-                if homedir.is_dir() {
-                    homedir
-                } else {
-                    confdir.join(package_name)
-                }
-            };
-
-            let setting_config = Config {
-                latest_version: env!("CARGO_PKG_VERSION").to_string(),
-                all_checks,
-                path: config_folder.display().to_string(),
-                config_file_path: config_folder
-                    .join("config.yaml")
-                    .to_str()
-                    .unwrap_or("")
-                    .to_string(),
-            };
-
-            setting_config.manage_config_file()?;
-            debug!("configuration settings: {:?}", setting_config);
-            Ok(setting_config)
-        }
-        None => Err(anyhow!("could not get directory path")),
-    }
-}
-
-// /// parse `ALL_CHECKS` const to vector of checks
-// fn get_all_available_checks() -> AnyResult<Vec<Check>> {
-//     Ok(serde_yaml::from_str(ALL_CHECKS)?)
-// }
 
 #[cfg(test)]
 mod test_config {
-    use std::{fs::File, io::Write, path::Path};
+    use std::{fs::read_dir, path::Path};
 
     use insta::assert_debug_snapshot;
     use tempdir::TempDir;
 
     use super::*;
 
-    const CONFIG: &str = r###"---
-challenge: Math
-includes:
-  - default-check
-version: 0.2.2
-checks: 
-- from: default-check
-  test: default-check
-  method: Regex
-  enable: true
-  description: ""
-"###;
-    const CHECKS: &str = r###"
-- from: test-1
-  test: test-1
-  method: Regex
-  enable: true
-  description: ""
-- from: test-2
-  test: test-2
-  method: Regex
-  enable: true
-  description: ""
-- from: test-disabled
-  test: test-disabled
-  method: Regex
-  enable: true
-  description: ""
-"###;
-
     fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let app_path = temp_dir.path().join("app");
-        fs::create_dir_all(&app_path).unwrap();
-        let config_file_path = app_path.join("config.yaml");
+        let temp_dir = temp_dir.path().join("app");
+        Config::new(Some(&temp_dir.display().to_string())).unwrap()
 
-        let mut f = File::create(&config_file_path).unwrap();
-        f.write_all(CONFIG.as_bytes()).unwrap();
-        f.sync_all().unwrap();
-        Config {
-            latest_version: "0.0.0".to_string(),
-            all_checks: serde_yaml::from_str(CHECKS).unwrap(),
-            path: app_path.display().to_string(),
-            config_file_path: config_file_path.to_str().unwrap().to_string(),
-        }
+        // let app_path = temp_dir.path().join("app");
+        // fs::create_dir_all(&app_path).unwrap();
+        // let config_file_path = app_path.join("settings.yaml");
+
+        // let mut f = File::create(&config_file_path).unwrap();
+        // f.write_all(CONFIG.as_bytes()).unwrap();
+        // f.sync_all().unwrap();
+        // Config {
+        //     root_folder: app_path.display().to_string(),
+        //     setting_file_path:
+        // config_file_path.to_str().unwrap().to_string(), }
     }
 
     #[test]
-    fn can_load_config_from_file() {
+    fn can_crate_new_config() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.load_config_from_file());
+        assert_debug_snapshot!(Path::new(&config.root_folder).is_dir());
+        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_load_default_config() {
+    fn cat_get_settings_from_file() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.load_default_config());
-        temp_dir.close().unwrap();
-    }
 
-    #[test]
-    fn can_update_config_version() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let context = {
-            let mut context = config.load_config_from_file().unwrap();
-            context.includes.push("test-1".to_string());
-            context
-        };
-        assert_debug_snapshot!(config.update_config_version(&context));
-        assert_debug_snapshot!(config.read_config_file());
+        assert_debug_snapshot!(config.get_settings_from_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_manage_config_file() {
         let temp_dir = TempDir::new("config-app").unwrap();
-        let app_path = temp_dir.path().join("app");
-        let config = Config {
-            latest_version: "0.0.0".to_string(),
-            all_checks: vec![],
-            path: app_path.display().to_string(),
-            config_file_path: app_path.to_str().unwrap().to_string(),
-        };
+        let mut config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(Path::new(&config.path).is_dir());
-        assert_debug_snapshot!(config.manage_config_file());
-        assert_debug_snapshot!(Path::new(&config.path).is_dir());
+        config.setting_file_path = temp_dir
+            .path()
+            .join("app")
+            .join("new-file.yaml")
+            .display()
+            .to_string();
+
+        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
+        config.manage_setting_file().unwrap();
+        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_update_config_content() {
+    fn can_add_check_groups() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
-
-        assert_debug_snapshot!(config.update_config_content(false, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(config.read_config_file());
-        assert_debug_snapshot!(config.update_config_content(true, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(config.read_config_file());
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config
+            .update_check_groups(vec!["group-1".to_string(), "group-2".to_string()])
+            .unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_reset_config() {
+    fn can_can_update_challenge() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(config.update_config_content(false, &vec!["test-2".to_string()]));
-        assert_debug_snapshot!(config.read_config_file());
-        assert_debug_snapshot!(config.reset_config(Some(1)));
-        assert_debug_snapshot!(config.read_config_file());
-    }
-
-    #[test]
-    fn can_update_challenge() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.load_config_from_file().unwrap().challenge);
-        assert_debug_snapshot!(config.update_challenge(Challenge::Yes));
-        assert_debug_snapshot!(config.read_config_file());
-    }
-
-    #[test]
-    fn can_create_config_folder() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let app_path = temp_dir.path().join("app");
-        let config = Config {
-            latest_version: "0.0.0".to_string(),
-            all_checks: vec![],
-            path: app_path.display().to_string(),
-            config_file_path: app_path.to_str().unwrap().to_string(),
-        };
-
-        assert_debug_snapshot!(Path::new(&config.path).is_dir());
-        assert_debug_snapshot!(config.create_config_folder());
-        assert_debug_snapshot!(Path::new(&config.path).is_dir());
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config.update_challenge(Challenge::Yes).unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_create_default_config_file() {
+    fn can_reset_config_with_override() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.create_default_config_file());
-        assert_debug_snapshot!(config.read_config_file());
+        config.update_challenge(Challenge::Yes).unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config.reset_config(Some(0)).unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        assert_debug_snapshot!(read_dir(config.root_folder).unwrap().count());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_save_config_file_from_struct() {
+    fn can_reset_config_with_with_backup() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
-        let mut context = {
-            let mut context = config.load_config_from_file().unwrap();
-            context.includes.extend([
-                "test-1".to_string(),
-                "test-2".to_string(),
-                "test-disabled".to_string(),
-            ]);
-            context.checks = vec![Check {
-                test: String::from("test-value"),
-                method: Method::Contains,
-                enable: true,
-                description: String::from("description"),
-                from: String::from("test"),
-                challenge: Challenge::Default,
-                filters: std::collections::HashMap::new(),
-            }];
-            context
-        };
-
-        assert_debug_snapshot!(config.save_config_file_from_struct(&mut context));
-        assert_debug_snapshot!(config.read_config_file());
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_add_checks_group() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(
-            config.add_checks_group(&["test-1".to_string(), "test-2".to_string()])
-        );
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_remove_checks_group() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let context = config.add_checks_group(&["test-1".to_string(), "test-2".to_string()]);
-        assert_debug_snapshot!(&context);
-        assert_debug_snapshot!(config.save_config_file_from_struct(&mut context.unwrap()));
-        assert_debug_snapshot!(config.remove_checks_group(&["test-1".to_string()]));
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_get_default_checks() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(
-            config.get_default_checks(&["test-1".to_string(), "test-2".to_string()])
-        );
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_backup() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let backup = config.backup();
-
-        assert_debug_snapshot!(backup.is_ok());
-        let mut file = std::fs::File::open(&backup.unwrap()).unwrap();
-        let mut content = String::new();
-        file.read_to_string(&mut content).unwrap();
-
-        assert_debug_snapshot!(content);
+        config.update_challenge(Challenge::Yes).unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config.reset_config(Some(1)).unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        assert_debug_snapshot!(read_dir(config.root_folder).unwrap().count());
         temp_dir.close().unwrap();
     }
 }

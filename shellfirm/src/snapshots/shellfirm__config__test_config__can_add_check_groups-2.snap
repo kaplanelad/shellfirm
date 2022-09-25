@@ -1,0 +1,14 @@
+---
+source: shellfirm/src/config.rs
+expression: config.get_settings_from_file()
+---
+Ok(
+    Settings {
+        challenge: Math,
+        includes: [
+            "group-1",
+            "group-2",
+        ],
+        ignores: [],
+    },
+)
