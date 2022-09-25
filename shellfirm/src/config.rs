@@ -21,7 +21,7 @@ const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
 pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
 
-pub const DEFAULT_INCLUDE_CHECKS: [&'static str; 3] = ["base", "fs", "git"];
+pub const DEFAULT_INCLUDE_CHECKS: [&str; 3] = ["base", "fs", "git"];
 
 /// The method type go the check.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -157,7 +157,7 @@ impl Config {
     pub fn update_check_groups(&self, check_groups: Vec<String>) -> AnyResult<()> {
         let mut settings = self.get_settings_from_file()?;
         settings.includes = check_groups.to_vec();
-        Ok(self.save_settings_file_from_struct(&settings)?)
+        self.save_settings_file_from_struct(&settings)
     }
 
     /// Update default user challenge.

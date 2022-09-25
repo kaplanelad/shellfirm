@@ -73,6 +73,7 @@ pub fn run_reset(settings: &Config) -> Result<shellfirm::CmdExit> {
 }
 
 pub fn run_challenge(matches: &ArgMatches, settings: &Config) -> Result<shellfirm::CmdExit> {
+    // ELAD:: move the flag to selector
     let challenge = match matches.value_of("challenge").unwrap() {
         "Enter" => Challenge::Enter,
         "Yes" => Challenge::Yes,

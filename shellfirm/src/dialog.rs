@@ -11,7 +11,7 @@ pub fn multi_choice(
     page_size: usize,
 ) -> Result<Vec<String>> {
     let choices = {
-        let mut choices = choices.clone();
+        let mut choices = choices;
         choices.retain(|x| !selected.contains(x));
         choices
     };
