@@ -1,6 +1,9 @@
 ## Unreleased
 IMPROVMENT
-* refactor config management. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
+* Refactor config management. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
+
+FIX
+* Fix flush content file regex. [PR-106](https://github.com/kaplanelad/shellfirm/pull/106)
 
 ## 0.2.4
 IMPROVMENT
