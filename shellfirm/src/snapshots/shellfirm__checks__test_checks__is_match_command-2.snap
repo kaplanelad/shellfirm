@@ -8,6 +8,6 @@ Check {
     method: Contains,
     description: "",
     from: "",
-    challenge: Default,
+    challenge: Math,
     filters: {},
 }

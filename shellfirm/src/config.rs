@@ -2,15 +2,16 @@
 //! configuration
 
 use std::{
-    env, fs,
+    env, fmt, fs,
     io::{Read, Write},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Result as AnyResult};
+use anyhow::{bail, Result as AnyResult};
 use log::debug;
 use serde_derive::{Deserialize, Serialize};
+use strum::EnumIter;
 
 use crate::{
     checks::{get_all_checks, Check},
@@ -35,7 +36,7 @@ pub enum Method {
 }
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, EnumIter)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -43,14 +44,6 @@ pub enum Challenge {
     Enter,
     /// only yes typing will approve the command.
     Yes,
-    /// Default application challenge
-    Default,
-}
-
-impl Default for Challenge {
-    fn default() -> Self {
-        Challenge::Default
-    }
 }
 
 #[derive(Debug)]
@@ -71,6 +64,33 @@ pub struct Settings {
     pub includes: Vec<String>,
     /// List of all ignore checks
     pub ignores: Vec<String>,
+}
+
+impl fmt::Display for Challenge {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Challenge::Math => write!(f, "Math"),
+            Challenge::Enter => write!(f, "Enter"),
+            Challenge::Yes => write!(f, "Yes"),
+        }
+    }
+}
+
+impl Default for Challenge {
+    fn default() -> Self {
+        DEFAULT_CHALLENGE
+    }
+}
+
+impl Challenge {
+    pub fn from_string(str: &str) -> AnyResult<Self> {
+        match str.to_lowercase().as_str() {
+            "math" => Ok(Self::Math),
+            "enter" => Ok(Self::Enter),
+            "yes" => Ok(Self::Yes),
+            _ => bail!("given challenge name not found"),
+        }
+    }
 }
 
 impl Config {
@@ -99,7 +119,7 @@ impl Config {
                         confdir.join(package_name)
                     }
                 }
-                None => return Err(anyhow!("could not get directory path")),
+                None => bail!("could not get directory path"),
             },
         };
 
@@ -193,7 +213,7 @@ impl Config {
                 self.backup()?;
                 self.create_default_settings_file()?;
             }
-            _ => return Err(anyhow!("unexpected option")),
+            _ => bail!("unexpected option"),
         };
         Ok(())
     }
@@ -202,7 +222,7 @@ impl Config {
     fn create_config_folder(&self) -> AnyResult<()> {
         if let Err(err) = fs::create_dir(&self.root_folder) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(anyhow!("could not create folder: {}", err));
+                bail!("could not create folder: {}", err);
             }
             debug!("configuration folder found: {}", &self.root_folder);
         } else {
@@ -372,8 +392,6 @@ mod test_config {
 
 #[cfg(test)]
 mod test_settings {
-    use std::{fs::read_dir, path::Path};
-
     use insta::assert_debug_snapshot;
     use tempdir::TempDir;
 

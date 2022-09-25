@@ -54,3 +54,21 @@ pub fn reset_config() -> Result<usize> {
         _ => Err(anyhow!("select option is empty")),
     }
 }
+
+/// prompt select option
+///
+/// # Errors
+///
+/// Will return `Err` when interact error
+pub fn select(message: &str, items: &Vec<String>) -> Result<String> {
+    let questions = Question::select("select")
+        .message(message)
+        .choices(items)
+        .build();
+
+    let answer = requestty::prompt_one(questions)?;
+    match answer.as_list_item() {
+        Some(a) => Ok(a.text.clone()),
+        _ => Err(anyhow!("select option is empty")),
+    }
+}

@@ -9,7 +9,7 @@ expression: "run_check_on_command(&checks, \"test-1\")"
         method: Regex,
         description: "",
         from: "test-1",
-        challenge: Default,
+        challenge: Math,
         filters: {},
     },
     Check {
@@ -18,7 +18,7 @@ expression: "run_check_on_command(&checks, \"test-1\")"
         method: Regex,
         description: "",
         from: "test-2",
-        challenge: Default,
+        challenge: Math,
         filters: {},
     },
 ]

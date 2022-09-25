@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::{App, Arg, ArgMatches, Command};
 use shellfirm::{dialog, Challenge, Config};
+use strum::IntoEnumIterator;
 
 const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_files.rs"));
 
@@ -13,14 +14,7 @@ pub fn command() -> Command<'static> {
                 .arg(Arg::new("check-group").help("Check group")),
         )
         .subcommand(App::new("reset").about("Reset configuration"))
-        .subcommand(
-            App::new("challenge").about("Reset configuration").arg(
-                Arg::new("challenge")
-                    .possible_values(&["Math", "Enter", "Yes"])
-                    .required(true)
-                    .takes_value(true),
-            ),
-        )
+        .subcommand(App::new("challenge").about("Reset configuration"))
 }
 
 pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
@@ -29,7 +23,7 @@ pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> 
         Some(tup) => match tup {
             ("update-groups", _subcommand_matches) => run_update_groups(config),
             ("reset", _subcommand_matches) => run_reset(config),
-            ("challenge", subcommand_matches) => run_challenge(subcommand_matches, config),
+            ("challenge", _subcommand_matches) => run_challenge(config),
             _ => unreachable!(),
         },
     }
@@ -72,16 +66,12 @@ pub fn run_reset(settings: &Config) -> Result<shellfirm::CmdExit> {
     })
 }
 
-pub fn run_challenge(matches: &ArgMatches, settings: &Config) -> Result<shellfirm::CmdExit> {
-    // ELAD:: move the flag to selector
-    let challenge = match matches.value_of("challenge").unwrap() {
-        "Enter" => Challenge::Enter,
-        "Yes" => Challenge::Yes,
-        _ => Challenge::Math,
-    };
+pub fn run_challenge(settings: &Config) -> Result<shellfirm::CmdExit> {
+    let challenges = Challenge::iter().map(|c| c.to_string()).collect::<Vec<_>>();
+    let selection_challenge =
+        Challenge::from_string(&dialog::select("change shellfirm challenge", &challenges)?)?;
 
-    settings.update_challenge(challenge)?;
-
+    settings.update_challenge(selection_challenge)?;
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
         message: None,

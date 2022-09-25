@@ -8,6 +8,6 @@ Check {
     method: Regex,
     description: "",
     from: "",
-    challenge: Default,
+    challenge: Math,
     filters: {},
 }

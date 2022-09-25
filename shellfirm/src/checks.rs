@@ -74,7 +74,7 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Resul
     let show_challenge = challenge;
 
     Ok(match show_challenge {
-        Challenge::Math | Challenge::Default => prompt::math_challenge(),
+        Challenge::Math => prompt::math_challenge(),
         Challenge::Enter => prompt::enter_challenge(),
         Challenge::Yes => prompt::yes_challenge(),
     })
@@ -239,7 +239,7 @@ mod test_checks {
             method: Method::Regex,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         let contains_check = Check {
@@ -248,7 +248,7 @@ mod test_checks {
             method: Method::Contains,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         let startwith_check = Check {
@@ -257,7 +257,7 @@ mod test_checks {
             method: Method::StartWith,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(&regex_check);
@@ -272,7 +272,7 @@ mod test_checks {
             method: Method::Contains,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
 
@@ -288,7 +288,7 @@ mod test_checks {
             method: Method::StartWith,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(is_match(&check, "test is valid"));
@@ -303,7 +303,7 @@ mod test_checks {
             method: Method::Regex,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(is_match(&check, "rm -rf *"));
@@ -328,7 +328,7 @@ mod test_checks {
             method: Method::Regex,
             description: "some description".to_string(),
             from: "test".to_string(),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters,
         };
 
