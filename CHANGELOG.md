@@ -1,7 +1,49 @@
-## 0.1.7 - Unreleased
+## Unreleased
+
+## 0.2.4
+IMPROVMENT
+* Check test. [PR-98](https://github.com/kaplanelad/shellfirm/pull/98)
+* Remove vergen package. [PR-100](https://github.com/kaplanelad/shellfirm/pull/100)
+* add .rustfmt.toml file. [PR-](https://github.com/kaplanelad/shellfirm/pull/101)
+
+## 0.2.3
+IMPROVMENT
+* Support $XDG_CONFIG_HOME. [PR-87](https://github.com/kaplanelad/shellfirm/pull/87)
+* Add xtask.[PR-95](https://github.com/kaplanelad/shellfirm/pull/95)
+* Interactive menu in config reset command. [PR-96](https://github.com/kaplanelad/shellfirm/pull/96)
+
+DOCS
+* More installation examples. [PR-](https://github.com/kaplanelad/shellfirm/pull/94)
+
+## 0.2.2
+IMPROVMENT
+* Adds crontab -r as a risky command. [PR-81](https://github.com/kaplanelad/shellfirm/pull/81)
+* Decouple test from base checks. [PR-84](https://github.com/kaplanelad/shellfirm/pull/84)
+* Decouple test from app version snapshots. [PR-85](https://github.com/kaplanelad/shellfirm/pull/85)
+* Improve config tests. [PR-86](https://github.com/kaplanelad/shellfirm/pull/86)
+
+BUG FIX
+* Change title for fish installation instructions. [PR-82](https://github.com/kaplanelad/shellfirm/pull/82)
+
+## 0.2.1
+IMPROVMENTS:
+* Add heroku risky patterns.[PR-75](https://github.com/kaplanelad/shellfirm/pull/75)
+
+DOCS
+* Spell correction for README typo. [PR-79](https://github.com/kaplanelad/shellfirm/pull/79)
+* docs/checks/fs - clarify descriptions. [PR-77](https://github.com/kaplanelad/shellfirm/pull/77)
+
+## 0.2.0
+IMPROVMENTS:
+* Replace / with path join.[PR-72](https://github.com/kaplanelad/shellfirm/pull/72)
+* Bump crossbeam-utils from 0.8.5 to 0.8.10. [PR-74](https://github.com/kaplanelad/shellfirm/pull/74)
+
+
+## 0.2.0
 IMPROVMENTS:
 * Improve test. [PR-71](https://github.com/kaplanelad/shellfirm/pull/71)
 * replace / with path join. [PR-72](https://github.com/kaplanelad/shellfirm/pull/72)
+* Text cleanuo. [PR-]https://github.com/kaplanelad/shellfirm/pull/66
 
 ## 0.1.6
 IMPROVMENTS
