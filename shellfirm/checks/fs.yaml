@@ -9,7 +9,7 @@
   description: "The files will be discarded and destroyed."
   id: fs:move_to_deb_null
 - from: fs
-  test: .*>(.*)
+  test: [[:word:]].* (>{1})(\s|[[:word:]].*)
   method: Regex
   description: "The above command is used to flush the content of a file."
   filters:
