@@ -1,4 +1,6 @@
 ## Unreleased
+IMPROVMENT
+* refactor config management. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
 
 ## 0.2.4
 IMPROVMENT
