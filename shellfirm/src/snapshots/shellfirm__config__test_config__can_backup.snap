@@ -1,5 +1,0 @@
----
-source: shellfirm/src/config.rs
-expression: backup.is_ok()
----
-true

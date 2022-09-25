@@ -1,13 +1,13 @@
 ---
-source: src/checks.rs
+source: shellfirm/src/checks.rs
 expression: "&contains_check"
 ---
 Check {
+    id: "id",
     test: "test",
     method: Contains,
-    enable: true,
     description: "",
     from: "",
-    challenge: Default,
+    challenge: Math,
     filters: {},
 }

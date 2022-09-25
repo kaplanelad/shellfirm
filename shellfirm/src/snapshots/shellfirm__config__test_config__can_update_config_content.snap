@@ -1,7 +1,0 @@
----
-source: shellfirm/src/config.rs
-expression: "config.update_config_content(false, &vec![\"test-2\".to_string()])"
----
-Ok(
-    (),
-)

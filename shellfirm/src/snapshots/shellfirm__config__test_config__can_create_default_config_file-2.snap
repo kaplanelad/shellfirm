@@ -1,7 +1,0 @@
----
-source: shellfirm/src/config.rs
-expression: "fs::read_to_string(config.config_file_path)"
----
-Ok(
-    "---\nchallenge: Math\nincludes:\n  - base\n  - fs\n  - git\nversion: 0.0.0\n",
-)

@@ -14,6 +14,10 @@ use crate::{
     prompt,
 };
 
+/// String with all checks from `checks` folder (prepared in build.rs) in YAML
+/// format.
+const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml"));
+
 // list of custom filter
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum FilterType {
@@ -23,12 +27,11 @@ pub enum FilterType {
 /// Describe single check
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Check {
+    pub id: String,
     /// test ia a value that we check the command.
     pub test: String,
     /// The type of the check.
     pub method: Method,
-    /// boolean for ignore check
-    pub enable: bool,
     /// description of what is risky in this command
     pub description: String,
     /// the group of the check see files in `checks` folder
@@ -39,16 +42,16 @@ pub struct Check {
     pub filters: HashMap<FilterType, String>,
 }
 
+pub fn get_all_checks() -> Result<Vec<Check>> {
+    Ok(serde_yaml::from_str(ALL_CHECKS)?)
+}
+
 /// prompt a challenge to the user
 ///
 /// # Errors
 ///
 /// Will return `Err` when could not convert checks to yaml
-pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Result<bool> {
-    if dryrun {
-        eprintln!("{}", serde_yaml::to_string(checks)?);
-        return Ok(true);
-    }
+pub fn challenge(challenge: &Challenge, checks: &[Check]) -> Result<bool> {
     eprintln!("{}", style("#######################").yellow().bold());
     eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
     eprintln!("{}", style("#######################").yellow().bold());
@@ -67,7 +70,7 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Resul
     let show_challenge = challenge;
 
     Ok(match show_challenge {
-        Challenge::Math | Challenge::Default => prompt::math_challenge(),
+        Challenge::Math => prompt::math_challenge(),
         Challenge::Enter => prompt::enter_challenge(),
         Challenge::Yes => prompt::yes_challenge(),
     })
@@ -83,7 +86,6 @@ pub fn challenge(challenge: &Challenge, checks: &[Check], dryrun: bool) -> Resul
 pub fn run_check_on_command(checks: &[Check], command: &str) -> Vec<Check> {
     checks
         .par_iter()
-        .filter(|&v| v.enable)
         .filter(|&v| is_match(v, command))
         .filter(|&v| check_custom_filter(v, command))
         .map(std::clone::Clone::clone)
@@ -210,45 +212,48 @@ mod test_checks {
   method: Regex
   enable: true
   description: ""
+  id: ""
 - from: test-2
   test: test-(1|2)
   method: Regex
   enable: true
   description: ""
+  id: ""
 - from: test-disabled
   test: test-disabled
   method: Regex
   enable: true
   description: ""
+  id: ""
 "###;
 
     #[test]
     fn is_match_command() {
         let regex_check = Check {
+            id: "id".to_string(),
             test: String::from("rm.+(-r|-f|-rf|-fr)*"),
             method: Method::Regex,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         let contains_check = Check {
+            id: "id".to_string(),
             test: String::from("test"),
             method: Method::Contains,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         let startwith_check = Check {
+            id: "id".to_string(),
             test: String::from("start"),
             method: Method::StartWith,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(&regex_check);
@@ -258,12 +263,12 @@ mod test_checks {
     #[test]
     fn can_is_match_contains() {
         let check = Check {
+            id: "id".to_string(),
             test: String::from("test"),
             method: Method::Contains,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
 
@@ -274,12 +279,12 @@ mod test_checks {
     #[test]
     fn can_is_match_start_with() {
         let check = Check {
+            id: "id".to_string(),
             test: String::from("test"),
             method: Method::StartWith,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(is_match(&check, "test is valid"));
@@ -289,12 +294,12 @@ mod test_checks {
     #[test]
     fn can_check_is_regex_match() {
         let check = Check {
+            id: "id".to_string(),
             test: String::from(r#"rm\s*(-r|-fr|-rf)\s*(\*)"#),
             method: Method::Regex,
-            enable: true,
             description: String::from(""),
             from: String::from(""),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters: HashMap::new(),
         };
         assert_debug_snapshot!(is_match(&check, "rm -rf *"));
@@ -314,12 +319,12 @@ mod test_checks {
         filters.insert(FilterType::IsFileExists, "1".to_string());
 
         let check = Check {
+            id: "id".to_string(),
             test: ".*>(.*)".to_string(),
             method: Method::Regex,
-            enable: true,
             description: "some description".to_string(),
             from: "test".to_string(),
-            challenge: Challenge::Default,
+            challenge: Challenge::default(),
             filters,
         };
 
@@ -332,5 +337,9 @@ mod test_checks {
         assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
         std::fs::File::create(message_file).unwrap();
         assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
+    }
+    #[test]
+    fn can_get_all_checks() {
+        assert_debug_snapshot!(get_all_checks().is_ok());
     }
 }

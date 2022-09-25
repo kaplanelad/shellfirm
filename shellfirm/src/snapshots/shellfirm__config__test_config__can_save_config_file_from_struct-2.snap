@@ -1,7 +1,0 @@
----
-source: shellfirm/src/config.rs
-expression: config.read_config_file()
----
-Ok(
-    "---\nchallenge: Math\nincludes:\n  - default-check\n  - test-1\n  - test-2\n  - test-disabled\nversion: 0.0.0\nchecks:\n  - test: test-value\n    method: Contains\n    enable: true\n    description: description\n    from: test\n    challenge: Default\n    filters: {}\n",
-)

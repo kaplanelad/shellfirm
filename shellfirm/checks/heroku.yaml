@@ -1,100 +1,100 @@
 - from: heroku
   test: heroku ps:restart
   method: Regex
-  enable: true
   description: "Restarting app dynos"
+  id: heroku:restart_app_dynos
 - from: heroku
   test: heroku ps:stop
   method: Regex
-  enable: true
   description: "Stop app dynos"
+  id: heroku:stop_app_dynos
 - from: heroku
   test: heroku ps:kill
   method: Regex
-  enable: true
-  description: "Kill app dyno"
+  description: "Kill app dynos"
+  id: heroku:kill_app_dynos
 - from: heroku
   test: heroku ps:kill
-  method: Regex
-  enable: true
-  description: "Kill app dyno"
+  method: Regex  
+  description: "Kill app dynos"
+  id: heroku:kill_app_dynos
 - from: heroku
   test: heroku maintenance:on
   method: Regex
-  enable: true
   description: "Put the app into maintenance mode?"
+  id: heroku:enable_maintenance_mode
 - from: heroku
   test: heroku members:remove
   method: Regex
-  enable: true
   description: "Removes a user from a team"
+  id: heroku:remove_member
 - from: heroku
   test: heroku features:disable
   method: Regex
-  enable: true
   description: "Disables an app feature"
+  id: heroku:disable_app_feature
 - from: heroku
   test: heroku container:rm
   method: Regex
-  enable: true
   description: "Remove the process type from your app"
+  id: heroku:remove_app_process
 - from: heroku
   test: heroku config:unset
   method: Regex
-  enable: true
   description: "unset one or more config vars"
+  id: heroku:unset_environment_variable
 - from: heroku
   test: heroku clients:destroy
   method: Regex
-  enable: true
   description: "Delete client by ID"
+  id: heroku:delete_client
 - from: heroku
   test: heroku clients:rotate
   method: Regex
-  enable: true
   description: "Rotate OAuth client secret"
+  id: heroku:rotate_oauth_client
 - from: heroku
   test: heroku clients:update
   method: Regex
-  enable: true
   description: "Update OAuth client"
+  id: heroku:update_oauth_client
 - from: heroku
   test: heroku apps:destroy
   method: Regex
-  enable: true
   description: "Permanently destroy an app"
+  id: heroku:destroy_app
 - from: heroku
   test: heroku apps:leave
   method: Regex
-  enable: true
   description: "Remove yourself from a team app"
+  id: heroku:remove_yourself_from_app
 - from: heroku
   test: heroku apps:rename
   method: Regex
-  enable: true
   description: "Rename an app"
+  id: heroku:rename_app_name
 - from: heroku
   test: heroku addons:destroy
   method: Regex
-  enable: true
   description: "Permanently destroy an add-on resource"
+  id: heroku:destroy_addons
 - from: heroku
   test: heroku addons:detach
   method: Regex
-  enable: true
   description: "Detach an existing add-on resource from an app"
+  id: heroku:detach_addon
 - from: heroku
   test: heroku access:remove
   method: Regex
-  enable: true
   description: "Remove users from a team app"
+  id: heroku:remove_user_access
 - from: heroku
   test: heroku access:update
   method: Regex
-  enable: true
   description: "Update existing collaborators on an team app"
+  id: heroku:update_collaborators_access
 - from: heroku
   test: heroku repo:reset
   method: Regex
-  enable: true
   description: "Reset heroku repo"
+  id: heroku:reset_repo

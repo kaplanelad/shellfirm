@@ -1,8 +1,0 @@
-challenge: Math # Math, Enter, Yes
-
-includes: 
-  - base
-  - fs
-  - git
-
-checks: []

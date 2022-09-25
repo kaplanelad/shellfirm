@@ -4,21 +4,21 @@ expression: "run_check_on_command(&checks, \"test-1\")"
 ---
 [
     Check {
+        id: "",
         test: "test-(1)",
         method: Regex,
-        enable: true,
         description: "",
         from: "test-1",
-        challenge: Default,
+        challenge: Math,
         filters: {},
     },
     Check {
+        id: "",
         test: "test-(1|2)",
         method: Regex,
-        enable: true,
         description: "",
         from: "test-2",
-        challenge: Default,
+        challenge: Math,
         filters: {},
     },
 ]

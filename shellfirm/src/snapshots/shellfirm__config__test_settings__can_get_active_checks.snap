@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/config.rs
+expression: config.get_settings_from_file().unwrap().get_active_checks().is_ok()
+---
+true

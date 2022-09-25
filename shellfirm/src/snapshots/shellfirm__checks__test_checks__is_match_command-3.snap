@@ -1,13 +1,13 @@
 ---
-source: src/checks.rs
+source: shellfirm/src/checks.rs
 expression: "&startwith_check"
 ---
 Check {
+    id: "id",
     test: "start",
     method: StartWith,
-    enable: true,
     description: "",
     from: "",
-    challenge: Default,
+    challenge: Math,
     filters: {},
 }

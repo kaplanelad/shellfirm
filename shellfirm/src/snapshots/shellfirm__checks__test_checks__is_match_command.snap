@@ -1,13 +1,13 @@
 ---
-source: src/checks.rs
+source: shellfirm/src/checks.rs
 expression: "&regex_check"
 ---
 Check {
+    id: "id",
     test: "rm.+(-r|-f|-rf|-fr)*",
     method: Regex,
-    enable: true,
     description: "",
     from: "",
-    challenge: Default,
+    challenge: Math,
     filters: {},
 }

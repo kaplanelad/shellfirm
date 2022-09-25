@@ -1,0 +1,12 @@
+---
+source: shellfirm/src/bin/cmd/command.rs
+expression: "run_pre_command(\"command\", &settings, &settings.get_active_checks().unwrap(),\n    true)"
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: Some(
+            "---\n[]\n",
+        ),
+    },
+)

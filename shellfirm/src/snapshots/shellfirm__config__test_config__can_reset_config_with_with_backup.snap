@@ -1,0 +1,15 @@
+---
+source: shellfirm/src/config.rs
+expression: config.get_settings_from_file()
+---
+Ok(
+    Settings {
+        challenge: Yes,
+        includes: [
+            "base",
+            "fs",
+            "git",
+        ],
+        ignores: [],
+    },
+)

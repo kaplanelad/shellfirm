@@ -1,0 +1,10 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: "run_update_groups(&config, Some(vec![\"test-1\".to_string()]))"
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: None,
+    },
+)
