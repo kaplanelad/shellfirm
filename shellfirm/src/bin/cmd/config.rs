@@ -99,7 +99,7 @@ mod test_config_cli_command {
 
     use std::fs;
 
-    use insta::assert_debug_snapshot;
+    use insta::{assert_debug_snapshot, with_settings};
     use tempdir::TempDir;
 
     use super::*;
@@ -133,7 +133,11 @@ mod test_config_cli_command {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
         fs::remove_file(&config.setting_file_path).unwrap();
-        assert_debug_snapshot!(run_reset(&config, Some(1)));
+        with_settings!({filters => vec![
+            (r"error:.+", "error message"),
+        ]}, {
+            assert_debug_snapshot!(run_reset(&config, Some(1)));
+        });
         temp_dir.close().unwrap();
     }
 
@@ -154,7 +158,12 @@ mod test_config_cli_command {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
         fs::remove_file(&config.setting_file_path).unwrap();
-        assert_debug_snapshot!(run_challenge(&config, Some(Challenge::Yes)));
+
+        with_settings!({filters => vec![
+            (r"error:.+", "error message"),
+        ]}, {
+            assert_debug_snapshot!(run_challenge(&config, Some(Challenge::Yes)));
+        });
         temp_dir.close().unwrap();
     }
 }

@@ -6,7 +6,7 @@ Ok(
     CmdExit {
         code: 78,
         message: Some(
-            "reset settings error: No such file or directory (os error 2)",
+            "reset settings error message
         ),
     },
 )

@@ -31,7 +31,7 @@ requestty = "0.4.1"
 strum = { version = "0.21", features = ["derive"] }
 
 [dev-dependencies]
-insta = { version = "1", features = ["backtrace"] }
+insta = { version = "1.20.0", features = ["filters"] }
 tempdir = "0.3"
 
 [build-dependencies]
