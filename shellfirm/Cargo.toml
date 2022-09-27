@@ -33,6 +33,7 @@ strum = { version = "0.21", features = ["derive"] }
 [dev-dependencies]
 insta = { version = "1.20.0", features = ["filters"] }
 tempdir = "0.3"
+itertools = "0.10.5"
 
 [build-dependencies]
 anyhow = "1.0.51"

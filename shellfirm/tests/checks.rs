@@ -1,6 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use insta::assert_debug_snapshot;
+use itertools::Itertools;
 use serde_derive::Deserialize;
 use shellfirm::checks::{get_all_checks, run_check_on_command};
 
@@ -43,6 +44,7 @@ fn test_checks() {
                 check_detection_ids: run_result
                     .iter()
                     .map(|f| f.id.to_string())
+                    .sorted_by(|a, b| Ord::cmp(&b, &a))
                     .collect::<Vec<_>>(),
                 test_description: test.description,
             })
