@@ -1,0 +1,14 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "./tests/checks/base:bash_fork_bomb.yaml",
+        test: ":(){ :|:& };:",
+        check_detection_ids: [
+            "base:bash_fork_bomb",
+        ],
+        test_description: "match command",
+    },
+]

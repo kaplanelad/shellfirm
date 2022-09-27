@@ -1,0 +1,7 @@
+---
+- test: rm test.txt
+  description: match command
+- test: rmm test.txt
+  description: invalid rm name
+- test: rm
+  description: without arguments

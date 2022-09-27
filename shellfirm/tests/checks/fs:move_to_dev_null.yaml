@@ -1,0 +1,9 @@
+---
+- test: mv fil@!@#e.txt /dev/null
+  description: match command
+- test: mv 1 /dev/null
+  description: match command
+- test: mv .
+  description: match command
+- test: mv /dev/null
+  description: missing argument

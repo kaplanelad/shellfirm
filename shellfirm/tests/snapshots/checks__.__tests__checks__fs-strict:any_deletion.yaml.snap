@@ -1,0 +1,26 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "./tests/checks/fs-strict:any_deletion.yaml",
+        test: "rm test.txt",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "./tests/checks/fs-strict:any_deletion.yaml",
+        test: "rmm test.txt",
+        check_detection_ids: [],
+        test_description: "invalid rm name",
+    },
+    TestSensitivePatternsResult {
+        file_path: "./tests/checks/fs-strict:any_deletion.yaml",
+        test: "rm",
+        check_detection_ids: [],
+        test_description: "without arguments",
+    },
+]

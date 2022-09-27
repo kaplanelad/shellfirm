@@ -1,0 +1,11 @@
+---
+- test: reboot
+  description: match command
+- test: reboot -r
+  description: match command with flag
+- test: reboot -r now
+  description: match command with flag value
+- test: reboot    
+  description: match command with spaces
+- test: reboott
+  description: not match

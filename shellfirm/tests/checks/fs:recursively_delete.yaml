@@ -1,0 +1,15 @@
+---
+- test: rm -rf /
+  description: delete root path
+- test: rm -r /
+  description: delete root path
+- test: rm -rf *
+  description: delete all files in current folder
+- test: rm -fr ..
+  description: delete parent folder
+- test: rm -rf ....
+  description: delete parent folder
+- test: rm -rf .
+  description: delete with ., invalid command
+- test: rm -rf test.txt
+  description: delete with ., invalid command

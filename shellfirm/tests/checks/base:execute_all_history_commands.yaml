@@ -1,0 +1,15 @@
+---
+- test: history | bash
+  description: match command that end with bash
+- test: history | sh
+  description: match command that end with sh
+- test: history   |   sh
+  description: match command with multiple spaces
+- test: history | grep -v  | bash
+  description: match command
+- test: history|bash
+  description: match command without spaces
+- test: history | shh
+  description: not end with sh
+- test: history | bashh
+  description: not end with bash
