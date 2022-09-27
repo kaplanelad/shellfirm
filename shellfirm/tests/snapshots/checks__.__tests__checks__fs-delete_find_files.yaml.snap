@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs:delete_find_files.yaml",
+        file_path: "./tests/checks/fs-delete_find_files.yaml",
         test: "find . | -delete",
         check_detection_ids: [
             "fs:delete_find_files",
@@ -12,7 +12,7 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs:delete_find_files.yaml",
+        file_path: "./tests/checks/fs-delete_find_files.yaml",
         test: "find / | -delete",
         check_detection_ids: [
             "fs:delete_find_files",
@@ -20,7 +20,7 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs:delete_find_files.yaml",
+        file_path: "./tests/checks/fs-delete_find_files.yaml",
         test: "findd / | -delete",
         check_detection_ids: [],
         test_description: "invalid command",
