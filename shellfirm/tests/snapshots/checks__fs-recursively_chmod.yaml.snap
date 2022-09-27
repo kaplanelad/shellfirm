@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod -R /",
         check_detection_ids: [
             "fs:recursively_chmod",
@@ -13,7 +13,7 @@ expression: test_file_results
         test_description: "change root path permissions",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod --recursive /",
         check_detection_ids: [
             "fs:recursively_chmod",
@@ -22,7 +22,7 @@ expression: test_file_results
         test_description: "change root path permissions",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod -R *",
         check_detection_ids: [
             "fs:recursively_chmod",
@@ -31,7 +31,7 @@ expression: test_file_results
         test_description: "change root path permissions",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod -R ..",
         check_detection_ids: [
             "fs:recursively_chmod",
@@ -40,7 +40,7 @@ expression: test_file_results
         test_description: "change parent folder",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod -R ...",
         check_detection_ids: [
             "fs:recursively_chmod",
@@ -49,7 +49,7 @@ expression: test_file_results
         test_description: "change parent folder",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-recursively_chmod.yaml",
+        file_path: "fs-recursively_chmod.yaml",
         test: "chmod file.txt",
         check_detection_ids: [
             "fs-strict:change_permissions",

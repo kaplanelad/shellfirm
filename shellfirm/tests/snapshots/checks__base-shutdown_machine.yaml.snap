@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/base-shutdown_machine.yaml",
+        file_path: "base-shutdown_machine.yaml",
         test: "shutdown",
         check_detection_ids: [
             "base:shutdown_machine",
@@ -12,7 +12,7 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/base-shutdown_machine.yaml",
+        file_path: "base-shutdown_machine.yaml",
         test: "shutdown -r",
         check_detection_ids: [
             "base:shutdown_machine",
@@ -20,7 +20,7 @@ expression: test_file_results
         test_description: "match command with flag",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/base-shutdown_machine.yaml",
+        file_path: "base-shutdown_machine.yaml",
         test: "shutdown -r now",
         check_detection_ids: [
             "base:shutdown_machine",
@@ -28,7 +28,7 @@ expression: test_file_results
         test_description: "match command with flag value",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/base-shutdown_machine.yaml",
+        file_path: "base-shutdown_machine.yaml",
         test: "shutdown",
         check_detection_ids: [
             "base:shutdown_machine",
@@ -36,7 +36,7 @@ expression: test_file_results
         test_description: "match command with spaces",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/base-shutdown_machine.yaml",
+        file_path: "base-shutdown_machine.yaml",
         test: "shutdownn",
         check_detection_ids: [],
         test_description: "not match",

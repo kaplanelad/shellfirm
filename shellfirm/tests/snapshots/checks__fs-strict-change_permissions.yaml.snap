@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-strict-change_permissions.yaml",
+        file_path: "fs-strict-change_permissions.yaml",
         test: "chmod -R",
         check_detection_ids: [
             "fs-strict:change_permissions",
@@ -12,13 +12,13 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-strict-change_permissions.yaml",
+        file_path: "fs-strict-change_permissions.yaml",
         test: "chmod",
         check_detection_ids: [],
         test_description: "chmod without any data",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-strict-change_permissions.yaml",
+        file_path: "fs-strict-change_permissions.yaml",
         test: "chmodd",
         check_detection_ids: [],
         test_description: "chmod name is incurrent",

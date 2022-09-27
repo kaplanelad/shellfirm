@@ -4,24 +4,24 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/git-git_reset.yaml",
-        test: "git reset",
+        file_path: "base-delete_all_cron_tasks.yaml",
+        test: "crontab -r",
         check_detection_ids: [
-            "git:git_reset",
+            "base:delete_all_cron_tasks",
         ],
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/git-git_reset.yaml",
-        test: "git    reset",
+        file_path: "base-delete_all_cron_tasks.yaml",
+        test: "crontab   -r",
         check_detection_ids: [
-            "git:git_reset",
+            "base:delete_all_cron_tasks",
         ],
-        test_description: "match command",
+        test_description: "match command with multiple spaces",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/git-git_reset.yaml",
-        test: "gitt reset",
+        file_path: "base-delete_all_cron_tasks.yaml",
+        test: "crontab-r",
         check_detection_ids: [],
         test_description: "invalid command",
     },

@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::PathBuf};
 
 use insta::assert_debug_snapshot;
 use serde_derive::Deserialize;
@@ -24,22 +24,21 @@ fn test_checks() {
 
     let test_files_path = fs::read_dir("./tests/checks")
         .unwrap()
-        .filter_map(|entry| {
-            entry
-                .ok()
-                .and_then(|e| Some(e.path().display().to_string()))
-        })
-        .collect::<Vec<String>>();
+        .filter_map(|entry| entry.ok().and_then(|e| Some(e.path())))
+        .collect::<Vec<PathBuf>>();
 
     for file in test_files_path {
+        let file_name = file.file_name().unwrap().to_str().unwrap().to_string();
         let mut test_file_results: Vec<TestSensitivePatternsResult> = Vec::new();
         let tests: Vec<TestSensitivePatterns> =
-            serde_yaml::from_reader(std::fs::File::open(&file).unwrap()).unwrap();
+            serde_yaml::from_reader(std::fs::File::open(&file.display().to_string()).unwrap())
+                .unwrap();
 
         for test in tests {
             let run_result = run_check_on_command(&checks, &test.test);
+
             test_file_results.push(TestSensitivePatternsResult {
-                file_path: file.clone(),
+                file_path: file_name.clone(),
                 test: test.test,
                 check_detection_ids: run_result
                     .iter()
@@ -48,6 +47,6 @@ fn test_checks() {
                 test_description: test.description,
             })
         }
-        assert_debug_snapshot!(file, test_file_results);
+        assert_debug_snapshot!(file_name, test_file_results);
     }
 }

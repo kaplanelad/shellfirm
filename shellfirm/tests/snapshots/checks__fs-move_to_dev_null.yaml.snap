@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-move_to_dev_null.yaml",
+        file_path: "fs-move_to_dev_null.yaml",
         test: "mv fil@!@#e.txt /dev/null",
         check_detection_ids: [
             "fs:move_to_dev_null",
@@ -12,7 +12,7 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-move_to_dev_null.yaml",
+        file_path: "fs-move_to_dev_null.yaml",
         test: "mv 1 /dev/null",
         check_detection_ids: [
             "fs:move_to_dev_null",
@@ -20,13 +20,13 @@ expression: test_file_results
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-move_to_dev_null.yaml",
+        file_path: "fs-move_to_dev_null.yaml",
         test: "mv .",
         check_detection_ids: [],
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-move_to_dev_null.yaml",
+        file_path: "fs-move_to_dev_null.yaml",
         test: "mv /dev/null",
         check_detection_ids: [],
         test_description: "missing argument",

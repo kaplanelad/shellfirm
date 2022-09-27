@@ -4,7 +4,7 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-flush_file_content.yaml",
+        file_path: "fs-flush_file_content.yaml",
         test: "echo \"test\" > Cargo.toml",
         check_detection_ids: [
             "fs:flush_file_content",
@@ -12,13 +12,13 @@ expression: test_file_results
         test_description: "flush content",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-flush_file_content.yaml",
+        file_path: "fs-flush_file_content.yaml",
         test: "echo \"test\" > file.txt",
         check_detection_ids: [],
         test_description: "file not found",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-flush_file_content.yaml",
+        file_path: "fs-flush_file_content.yaml",
         test: "cat file.old.txt > Cargo.toml",
         check_detection_ids: [
             "fs:flush_file_content",
@@ -26,7 +26,7 @@ expression: test_file_results
         test_description: "flush content",
     },
     TestSensitivePatternsResult {
-        file_path: "./tests/checks/fs-flush_file_content.yaml",
+        file_path: "fs-flush_file_content.yaml",
         test: "cat \"test\" >> file.txt",
         check_detection_ids: [],
         test_description: "todo:: need to change the regex to skip this command when append data to file",
