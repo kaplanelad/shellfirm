@@ -1,100 +1,95 @@
 - from: heroku
-  test: heroku ps:restart
+  test: heroku\s*ps:restart
   method: Regex
   description: "Restarting app dynos"
   id: heroku:restart_app_dynos
 - from: heroku
-  test: heroku ps:stop
+  test: heroku\s*ps:stop
   method: Regex
   description: "Stop app dynos"
   id: heroku:stop_app_dynos
 - from: heroku
-  test: heroku ps:kill
+  test: heroku\s*ps:kill
   method: Regex
   description: "Kill app dynos"
   id: heroku:kill_app_dynos
 - from: heroku
-  test: heroku ps:kill
-  method: Regex  
-  description: "Kill app dynos"
-  id: heroku:kill_app_dynos
-- from: heroku
-  test: heroku maintenance:on
+  test: heroku\s*maintenance:on
   method: Regex
   description: "Put the app into maintenance mode?"
   id: heroku:enable_maintenance_mode
 - from: heroku
-  test: heroku members:remove
+  test: heroku\s*members:remove
   method: Regex
   description: "Removes a user from a team"
   id: heroku:remove_member
 - from: heroku
-  test: heroku features:disable
+  test: heroku\s*features:disable
   method: Regex
   description: "Disables an app feature"
   id: heroku:disable_app_feature
 - from: heroku
-  test: heroku container:rm
+  test: heroku\s*container:rm
   method: Regex
   description: "Remove the process type from your app"
-  id: heroku:remove_app_process
+  id: heroku:remove_app_container
 - from: heroku
-  test: heroku config:unset
+  test: heroku\s*config:unset
   method: Regex
   description: "unset one or more config vars"
   id: heroku:unset_environment_variable
 - from: heroku
-  test: heroku clients:destroy
+  test: heroku\s*clients:destroy
   method: Regex
   description: "Delete client by ID"
-  id: heroku:delete_client
+  id: heroku:destroy_client
 - from: heroku
-  test: heroku clients:rotate
+  test: heroku\s*clients:rotate
   method: Regex
   description: "Rotate OAuth client secret"
   id: heroku:rotate_oauth_client
 - from: heroku
-  test: heroku clients:update
+  test: heroku\s*clients:update
   method: Regex
   description: "Update OAuth client"
   id: heroku:update_oauth_client
 - from: heroku
-  test: heroku apps:destroy
+  test: heroku\s*apps:destroy
   method: Regex
   description: "Permanently destroy an app"
   id: heroku:destroy_app
 - from: heroku
-  test: heroku apps:leave
+  test: heroku\s*apps:leave
   method: Regex
   description: "Remove yourself from a team app"
   id: heroku:remove_yourself_from_app
 - from: heroku
-  test: heroku apps:rename
+  test: heroku\s*apps:rename
   method: Regex
   description: "Rename an app"
   id: heroku:rename_app_name
 - from: heroku
-  test: heroku addons:destroy
+  test: heroku\s*addons:destroy
   method: Regex
   description: "Permanently destroy an add-on resource"
   id: heroku:destroy_addons
 - from: heroku
-  test: heroku addons:detach
+  test: heroku\s*addons:detach
   method: Regex
   description: "Detach an existing add-on resource from an app"
   id: heroku:detach_addon
 - from: heroku
-  test: heroku access:remove
+  test: heroku\s*access:remove
   method: Regex
   description: "Remove users from a team app"
   id: heroku:remove_user_access
 - from: heroku
-  test: heroku access:update
+  test: heroku\s*access:update
   method: Regex
   description: "Update existing collaborators on an team app"
   id: heroku:update_collaborators_access
 - from: heroku
-  test: heroku repo:reset
+  test: heroku\s*repo:reset
   method: Regex
   description: "Reset heroku repo"
   id: heroku:reset_repo

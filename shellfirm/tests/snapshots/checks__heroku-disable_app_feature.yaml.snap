@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-disable_app_feature.yaml",
+        test: "heroku features:disable",
+        check_detection_ids: [
+            "heroku:disable_app_feature",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-disable_app_feature.yaml",
+        test: "heroku  features:disable",
+        check_detection_ids: [
+            "heroku:disable_app_feature",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-disable_app_feature.yaml",
+        test: "herokuu features:disable",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

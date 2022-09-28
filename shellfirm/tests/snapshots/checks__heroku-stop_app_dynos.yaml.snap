@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-stop_app_dynos.yaml",
+        test: "heroku ps:stop",
+        check_detection_ids: [
+            "heroku:stop_app_dynos",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-stop_app_dynos.yaml",
+        test: "heroku     ps:stop",
+        check_detection_ids: [
+            "heroku:stop_app_dynos",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-stop_app_dynos.yaml",
+        test: "herokuu ps:stop",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

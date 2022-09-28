@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-update_collaborators_access.yaml",
+        test: "heroku access:update",
+        check_detection_ids: [
+            "heroku:update_collaborators_access",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-update_collaborators_access.yaml",
+        test: "heroku   access:update",
+        check_detection_ids: [
+            "heroku:update_collaborators_access",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-update_collaborators_access.yaml",
+        test: "herokuu access:update",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

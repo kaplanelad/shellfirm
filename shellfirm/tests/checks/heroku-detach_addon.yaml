@@ -1,0 +1,7 @@
+---
+- test: heroku addons:detach
+  description: match command
+- test: heroku   addons:detach
+  description: match command with spaces
+- test: herokuu addons:detach
+  description: invalid command

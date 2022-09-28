@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_yourself_from_app.yaml",
+        test: "heroku apps:leave",
+        check_detection_ids: [
+            "heroku:remove_yourself_from_app",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_yourself_from_app.yaml",
+        test: "heroku   apps:leave",
+        check_detection_ids: [
+            "heroku:remove_yourself_from_app",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_yourself_from_app.yaml",
+        test: "herokuu apps:leave",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

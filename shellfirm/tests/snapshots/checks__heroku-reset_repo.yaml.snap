@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-reset_repo.yaml",
+        test: "heroku repo:reset",
+        check_detection_ids: [
+            "heroku:reset_repo",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-reset_repo.yaml",
+        test: "heroku   repo:reset",
+        check_detection_ids: [
+            "heroku:reset_repo",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-reset_repo.yaml",
+        test: "herokuu repo:reset",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

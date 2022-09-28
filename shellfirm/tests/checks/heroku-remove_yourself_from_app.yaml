@@ -1,0 +1,7 @@
+---
+- test: heroku apps:leave
+  description: match command
+- test: heroku   apps:leave
+  description: match command with spaces
+- test: herokuu apps:leave
+  description: invalid command
