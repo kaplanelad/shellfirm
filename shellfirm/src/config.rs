@@ -24,17 +24,6 @@ pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
 
 pub const DEFAULT_INCLUDE_CHECKS: [&str; 3] = ["base", "fs", "git"];
 
-/// The method type go the check.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
-pub enum Method {
-    /// Run start with check.
-    StartWith,
-    /// Run contains check.
-    Contains,
-    /// Run regex check.
-    Regex,
-}
-
 /// The user challenge when user need to confirm the command.
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, EnumIter)]
 pub enum Challenge {

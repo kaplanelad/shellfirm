@@ -1,5 +1,4 @@
 - from: git
   test: git\s{1,}reset
-  method: Regex
   description: "This command going to reset all your local changes."
   id: git:git_reset

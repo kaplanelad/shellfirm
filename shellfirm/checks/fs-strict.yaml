@@ -1,10 +1,8 @@
 - from: fs-strict
   test: chmod\s
-  method: Regex
   description: "Are you sure that you want to change permissions?"
   id: fs-strict:change_permissions
 - from: fs-strict
   test: rm\s
-  method: Regex
   description: "Are you sure you want to continue with deletion?"
   id: fs-strict:any_deletion

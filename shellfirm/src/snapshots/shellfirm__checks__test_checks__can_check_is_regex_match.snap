@@ -1,5 +1,0 @@
----
-source: shellfirm/src/checks.rs
-expression: "is_match(&check, \"rm -rf *\")"
----
-true
