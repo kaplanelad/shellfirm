@@ -51,7 +51,14 @@ Validate shellfirm installation
 shellfirm --version
 ```
 
-### Select your shell
+## Verify installation
+```
+$ mkdir /tmp/shellfirm
+$ cd /tmp/shellfirm
+$ git reset --hard
+```
+
+## Select your shell
 <details>
 <summary>Oh My Zsh</summary>
 Download zsh plugin:
@@ -117,13 +124,6 @@ echo 'source ~/.shellfirm-plugin.sh' >> ~/.zshrc
 :information_source: Open a new shell session
 
 :eyes: :eyes: [Verify installation](./README.md#verify-installation) :eyes: :eyes:
-
-## Verify installation
-```
-$ mkdir /tmp/shellfirm
-$ cd /tmp/shellfirm
-$ git reset --hard
-```
 
 You should get a `shellfirm` prompt challenge. 
 
