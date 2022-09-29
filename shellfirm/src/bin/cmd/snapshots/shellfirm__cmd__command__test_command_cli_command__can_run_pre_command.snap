@@ -6,7 +6,7 @@ Ok(
     CmdExit {
         code: 0,
         message: Some(
-            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s{1,}(-r|-fr|-rf)\\\\s*(\\\\*|\\\\.{2,}|/)\"\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters: {}\n",
+            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s{1,}(-r|-fr|-rf)\\\\s*(\\\\*|\\\\.{1,}|/)\\\\s*$\"\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters:\n    IsExists: \"3\"\n",
         ),
     },
 )

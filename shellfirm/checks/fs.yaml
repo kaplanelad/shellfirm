@@ -1,16 +1,20 @@
 - from: fs
-  test: 'rm\s{1,}(-r|-fr|-rf)\s*(\*|\.{2,}|/)'
+  test: 'rm\s{1,}(-r|-fr|-rf)\s*(\*|\.{1,}|/)\s*$'
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
+  filters:
+    IsExists: "3"
 - from: fs
-  test: mv\s{1,}([a-zA-Z0-9.!@#$%^&*()']*) /dev/null
+  test: mv\s{1,}([a-zA-Z0-9.!@/#$%^&*()']+)\s*/dev/null
   description: "The files will be discarded and destroyed."
   id: fs:move_to_dev_null
+  filters:
+    IsExists: "1"
 - from: fs
   test: .*>(.*)
   description: "The above command is used to flush the content of a file."
   filters:
-    IsFileExists: "1"
+    IsExists: "1"
   id: fs:flush_file_content
 - from: fs
   test: chmod\s{1,}(-R|--recursive)\s{1}(\*|\.{2,}|/)

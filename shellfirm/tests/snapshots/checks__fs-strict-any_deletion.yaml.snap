@@ -5,11 +5,51 @@ expression: test_file_results
 [
     TestSensitivePatternsResult {
         file_path: "fs-strict-any_deletion.yaml",
-        test: "rm test.txt",
+        test: "rm Cargo.toml",
         check_detection_ids: [
             "fs-strict:any_deletion",
         ],
-        test_description: "match command",
+        test_description: "match command by finding existing file",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command by finding folder",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -rf src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command by finding folder with flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -r src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command by finding folder with flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -fr src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command by finding folder with flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -f src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "match command by finding folder with flags",
     },
     TestSensitivePatternsResult {
         file_path: "fs-strict-any_deletion.yaml",
