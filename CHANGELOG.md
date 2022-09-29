@@ -1,9 +1,11 @@
 ## Unreleased
 IMPROVMENT
-* Refactor config management. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
+* create unites for regex checks. [PR-107](https://github.com/kaplanelad/shellfirm/pull/107)
+* Remove contains method. [PR-108](https://github.com/kaplanelad/shellfirm/pull/108)
+* https://github.com/kaplanelad/shellfirm/pulls?q=is%3Apr+is%3Aclosed. [PR-109](https://github.com/kaplanelad/shellfirm/pull/109)
 
-FIX
-* Fix flush content file regex. [PR-106](https://github.com/kaplanelad/shellfirm/pull/106)
+BRAKING CHANGES
+* Change shellfirm configuraion. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
 
 ## 0.2.4
 IMPROVMENT
