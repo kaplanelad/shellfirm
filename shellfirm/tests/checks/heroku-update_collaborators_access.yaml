@@ -1,0 +1,7 @@
+---
+- test: heroku access:update
+  description: match command
+- test: heroku   access:update
+  description: match command with spaces
+- test: herokuu access:update
+  description: invalid command

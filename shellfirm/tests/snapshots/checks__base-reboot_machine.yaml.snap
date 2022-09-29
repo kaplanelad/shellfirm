@@ -1,0 +1,44 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboot",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboot -r",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command with flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboot -r now",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command with flag value",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboot",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboott",
+        check_detection_ids: [],
+        test_description: "not match",
+    },
+]

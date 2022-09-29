@@ -1,0 +1,7 @@
+---
+- test: crontab -r
+  description: match command
+- test: crontab   -r
+  description: match command with multiple spaces
+- test: crontab-r
+  description: invalid command

@@ -1,0 +1,7 @@
+---
+- test: heroku ps:stop
+  description: match command
+- test: heroku     ps:stop
+  description: match command with spaces
+- test: herokuu ps:stop
+  description: invalid command

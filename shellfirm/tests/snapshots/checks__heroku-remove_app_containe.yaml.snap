@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_app_containe.yaml",
+        test: "heroku container:rm",
+        check_detection_ids: [
+            "heroku:remove_app_container",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_app_containe.yaml",
+        test: "heroku   container:rm",
+        check_detection_ids: [
+            "heroku:remove_app_container",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-remove_app_containe.yaml",
+        test: "herokuu container:rm",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

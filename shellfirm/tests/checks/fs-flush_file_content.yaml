@@ -1,0 +1,9 @@
+---
+- test: echo "test" > Cargo.toml
+  description: flush content
+- test: echo "test" > file.txt
+  description: file not found
+- test: cat file.old.txt > Cargo.toml
+  description: flush content
+- test: cat "test" >> file.txt
+  description: "todo:: need to change the regex to skip this command when append data to file"

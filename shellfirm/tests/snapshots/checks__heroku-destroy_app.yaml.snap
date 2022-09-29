@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "heroku-destroy_app.yaml",
+        test: "heroku apps:destroy",
+        check_detection_ids: [
+            "heroku:destroy_app",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-destroy_app.yaml",
+        test: "heroku   apps:destroy",
+        check_detection_ids: [
+            "heroku:destroy_app",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "heroku-destroy_app.yaml",
+        test: "herokuu apps:destroy",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

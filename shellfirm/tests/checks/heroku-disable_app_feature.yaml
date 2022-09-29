@@ -1,0 +1,7 @@
+---
+- test: heroku features:disable
+  description: match command
+- test: heroku  features:disable
+  description: match command with spaces
+- test: herokuu features:disable
+  description: invalid command

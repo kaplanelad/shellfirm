@@ -1,0 +1,34 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "kubernetes-strict-update_resource.yaml",
+        test: "k set env",
+        check_detection_ids: [
+            "kubernetes-strict:update_resource",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "kubernetes-strict-update_resource.yaml",
+        test: "kubectl   set   env",
+        check_detection_ids: [
+            "kubernetes-strict:update_resource",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "kubernetes-strict-update_resource.yaml",
+        test: "k set",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "kubernetes-strict-update_resource.yaml",
+        test: "kubectl set",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

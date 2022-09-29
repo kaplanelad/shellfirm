@@ -1,0 +1,11 @@
+---
+- test: shutdown
+  description: match command
+- test: shutdown -r
+  description: match command with flag
+- test: shutdown -r now
+  description: match command with flag value
+- test: shutdown    
+  description: match command with spaces
+- test: shutdownn
+  description: not match

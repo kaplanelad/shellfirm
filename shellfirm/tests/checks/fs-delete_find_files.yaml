@@ -1,0 +1,7 @@
+---
+- test: find . | -delete
+  description: match command
+- test: find / | -delete
+  description: match command
+- test: findd / | -delete
+  description: invalid command

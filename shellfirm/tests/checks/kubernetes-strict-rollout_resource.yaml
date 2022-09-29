@@ -1,0 +1,13 @@
+---
+- test: kubectl rollout restart
+  description: match command
+- test: kubectl rollout resume
+  description: match command
+- test: kubectl rollout pause
+  description: match command
+- test: kubectl   rollout   undo
+  description: match command
+- test: kubectl rollout s
+  description: invalid command
+- test: kubectl rollout
+  description: invalid command

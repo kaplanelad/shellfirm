@@ -1,0 +1,7 @@
+---
+- test: heroku config:unset
+  description: match command
+- test: heroku   config:unset
+  description: match command with spaces
+- test: herokuu config:unset
+  description: invalid command

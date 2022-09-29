@@ -1,0 +1,59 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod -R /",
+        check_detection_ids: [
+            "fs:recursively_chmod",
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change root path permissions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod --recursive /",
+        check_detection_ids: [
+            "fs:recursively_chmod",
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change root path permissions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod -R *",
+        check_detection_ids: [
+            "fs:recursively_chmod",
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change root path permissions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod -R ..",
+        check_detection_ids: [
+            "fs:recursively_chmod",
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change parent folder",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod -R ...",
+        check_detection_ids: [
+            "fs:recursively_chmod",
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change parent folder",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-recursively_chmod.yaml",
+        test: "chmod file.txt",
+        check_detection_ids: [
+            "fs-strict:change_permissions",
+        ],
+        test_description: "change file permissions",
+    },
+]
