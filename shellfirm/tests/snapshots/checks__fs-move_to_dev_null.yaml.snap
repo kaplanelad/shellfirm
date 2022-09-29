@@ -5,7 +5,7 @@ expression: test_file_results
 [
     TestSensitivePatternsResult {
         file_path: "fs-move_to_dev_null.yaml",
-        test: "mv fil@!@#e.txt /dev/null",
+        test: "mv Cargo.toml /dev/null",
         check_detection_ids: [
             "fs:move_to_dev_null",
         ],
@@ -13,7 +13,7 @@ expression: test_file_results
     },
     TestSensitivePatternsResult {
         file_path: "fs-move_to_dev_null.yaml",
-        test: "mv 1 /dev/null",
+        test: "mv ./ /dev/null",
         check_detection_ids: [
             "fs:move_to_dev_null",
         ],

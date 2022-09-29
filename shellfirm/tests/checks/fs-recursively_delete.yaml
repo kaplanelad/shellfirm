@@ -5,11 +5,11 @@
   description: delete root path
 - test: rm -rf *
   description: delete all files in current folder
-- test: rm -fr ..
+- test: rm -fr .
   description: delete parent folder
-- test: rm -rf ....
+- test: rm -rf ..
   description: delete parent folder
-- test: rm -rf .
-  description: delete with ., invalid command
-- test: rm -rf test.txt
-  description: delete with ., invalid command
+- test: rm -rf /ffff
+  description: folder not found
+- test: rmm -rf /
+  description: folder not found

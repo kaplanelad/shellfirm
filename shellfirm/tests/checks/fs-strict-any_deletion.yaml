@@ -1,6 +1,16 @@
 ---
-- test: rm test.txt
-  description: match command
+- test: rm Cargo.toml
+  description: match command by finding existing file
+- test: rm src
+  description: match command by finding folder
+- test: rm -rf src
+  description: match command by finding folder with flags
+- test: rm -r src
+  description: match command by finding folder with flags
+- test: rm -fr src
+  description: match command by finding folder with flags
+- test: rm -f src
+  description: match command by finding folder with flags
 - test: rmm test.txt
   description: invalid rm name
 - test: rm

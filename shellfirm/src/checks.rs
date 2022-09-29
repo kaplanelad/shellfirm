@@ -1,6 +1,6 @@
 //! Manage command checks
 
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 
 use anyhow::Result;
 use console::style;
@@ -19,7 +19,7 @@ const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml
 // list of custom filter
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum FilterType {
-    IsFileExists,
+    IsExists,
 }
 
 /// Describe single check
@@ -115,7 +115,7 @@ fn check_custom_filter(check: &Check, command: &str) -> bool {
         );
 
         let keep_filter = match filter_type {
-            FilterType::IsFileExists => filter_is_file_exists(
+            FilterType::IsExists => filter_is_file_or_directory_exists(
                 caps.get(filter_params.parse().unwrap())
                     .map_or("", |m| m.as_str()),
             ),
@@ -135,7 +135,7 @@ fn check_custom_filter(check: &Check, command: &str) -> bool {
 /// # Arguments
 ///
 /// * `file_path` - check path.
-fn filter_is_file_exists(file_path: &str) -> bool {
+fn filter_is_file_or_directory_exists(file_path: &str) -> bool {
     let mut file_path: String = file_path.trim().into();
     if file_path.starts_with('~') {
         match dirs::home_dir() {
@@ -145,8 +145,22 @@ fn filter_is_file_exists(file_path: &str) -> bool {
             None => return true,
         };
     }
-    debug!("check is file {} exists", file_path);
-    return std::path::Path::new(file_path.trim()).exists();
+
+    if file_path.contains("*") {
+        return true;
+    }
+
+    let full_path = match env::current_dir() {
+        Ok(e) => e.join(file_path).display().to_string(),
+        Err(err) => {
+            log::debug!("could not get current dir. err: {:?}", err);
+            return true;
+        }
+    };
+
+    log::debug!("check is {} path is exists", full_path);
+    return std::path::Path::new(full_path.trim()).exists()
+        || std::path::Path::new(full_path.trim()).is_dir();
 }
 
 #[cfg(test)]
@@ -186,7 +200,7 @@ mod test_checks {
     #[test]
     fn can_check_custom_filter() {
         let mut filters: HashMap<FilterType, String> = HashMap::new();
-        filters.insert(FilterType::IsFileExists, "1".to_string());
+        filters.insert(FilterType::IsExists, "1".to_string());
 
         let check = Check {
             id: "id".to_string(),
