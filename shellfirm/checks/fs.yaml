@@ -1,27 +1,22 @@
 - from: fs
   test: 'rm\s{1,}(-r|-fr|-rf)\s*(\*|\.{2,}|/)'
-  method: Regex
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
 - from: fs
   test: mv\s{1,}([a-zA-Z0-9.!@#$%^&*()']*) /dev/null
-  method: Regex
   description: "The files will be discarded and destroyed."
   id: fs:move_to_dev_null
 - from: fs
   test: .*>(.*)
-  method: Regex
   description: "The above command is used to flush the content of a file."
   filters:
     IsFileExists: "1"
   id: fs:flush_file_content
 - from: fs
   test: chmod\s{1,}(-R|--recursive)\s{1}(\*|\.{2,}|/)
-  method: Regex
   description: "Change permission to all root files can brake your some thinks like SSH keys."
   id: fs:recursively_chmod
 - from: fs
   test: find\s.*-delete
-  method: Regex
   description: "Did you -delete flag in the wrong order? find -delete going to delete all the file under your current path."
   id: fs:delete_find_files

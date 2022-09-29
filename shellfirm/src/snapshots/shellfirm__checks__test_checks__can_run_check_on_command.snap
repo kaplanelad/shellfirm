@@ -5,8 +5,7 @@ expression: "run_check_on_command(&checks, \"test-1\")"
 [
     Check {
         id: "",
-        test: "test-(1)",
-        method: Regex,
+        test: test-(1),
         description: "",
         from: "test-1",
         challenge: Math,
@@ -14,8 +13,7 @@ expression: "run_check_on_command(&checks, \"test-1\")"
     },
     Check {
         id: "",
-        test: "test-(1|2)",
-        method: Regex,
+        test: test-(1|2),
         description: "",
         from: "test-2",
         challenge: Math,
