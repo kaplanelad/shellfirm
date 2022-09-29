@@ -146,7 +146,7 @@ fn filter_is_file_or_directory_exists(file_path: &str) -> bool {
         };
     }
 
-    if file_path.contains("*") {
+    if file_path.contains('*') {
         return true;
     }
 
