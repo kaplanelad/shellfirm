@@ -1,4 +1,4 @@
 - from: kubernetes
-  test: \s*(kubectl|k)\s*delete\s*(ns|namespace)
+  test: (kubectl|k)\s*delete\s*(ns|namespace)
   description: "Deleting the namespace also deletes all the residing components."
   id: kubernetes:delete_namespace

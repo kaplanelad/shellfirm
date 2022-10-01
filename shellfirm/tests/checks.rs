@@ -52,3 +52,31 @@ fn test_checks() {
         assert_debug_snapshot!(file_name, test_file_results);
     }
 }
+
+#[test]
+fn test_patterns_coverage() {
+    let checks = get_all_checks().unwrap();
+
+    let test_files_path = fs::read_dir("./tests/checks")
+        .unwrap()
+        .filter_map(|entry| {
+            entry
+                .ok()
+                .and_then(|e| Some(e.file_name().to_str().unwrap().to_string()))
+        })
+        .collect::<Vec<String>>();
+
+    let mut not_covered = vec![];
+    for check in checks {
+        if !test_files_path.contains(&format!("{}.yaml", &check.id.replace(":", "-"))) {
+            // println!(
+            //     "{} - > {}",
+            //     &check.id,
+            //     format!("{}.yaml", &check.id.replace(":", "-"))
+            // );
+            println!("{:?}", test_files_path);
+            not_covered.push(check.id);
+        }
+    }
+    assert_debug_snapshot!(not_covered)
+}

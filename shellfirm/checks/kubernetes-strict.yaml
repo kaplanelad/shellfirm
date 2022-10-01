@@ -7,7 +7,7 @@
   description: "This command will update the given given resource."
   id: kubernetes-strict:update_resource
 - from: kubernetes-strict
-  test: \s*(kubectl|k)\s*scale
+  test: (kubectl|k)\s*scale
   description: "This command will set a new size for a given resource."
   id: kubernetes-strict:change_resource_size
 - from: kubernetes-strict

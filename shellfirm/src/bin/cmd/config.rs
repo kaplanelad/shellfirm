@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use clap::{App, Arg, ArgMatches, Command};
+use clap::{App, AppSettings::ArgRequiredElseHelp, Arg, ArgMatches, Command};
 use shellfirm::{dialog, Challenge, Config, Settings};
 use strum::IntoEnumIterator;
 
@@ -8,6 +8,7 @@ const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_f
 pub fn command() -> Command<'static> {
     Command::new("config")
         .about("Manage app config")
+        .setting(ArgRequiredElseHelp)
         .subcommand(
             App::new("update-groups")
                 .about("enable check group")
