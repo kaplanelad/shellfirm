@@ -16,17 +16,23 @@ pub fn command() -> Command<'static> {
         )
         .subcommand(App::new("reset").about("Reset configuration"))
         .subcommand(App::new("challenge").about("Reset configuration"))
+        .subcommand(App::new("ignore").about("Ignore command pattern"))
 }
 
-pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
+pub fn run(
+    matches: &ArgMatches,
+    config: &Config,
+    settings: &Settings,
+) -> Result<shellfirm::CmdExit> {
     match matches.subcommand() {
         None => Err(anyhow!("command not found")),
         Some(tup) => match tup {
             ("update-groups", _subcommand_matches) => {
                 run_update_groups(config, &config.get_settings_from_file()?, None)
             }
-            ("reset", _subcommand_matches) => run_reset(config, None),
+            ("reset", _subcommand_matches) => Ok(run_reset(config, None)),
             ("challenge", _subcommand_matches) => run_challenge(config, None),
+            ("ignore", _subcommand_matches) => run_ignore(config, settings, None),
             _ => unreachable!(),
         },
     }
@@ -37,17 +43,16 @@ pub fn run_update_groups(
     settings: &Settings,
     groups: Option<Vec<String>>,
 ) -> Result<shellfirm::CmdExit> {
-    let check_groups = match groups {
-        Some(g) => g,
-        None => {
-            let all_groups = ALL_GROUP_CHECKS.iter().map(|f| f.to_string()).collect();
-            dialog::multi_choice(
-                "select checks",
-                all_groups,
-                settings.get_active_groups().to_vec(),
-                100,
-            )?
-        }
+    let check_groups = if let Some(groups) = groups {
+        groups
+    } else {
+        let all_groups = ALL_GROUP_CHECKS.iter().map(|f| (*f).to_string()).collect();
+        dialog::multi_choice(
+            "select checks",
+            all_groups,
+            settings.get_active_groups().clone(),
+            100,
+        )?
     };
 
     match config.update_check_groups(check_groups) {
@@ -62,26 +67,25 @@ pub fn run_update_groups(
     }
 }
 
-pub fn run_reset(config: &Config, force_selection: Option<usize>) -> Result<shellfirm::CmdExit> {
+pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::CmdExit {
     match config.reset_config(force_selection) {
-        Ok(()) => Ok(shellfirm::CmdExit {
+        Ok(()) => shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("shellfirm configuration reset successfully".to_string()),
-        }),
-        Err(e) => Ok(shellfirm::CmdExit {
+        },
+        Err(e) => shellfirm::CmdExit {
             code: exitcode::CONFIG,
             message: Some(format!("reset settings error: {:?}", e)),
-        }),
+        },
     }
 }
 
 pub fn run_challenge(config: &Config, challenge: Option<Challenge>) -> Result<shellfirm::CmdExit> {
-    let selection_challenge = match challenge {
-        Some(c) => c,
-        None => {
-            let challenges = Challenge::iter().map(|c| c.to_string()).collect::<Vec<_>>();
-            Challenge::from_string(&dialog::select("change shellfirm challenge", &challenges)?)?
-        }
+    let selection_challenge = if let Some(c) = challenge {
+        c
+    } else {
+        let challenges = Challenge::iter().map(|c| c.to_string()).collect::<Vec<_>>();
+        Challenge::from_string(&dialog::select("change shellfirm challenge", &challenges)?)?
     };
 
     match config.update_challenge(selection_challenge) {
@@ -92,6 +96,40 @@ pub fn run_challenge(config: &Config, challenge: Option<Challenge>) -> Result<sh
         Err(e) => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
             message: Some(format!("change challenge error: {:?}", e)),
+        }),
+    }
+}
+
+pub fn run_ignore(
+    config: &Config,
+    settings: &Settings,
+    force_ignore: Option<Vec<String>>,
+) -> Result<shellfirm::CmdExit> {
+    let all_check_ids: Vec<String> = settings
+        .get_active_checks()?
+        .iter()
+        .map(|c| c.id.to_string())
+        .collect();
+
+    let selected = if let Some(force_ignore) = force_ignore {
+        force_ignore
+    } else {
+        dialog::multi_choice(
+            "select checks",
+            all_check_ids,
+            settings.ignores.clone(),
+            100,
+        )?
+    };
+
+    match config.update_ignores(selected) {
+        Ok(()) => Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: None,
+        }),
+        Err(e) => Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some(format!("update pattern ignore errors: {:?}", e)),
         }),
     }
 }
@@ -188,6 +226,20 @@ mod test_config_cli_command {
         ]}, {
             assert_debug_snapshot!(run_challenge(&config, Some(Challenge::Yes)));
         });
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_ignore() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_debug_snapshot!(run_ignore(
+            &config,
+            &settings,
+            Some(vec!["id-1".to_string(), "id-2".to_string()])
+        ));
+        assert_debug_snapshot!(config.get_settings_from_file().unwrap().ignores);
         temp_dir.close().unwrap();
     }
 }

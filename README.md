@@ -165,6 +165,13 @@ $ shellfirm config challenge
 
 *At any time you can cancel a risky command by hitting `^C`*
 
+## Ignore pattern:
+
+You can disable one or more patterns in a selected group by running the command:
+```bash
+shellfirm config ignore
+```
+
 ## To Upgrade `shellfirm`
 ```bash
 $ brew upgrade shellfirm

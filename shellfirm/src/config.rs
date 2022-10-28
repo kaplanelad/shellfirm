@@ -265,13 +265,34 @@ impl Config {
         fs::rename(&self.setting_file_path, &backup_to)?;
         Ok(backup_to)
     }
+
+    /// Update patterns ignores.
+    ///
+    /// # Arguments
+    /// * `ignores` - Full list of patterns ids
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` when could not load/save config
+    pub fn update_ignores(&self, ignores: Vec<String>) -> AnyResult<()> {
+        let mut settings = self.get_settings_from_file()?;
+        settings.ignores = ignores;
+        self.save_settings_file_from_struct(&settings)?;
+        Ok(())
+    }
 }
 
 impl Settings {
+    /// Return list of active patterns by user groups
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` when could not load config file
     pub fn get_active_checks(&self) -> AnyResult<Vec<Check>> {
         Ok(get_all_checks()?
             .iter()
             .filter(|&c| self.includes.contains(&c.from))
+            .filter(|&c| !self.ignores.contains(&c.id))
             .cloned()
             .collect::<Vec<Check>>())
     }
