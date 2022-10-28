@@ -1,0 +1,7 @@
+---
+- test: terraform force-unlock -force
+  description: match command
+- test: terraform    force-unlock    -force
+  description: match command with spaces
+- test: terraform  force-unlock
+  description: invalid command

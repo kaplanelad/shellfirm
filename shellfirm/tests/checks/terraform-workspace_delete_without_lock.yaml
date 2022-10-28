@@ -1,0 +1,9 @@
+---
+- test: terraform workspace delete -lock=false 
+  description: match command
+- test: terraform workspace delete -lock=false -force
+  description: match command with force
+- test: terraform   workspace   delete   -lock=false 
+  description: match command with spaces
+- test: terraform workspace delete
+  description: invalid command

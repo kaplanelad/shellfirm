@@ -143,6 +143,7 @@ We have predefined a baseline of risky groups command that will be enabled by de
 | [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update kubernetes` |
 | [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` <br/> `shellfirm config update kubernetes-strict` |
 | [heroku](./docs/checks/heroku.md) | `false` <br/> `shellfirm config update heroku` |
+| [terraform](./docs/checks/terraform.md) | `false` <br/> `shellfirm config update terraform` |
 
 
 ## Custom checks definition examples

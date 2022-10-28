@@ -1,0 +1,11 @@
+---
+- test: terraform state mv 
+  description: match command
+- test: terraform state replace-provider 
+  description: match command
+- test: terraform    state mv
+  description: match command with spaces
+- test: terraform state mv -dry-run
+  description: skip during the -dry-run flag
+- test: terraform state replace-provider -dry-run
+  description: skip during the -dry-run flag

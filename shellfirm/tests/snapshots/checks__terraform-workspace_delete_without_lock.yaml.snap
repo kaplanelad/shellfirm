@@ -1,0 +1,37 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "terraform-workspace_delete_without_lock.yaml",
+        test: "terraform workspace delete -lock=false",
+        check_detection_ids: [
+            "terraform:workspace_delete_without_lock",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "terraform-workspace_delete_without_lock.yaml",
+        test: "terraform workspace delete -lock=false -force",
+        check_detection_ids: [
+            "terraform:workspace_delete_without_lock",
+            "terraform:workspace_delete_with_force_flag",
+        ],
+        test_description: "match command with force",
+    },
+    TestSensitivePatternsResult {
+        file_path: "terraform-workspace_delete_without_lock.yaml",
+        test: "terraform   workspace   delete   -lock=false",
+        check_detection_ids: [
+            "terraform:workspace_delete_without_lock",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "terraform-workspace_delete_without_lock.yaml",
+        test: "terraform workspace delete",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

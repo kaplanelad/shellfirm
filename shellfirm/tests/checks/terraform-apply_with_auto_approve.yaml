@@ -1,0 +1,7 @@
+---
+- test: terraform apply -auto-approve
+  description: match command
+- test: terraform    apply    -auto-approve
+  description: match command with spaces
+- test: terraform    apply    -auto-approv
+  description: match command with spaces

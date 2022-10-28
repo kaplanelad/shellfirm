@@ -1,0 +1,5 @@
+---
+source: shellfirm/src/checks.rs
+expression: "check_custom_filter(&check, \"delete --dry-run\")"
+---
+false

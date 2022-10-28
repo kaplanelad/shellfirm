@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "terraform-force_unlock_with_force_flag.yaml",
+        test: "terraform force-unlock -force",
+        check_detection_ids: [
+            "terraform:force_unlock_with_force_flag",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "terraform-force_unlock_with_force_flag.yaml",
+        test: "terraform    force-unlock    -force",
+        check_detection_ids: [
+            "terraform:force_unlock_with_force_flag",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "terraform-force_unlock_with_force_flag.yaml",
+        test: "terraform  force-unlock",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]
