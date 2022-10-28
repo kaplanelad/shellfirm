@@ -2,6 +2,7 @@
 
 * Add git-strict file commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
 * Add more git commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
+* Add Terraform commands. [PR-113](https://github.com/kaplanelad/shellfirm/pull/113)
 
 ## 0.2.5
 IMPROVMENT
