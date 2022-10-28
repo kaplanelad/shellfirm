@@ -49,16 +49,18 @@ fn main() {
         }
     };
 
-    let res = match matches.subcommand() {
-        None => Err(anyhow!("command not found")),
-        Some(tup) => match tup {
+    let res = matches.subcommand().map_or_else(
+        || Err(anyhow!("command not found")),
+        |tup| match tup {
             ("pre-command", subcommand_matches) => {
                 cmd::command::run(subcommand_matches, &settings, &checks)
             }
-            ("config", subcommand_matches) => cmd::config::run(subcommand_matches, &config),
+            ("config", subcommand_matches) => {
+                cmd::config::run(subcommand_matches, &config, &settings)
+            }
             _ => unreachable!(),
         },
-    };
+    );
 
     let exit_with = match res {
         Ok(cmd) => {
