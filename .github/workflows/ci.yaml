@@ -83,13 +83,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v1
 
-      - name: Run cargo test
+      - name: Run test
         uses: actions-rs/cargo@v1
         with:
-          command: test
+          command: xtask
+          args: test
 
-  lints:
-    name: Lints
+  clippy:
+    name: clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -101,20 +102,35 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          components: rustfmt, clippy
+          components: clippy
 
-      - name: Run cargo fmt
+      - name: Run clippy
         uses: actions-rs/cargo@v1
         with:
-          command: fmt
-          args: --all -- --check
-
-      - name: Run cargo clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: -- -D warnings
+          command: xtask
+          args: clippy
   
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt
+
+      - name: Run fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: xtask
+          args: fmt
+
   docs:
     name: Docs
     runs-on: ubuntu-latest
@@ -129,6 +145,7 @@ jobs:
         profile: minimal
         override: true
     - uses: Swatinem/rust-cache@v1
+    
     - name: Check documentation
       env:
         RUSTDOCFLAGS: -D warnings
