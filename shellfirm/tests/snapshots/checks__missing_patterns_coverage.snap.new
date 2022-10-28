@@ -1,8 +1,0 @@
----
-source: shellfirm/tests/checks.rs
-assertion_line: 81
-expression: not_covered
----
-[
-    "heroku:restart_app_dynos",
-]
