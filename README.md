@@ -171,7 +171,7 @@ $ brew upgrade shellfirm
 ```
 
 ## Contributing
-Thank you for your interest in contributing! Please refer to [contribution guidelines](./docs/contributing.md) for guidance.
+Thank you for your interest in contributing! Please refer to [contribution guidelines](./CONTRIBUTING.md) for guidance.
 
 # Copyright
 Copyright (c) 2022 [@kaplanelad](https://github.com/kaplanelad). See [LICENSE](LICENSE.txt) for further details.
