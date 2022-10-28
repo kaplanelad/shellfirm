@@ -1,0 +1,32 @@
+- from: terraform
+  test: terraform\s*apply.*-auto-approve
+  method: Regex
+  enable: true
+  description: "apply state without asking for confirmation."
+  id: terraform:apply_with_auto_approve
+- from: terraform
+  test: terraform\s*state\s*(mv|replace-provider)
+  method: Regex
+  enable: true
+  description: "Move state without asking for confirmation."
+  filters:
+    NotContains: "-dry-run"
+  id: terraform:state
+- from: terraform
+  test: terraform\s*workspace\s*delete.*(-force)
+  method: Regex
+  enable: true
+  description: "Delete a Terraform workspace without asking for confirmation."
+  id: terraform:workspace_delete_with_force_flag
+- from: terraform
+  test: terraform\s*workspace\s*delete.*(-lock=false)
+  method: Regex
+  enable: true
+  description: "Delete a Terraform workspace without asking for confirmation."
+  id: terraform:workspace_delete_without_lock
+- from: terraform
+  test: terraform\s*force-unlock\s*(-force)
+  method: Regex
+  enable: true
+  description: "Manually unlock the state for the defined configuration. without asking for confirmation."
+  id: terraform:force_unlock_with_force_flag

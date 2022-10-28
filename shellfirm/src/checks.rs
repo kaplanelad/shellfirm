@@ -20,6 +20,7 @@ const ALL_CHECKS: &str = include_str!(concat!(env!("OUT_DIR"), "/all-checks.yaml
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Clone)]
 pub enum FilterType {
     IsExists,
+    NotContains,
 }
 
 /// Describe single check
@@ -119,6 +120,7 @@ fn check_custom_filter(check: &Check, command: &str) -> bool {
                 caps.get(filter_params.parse().unwrap())
                     .map_or("", |m| m.as_str()),
             ),
+            FilterType::NotContains => filter_is_command_contains_string(command, filter_params),
         };
 
         if !keep_filter {
@@ -163,6 +165,9 @@ fn filter_is_file_or_directory_exists(file_path: &str) -> bool {
         || std::path::Path::new(full_path.trim()).is_dir();
 }
 
+fn filter_is_command_contains_string(command: &str, filter_params: &str) -> bool {
+    !command.contains(filter_params)
+}
 #[cfg(test)]
 mod test_checks {
     use std::fs;
@@ -198,7 +203,7 @@ mod test_checks {
     }
 
     #[test]
-    fn can_check_custom_filter() {
+    fn can_check_custom_filter_with_file_exists() {
         let mut filters: HashMap<FilterType, String> = HashMap::new();
         filters.insert(FilterType::IsExists, "1".to_string());
 
@@ -221,6 +226,25 @@ mod test_checks {
         std::fs::File::create(message_file).unwrap();
         assert_debug_snapshot!(check_custom_filter(&check, command.as_ref()));
     }
+
+    #[test]
+    fn can_check_custom_filter_with_str_contains() {
+        let mut filters: HashMap<FilterType, String> = HashMap::new();
+        filters.insert(FilterType::NotContains, "--dry-run".to_string());
+
+        let check = Check {
+            id: "id".to_string(),
+            test: Regex::new("delete").unwrap(),
+            description: "some description".to_string(),
+            from: "test".to_string(),
+            challenge: Challenge::default(),
+            filters,
+        };
+
+        assert_debug_snapshot!(check_custom_filter(&check, "delete"));
+        assert_debug_snapshot!(check_custom_filter(&check, "delete --dry-run"));
+    }
+
     #[test]
     fn can_get_all_checks() {
         assert_debug_snapshot!(get_all_checks().is_ok());
