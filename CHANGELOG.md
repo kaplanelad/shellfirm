@@ -5,6 +5,7 @@ IMPROVMENT
 * Add Terraform commands. [PR-113](https://github.com/kaplanelad/shellfirm/pull/113)
 * Improve xtask. [PR-115](https://github.com/kaplanelad/shellfirm/pull/115)
 * Improve docs. [PR-116](https://github.com/kaplanelad/shellfirm/pull/116)
+* Allow ignoring patterns. [PR-117](https://github.com/kaplanelad/shellfirm/pull/117)
 
 ## 0.2.5
 IMPROVMENT
