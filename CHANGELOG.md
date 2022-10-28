@@ -1,5 +1,8 @@
 ## Unreleased
 
+* Add git-strict file commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
+* Add more git commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
+
 ## 0.2.5
 IMPROVMENT
 * create unites for regex checks. [PR-107](https://github.com/kaplanelad/shellfirm/pull/107)
