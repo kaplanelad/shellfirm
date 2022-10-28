@@ -1,0 +1,11 @@
+---
+- test: git commit -a
+  description: match command
+- test: git commit --all
+  description: match command
+- test: git commit -am
+  description: match command
+- test: git commit -a -m "as"
+  description: match command
+- test: git commit -m
+  description: invalid command

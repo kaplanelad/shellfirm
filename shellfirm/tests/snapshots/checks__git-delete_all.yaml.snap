@@ -4,24 +4,26 @@ expression: test_file_results
 ---
 [
     TestSensitivePatternsResult {
-        file_path: "git-git_reset.yaml",
-        test: "git reset",
+        file_path: "git-delete_all.yaml",
+        test: "git  rm *",
         check_detection_ids: [
-            "git:git_reset",
+            "git:delete_all",
+            "fs-strict:any_deletion",
         ],
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "git-git_reset.yaml",
-        test: "git    reset",
+        file_path: "git-delete_all.yaml",
+        test: "git rm .",
         check_detection_ids: [
-            "git:git_reset",
+            "git:delete_all",
+            "fs-strict:any_deletion",
         ],
         test_description: "match command",
     },
     TestSensitivePatternsResult {
-        file_path: "git-git_reset.yaml",
-        test: "gitt reset",
+        file_path: "git-delete_all.yaml",
+        test: "gitt rm",
         check_detection_ids: [],
         test_description: "invalid command",
     },

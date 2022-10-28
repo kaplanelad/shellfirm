@@ -1,0 +1,8 @@
+- from: git-strict
+  test: git\s{1,}add\s{1,}.
+  description: "Do you want to add all changes files to the staging area?"
+  id: git-strict:git_add_all
+- from: git-strict
+  test: git\s{1,}commit\s{1,}(--all|-(.*a))
+  description: "Do you want to commit all changes file and commit them?"
+  id: git-strict:git_commit_all
