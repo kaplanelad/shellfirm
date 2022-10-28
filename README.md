@@ -152,9 +152,7 @@ $ shellfirm config update-groups
 ```
 
 ## Change challenge:
-```bash
-$ shellfirm config challenge
-```
+
 Currently we support 3 different challenges when a risky command is intercepted:
 * `Math` - Default challenge which requires you to solve a math question.
 * `Enter` - Required only to press `Enter` to continue.
@@ -162,7 +160,7 @@ Currently we support 3 different challenges when a risky command is intercepted:
 
 You can change the default challenge by running the command:
 ```bash
-$ shellfirm config challenge Math
+$ shellfirm config challenge
 ```
 
 *At any time you can cancel a risky command by hitting `^C`*
