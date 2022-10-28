@@ -1,8 +1,10 @@
 ## Unreleased
-
+IMPROVMENT
 * Add git-strict file commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
 * Add more git commands. [PR-112](https://github.com/kaplanelad/shellfirm/pull/112)
 * Add Terraform commands. [PR-113](https://github.com/kaplanelad/shellfirm/pull/113)
+* Improve xtask. [PR-115](https://github.com/kaplanelad/shellfirm/pull/115)
+* Improve docs. [PR-116](https://github.com/kaplanelad/shellfirm/pull/116)
 
 ## 0.2.5
 IMPROVMENT
