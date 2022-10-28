@@ -1,0 +1,44 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_commit_all.yaml",
+        test: "git commit -a",
+        check_detection_ids: [
+            "git-strict:git_commit_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_commit_all.yaml",
+        test: "git commit --all",
+        check_detection_ids: [
+            "git-strict:git_commit_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_commit_all.yaml",
+        test: "git commit -am",
+        check_detection_ids: [
+            "git-strict:git_commit_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_commit_all.yaml",
+        test: "git commit -a -m \"as\"",
+        check_detection_ids: [
+            "git-strict:git_commit_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_commit_all.yaml",
+        test: "git commit -m",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]

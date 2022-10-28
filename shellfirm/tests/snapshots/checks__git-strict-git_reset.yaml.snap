@@ -1,0 +1,28 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_reset.yaml",
+        test: "git add .",
+        check_detection_ids: [
+            "git-strict:git_add_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_reset.yaml",
+        test: "git    add   .",
+        check_detection_ids: [
+            "git-strict:git_add_all",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-git_reset.yaml",
+        test: "git add",
+        check_detection_ids: [],
+        test_description: "invalid command",
+    },
+]
