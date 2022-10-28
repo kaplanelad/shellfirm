@@ -17,7 +17,7 @@ How do I save myself from myself?
 
 Do you want to learn from other people's mistakes?
 
-`shellfirm` will intercept any risky patterns (predefined or user's custom additions) and will immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
+`shellfirm` will intercept any risky patterns and immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
 
 ```bash
 $ rm -rf /
@@ -139,80 +139,22 @@ We have predefined a baseline of risky groups command that will be enabled by de
 | [base](./docs/checks/base.md) | `true` |
 | [git](./docs/checks/git.md) | `true` |
 | [fs](./docs/checks/fs.md) | `true` |
-| [fs-strict](./docs/checks/fs-strict.md) | `false` <br/> `shellfirm config update fs-strict` |
-| [kubernetes](./docs/checks/kubernetes.md) | `false` <br/> `shellfirm config update kubernetes` |
-| [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` <br/> `shellfirm config update kubernetes-strict` |
-| [heroku](./docs/checks/heroku.md) | `false` <br/> `shellfirm config update heroku` |
-| [terraform](./docs/checks/terraform.md) | `false` <br/> `shellfirm config update terraform` |
+| [fs-strict](./docs/checks/fs-strict.md) | `false` |
+| [kubernetes](./docs/checks/kubernetes.md) | `false`  |
+| [kubernetes-strict](./docs/checks/kubernetes-strict.md) | `false` |
+| [heroku](./docs/checks/heroku.md) | `false` |
+| [terraform](./docs/checks/terraform.md) | `false` |
 
 
-## Custom checks definition examples
-
-`shellfirm` creates by default a configuration file at `~/.shellfirm/config.yaml`.  Make sure that you only edit `enable` field (in case you want to disable a specific check), all the rest fields are managed by `shellfirm` command (`shellfirm config --help`).
-
-```yaml
-challenge: Math # Math, Enter, Yes
-
-includes: 
-  - base
-  - fs
-  - git
-
-checks:
-  - test: git reset
-    method: Contains
-    enable: true
-    description: "This command going to reset all your local changes."
-    from: git
-    challenge: Default
-  - test: "rm.+(-r|-f|-rf|-fr)*"
-    method: Regex
-    enable: true
-    description: "You are going to delete everything in the path."
-    from: fs
-    challenge: Default
-  - test: ">.+/dev/sda"
-    method: Regex
-    enable: true
-    description: "Writing the data directly to the hard disk drive and damaging your file system."
-    from: fs
-    challenge: Default
-  - test: "mv+.*/dev/null"
-    method: Regex
-    enable: true
-    description: "The files will be discarded and destroyed."
-    from: fs
-    challenge: Default
-```
-
-:information_source: To define custom checks that are not part of `shellfirm` baseline, add new checks to the config.yaml with the following field: `from: custom`.
-```yaml
-  - test: "command to check"
-    method: Regex
-    enable: true
-    description: "Example of custom check."
-    from: custom
-    challenge: Default
-```
-
-:information_source: To define different challenge for a checks you can change the field `challenge: Default` with a [different check](./README.md#change-challenge).
-
-
-### Add new group checks
+### Add/Remove new group checks
 ```bash
-$ shellfirm config update {risky-command-group-a} {risky-command-group-b}
+$ shellfirm config update-groups
 ```
-
-### Remove new group checks
-```bash
-$ shellfirm config update {group} {group} --remove
-```
-
-### Disable specific checks
-Edit the configuration file in `~/.shellfirm/config.yaml` and change the check to `enable:false`.
-
 
 ## Change challenge:
+```bash
+$ shellfirm config challenge
+```
 Currently we support 3 different challenges when a risky command is intercepted:
 * `Math` - Default challenge which requires you to solve a math question.
 * `Enter` - Required only to press `Enter` to continue.
@@ -229,8 +171,10 @@ $ shellfirm config challenge Math
 ```bash
 $ brew upgrade shellfirm
 ```
-* [Add new check group](#add-new-group-checks) or [override configuration with new checks](./docs/config.md#reset) 
 
 ## Contributing
 Thank you for your interest in contributing! Please refer to [contribution guidelines](./docs/contributing.md) for guidance.
+
+# Copyright
+Copyright (c) 2022 [@kaplanelad](https://github.com/kaplanelad). See [LICENSE](LICENSE.txt) for further details.
 
