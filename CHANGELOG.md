@@ -1,11 +1,13 @@
 ## Unreleased
+
+## 0.2.5
 IMPROVMENT
 * create unites for regex checks. [PR-107](https://github.com/kaplanelad/shellfirm/pull/107)
 * Remove contains method. [PR-108](https://github.com/kaplanelad/shellfirm/pull/108)
 * check is folder or directory exists before prompt a message. [PR-109](https://github.com/kaplanelad/shellfirm/pull/109)
 
 BRAKING CHANGES
-* Change shellfirm configuraion. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
+* Change shellfirm configuration. [PR-103](https://github.com/kaplanelad/shellfirm/pull/103)
 
 ## 0.2.4
 IMPROVMENT
