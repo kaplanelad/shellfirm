@@ -1,0 +1,18 @@
+---
+source: shellfirm/src/config.rs
+expression: config.get_settings_from_file()
+---
+Ok(
+    Settings {
+        challenge: Math,
+        includes: [
+            "base",
+            "fs",
+            "git",
+        ],
+        ignores: [
+            "id-1",
+            "id-2",
+        ],
+    },
+)

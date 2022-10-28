@@ -376,6 +376,19 @@ mod test_config {
     }
 
     #[test]
+    fn can_update_ignores() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config
+            .update_ignores(vec!["id-1".to_string(), "id-2".to_string()])
+            .unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
     fn can_reset_config_with_override() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
