@@ -1,0 +1,7 @@
+---
+- test: git add .
+  description: match command
+- test: git    add   .
+  description: match command
+- test: git add
+  description: invalid command

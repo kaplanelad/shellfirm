@@ -54,7 +54,7 @@ fn test_checks() {
 }
 
 #[test]
-fn test_patterns_coverage() {
+fn test_missing_patterns_coverage() {
     let checks = get_all_checks().unwrap();
 
     let test_files_path = fs::read_dir("./tests/checks")

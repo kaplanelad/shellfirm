@@ -1,4 +1,8 @@
 - from: git
   test: git\s{1,}reset
   description: "This command going to reset all your local changes."
-  id: git:git_reset
+  id: git:reset
+- from: git
+  test: git\s{1,}rm\s{1,}(\*|.)
+  description: "This command going to delete all files."
+  id: git:delete_all
