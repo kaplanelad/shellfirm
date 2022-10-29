@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{bail, Result};
 use requestty::{DefaultSeparator, Question};
 
 // prepare multi choice ignores data
@@ -26,10 +26,10 @@ pub fn multi_choice(
 
     let answer = requestty::prompt_one(question.build())?;
 
-    match answer.as_list_items() {
-        Some(list) => Ok(list.iter().map(|s| s.text.to_string()).collect::<Vec<_>>()),
-        None => Err(anyhow!("could not get selected list")),
-    }
+    answer.as_list_items().map_or_else(
+        || bail!("could not get selected list"),
+        |list| Ok(list.iter().map(|s| s.text.to_string()).collect::<Vec<_>>()),
+    )
 }
 
 /// prompt select option
@@ -51,7 +51,7 @@ pub fn reset_config() -> Result<usize> {
     )?;
     match answer.as_list_item() {
         Some(a) => Ok(a.index),
-        _ => Err(anyhow!("select option is empty")),
+        _ => bail!("select option is empty"),
     }
 }
 
@@ -69,6 +69,6 @@ pub fn select(message: &str, items: &Vec<String>) -> Result<String> {
     let answer = requestty::prompt_one(questions)?;
     match answer.as_list_item() {
         Some(a) => Ok(a.text.clone()),
-        _ => Err(anyhow!("select option is empty")),
+        _ => bail!("select option is empty"),
     }
 }

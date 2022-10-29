@@ -40,7 +40,11 @@ pub struct Check {
     pub filters: HashMap<FilterType, String>,
 }
 
-pub fn get_all_checks() -> Result<Vec<Check>> {
+/// Return all shellfirm check patterns
+///
+/// # Errors
+/// when has an error when parsing check str to [`Check`] list
+pub fn get_all() -> Result<Vec<Check>> {
     Ok(serde_yaml::from_str(ALL_CHECKS)?)
 }
 
@@ -256,7 +260,7 @@ mod test_checks {
 
         let check = Check {
             id: "id".to_string(),
-            test: Regex::new("delete").unwrap(),
+            test: Regex::new("(delete)").unwrap(),
             description: "some description".to_string(),
             from: "test".to_string(),
             challenge: Challenge::default(),
@@ -269,6 +273,6 @@ mod test_checks {
 
     #[test]
     fn can_get_all_checks() {
-        assert_debug_snapshot!(get_all_checks().is_ok());
+        assert_debug_snapshot!(get_all().is_ok());
     }
 }
