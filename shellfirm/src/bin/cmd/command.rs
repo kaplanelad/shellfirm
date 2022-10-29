@@ -33,7 +33,7 @@ pub fn run(
     settings: &Settings,
     checks: &[Check],
 ) -> Result<shellfirm::CmdExit> {
-    run_pre_command(
+    execute(
         arg_matches.value_of("command").unwrap_or(""),
         settings,
         checks,
@@ -41,7 +41,7 @@ pub fn run(
     )
 }
 
-pub fn run_pre_command(
+fn execute(
     command: &str,
     settings: &Settings,
     checks: &[Check],
@@ -101,7 +101,7 @@ mod test_command_cli_command {
             .get_settings_from_file()
             .unwrap();
 
-        assert_debug_snapshot!(run_pre_command(
+        assert_debug_snapshot!(execute(
             "rm -rf /",
             &settings,
             &settings.get_active_checks().unwrap(),
@@ -117,7 +117,7 @@ mod test_command_cli_command {
             .get_settings_from_file()
             .unwrap();
 
-        assert_debug_snapshot!(run_pre_command(
+        assert_debug_snapshot!(execute(
             "command",
             &settings,
             &settings.get_active_checks().unwrap(),

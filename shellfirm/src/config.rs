@@ -13,10 +13,7 @@ use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use strum::EnumIter;
 
-use crate::{
-    checks::{get_all_checks, Check},
-    dialog,
-};
+use crate::{checks, dialog};
 
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
@@ -60,9 +57,9 @@ pub struct Settings {
 impl fmt::Display for Challenge {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Challenge::Math => write!(f, "Math"),
-            Challenge::Enter => write!(f, "Enter"),
-            Challenge::Yes => write!(f, "Yes"),
+            Self::Math => write!(f, "Math"),
+            Self::Enter => write!(f, "Enter"),
+            Self::Yes => write!(f, "Yes"),
         }
     }
 }
@@ -74,6 +71,10 @@ impl Default for Challenge {
 }
 
 impl Challenge {
+    /// Convert challenge string to enum
+    ///
+    /// # Errors
+    /// when the given challenge string is not supported
     pub fn from_string(str: &str) -> AnyResult<Self> {
         match str.to_lowercase().as_str() {
             "math" => Ok(Self::Math),
@@ -90,7 +91,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` error return on load/save config
-    pub fn new(path: Option<&str>) -> AnyResult<Config> {
+    pub fn new(path: Option<&str>) -> AnyResult<Self> {
         let package_name = env!("CARGO_PKG_NAME");
 
         let config_folder = match path {
@@ -99,22 +100,22 @@ impl Config {
                 Some(p) => {
                     // The project started with $HOME path to save the config file. In order the
                     // requests to use $XDG_CACHE_HOME and keep backward
-                    // compatibility if the folder $HOME/.shellform exists shillfirm
+                    // compatibility if the folder $HOME/.shellfirm exists, shillfirm
                     // continue work with that folder. If the folder does not exists, the default
                     // use config dir
                     let homedir = p.join(format!(".{}", package_name));
-                    let confdir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
+                    let conf_dir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
                     if homedir.is_dir() {
                         homedir
                     } else {
-                        confdir.join(package_name)
+                        conf_dir.join(package_name)
                     }
                 }
                 None => bail!("could not get directory path"),
             },
         };
 
-        let setting_config = Config {
+        let setting_config = Self {
             root_folder: config_folder.display().to_string(),
             setting_file_path: config_folder
                 .join(DEFAULT_SETTING_FILE_NAME)
@@ -167,7 +168,7 @@ impl Config {
     /// Will return `Err` group didn't added/removed
     pub fn update_check_groups(&self, check_groups: Vec<String>) -> AnyResult<()> {
         let mut settings = self.get_settings_from_file()?;
-        settings.includes = check_groups.to_vec();
+        settings.includes = check_groups;
         self.save_settings_file_from_struct(&settings)
     }
 
@@ -228,7 +229,7 @@ impl Config {
             challenge: DEFAULT_CHALLENGE,
             includes: DEFAULT_INCLUDE_CHECKS
                 .iter()
-                .map(|i| i.to_string())
+                .map(std::string::ToString::to_string)
                 .collect::<_>(),
             ignores_patterns_ids: vec![],
             deny_patterns_ids: vec![],
@@ -306,15 +307,16 @@ impl Settings {
     /// # Errors
     ///
     /// Will return `Err` when could not load config file
-    pub fn get_active_checks(&self) -> AnyResult<Vec<Check>> {
-        Ok(get_all_checks()?
+    pub fn get_active_checks(&self) -> AnyResult<Vec<checks::Check>> {
+        Ok(checks::get_all()?
             .iter()
             .filter(|&c| self.includes.contains(&c.from))
             .filter(|&c| !self.ignores_patterns_ids.contains(&c.id))
             .cloned()
-            .collect::<Vec<Check>>())
+            .collect::<Vec<_>>())
     }
 
+    #[must_use]
     pub fn get_active_groups(&self) -> &Vec<String> {
         &self.includes
     }

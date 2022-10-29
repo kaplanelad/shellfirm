@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf};
 use insta::assert_debug_snapshot;
 use itertools::Itertools;
 use serde_derive::Deserialize;
-use shellfirm::checks::{get_all_checks, run_check_on_command};
+use shellfirm::checks::run_check_on_command;
 
 #[derive(Debug, Deserialize, Clone)]
 struct TestSensitivePatterns {
@@ -21,11 +21,11 @@ struct TestSensitivePatternsResult {
 
 #[test]
 fn test_checks() {
-    let checks = get_all_checks().unwrap();
+    let checks = shellfirm::checks::get_all().unwrap();
 
     let test_files_path = fs::read_dir("./tests/checks")
         .unwrap()
-        .filter_map(|entry| entry.ok().and_then(|e| Some(e.path())))
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
         .collect::<Vec<PathBuf>>();
 
     for file in test_files_path {
@@ -47,7 +47,7 @@ fn test_checks() {
                     .sorted_by(|a, b| Ord::cmp(&b, &a))
                     .collect::<Vec<_>>(),
                 test_description: test.description,
-            })
+            });
         }
         assert_debug_snapshot!(file_name, test_file_results);
     }
@@ -55,28 +55,22 @@ fn test_checks() {
 
 #[test]
 fn test_missing_patterns_coverage() {
-    let checks = get_all_checks().unwrap();
+    let checks = shellfirm::checks::get_all().unwrap();
 
     let test_files_path = fs::read_dir("./tests/checks")
         .unwrap()
         .filter_map(|entry| {
             entry
                 .ok()
-                .and_then(|e| Some(e.file_name().to_str().unwrap().to_string()))
+                .map(|e| e.file_name().to_str().unwrap().to_string())
         })
         .collect::<Vec<String>>();
 
     let mut not_covered = vec![];
     for check in checks {
-        if !test_files_path.contains(&format!("{}.yaml", &check.id.replace(":", "-"))) {
-            // println!(
-            //     "{} - > {}",
-            //     &check.id,
-            //     format!("{}.yaml", &check.id.replace(":", "-"))
-            // );
-            println!("{:?}", test_files_path);
+        if !test_files_path.contains(&format!("{}.yaml", &check.id.replace(':', "-"))) {
             not_covered.push(check.id);
         }
     }
-    assert_debug_snapshot!(not_covered)
+    assert_debug_snapshot!(not_covered);
 }
