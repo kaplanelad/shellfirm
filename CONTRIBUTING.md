@@ -18,7 +18,7 @@ Your PR must also:
 
 ## Tests
 
-In `webql` we have few test suite flows that need to pass before merging to master.
+In `shellfirm` we have few test suite flows that need to pass before merging to master.
 - [unitest](#unitest)
 - [clippy](#clippy)
 - [rustfmt](#rustfmt)
