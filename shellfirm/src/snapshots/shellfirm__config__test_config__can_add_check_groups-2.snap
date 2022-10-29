@@ -9,6 +9,7 @@ Ok(
             "group-1",
             "group-2",
         ],
-        ignores: [],
+        ignores_patterns_ids: [],
+        deny_patterns_ids: [],
     },
 )

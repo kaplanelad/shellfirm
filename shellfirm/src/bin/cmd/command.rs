@@ -71,7 +71,7 @@ pub fn run_pre_command(
     }
 
     if !matches.is_empty() {
-        checks::challenge(&settings.challenge, &matches)?;
+        checks::challenge(&settings.challenge, &matches, &settings.deny_patterns_ids)?;
     }
 
     Ok(shellfirm::CmdExit {

@@ -52,7 +52,9 @@ pub struct Settings {
     /// List of all include files
     pub includes: Vec<String>,
     /// List of all ignore checks
-    pub ignores: Vec<String>,
+    pub ignores_patterns_ids: Vec<String>,
+    /// List of pattens id to prevent
+    pub deny_patterns_ids: Vec<String>,
 }
 
 impl fmt::Display for Challenge {
@@ -228,7 +230,8 @@ impl Config {
                 .iter()
                 .map(|i| i.to_string())
                 .collect::<_>(),
-            ignores: vec![],
+            ignores_patterns_ids: vec![],
+            deny_patterns_ids: vec![],
         })
     }
 
@@ -266,17 +269,32 @@ impl Config {
         Ok(backup_to)
     }
 
-    /// Update patterns ignores.
+    /// Update patterns ids to ignore
     ///
     /// # Arguments
-    /// * `ignores` - Full list of patterns ids
+    /// * `ignores_patterns_ids` - Full list of patterns ids
     ///
     /// # Errors
     ///
     /// Will return `Err` when could not load/save config
-    pub fn update_ignores(&self, ignores: Vec<String>) -> AnyResult<()> {
+    pub fn update_ignores_pattern_ids(&self, ignores_patterns_ids: Vec<String>) -> AnyResult<()> {
         let mut settings = self.get_settings_from_file()?;
-        settings.ignores = ignores;
+        settings.ignores_patterns_ids = ignores_patterns_ids;
+        self.save_settings_file_from_struct(&settings)?;
+        Ok(())
+    }
+
+    /// Update patterns ids to deny
+    ///
+    /// # Arguments
+    /// * `deny_patterns_ids` - Full list of patterns ids
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` when could not load/save config
+    pub fn update_deny_pattern_ids(&self, deny_patterns_ids: Vec<String>) -> AnyResult<()> {
+        let mut settings = self.get_settings_from_file()?;
+        settings.deny_patterns_ids = deny_patterns_ids;
         self.save_settings_file_from_struct(&settings)?;
         Ok(())
     }
@@ -292,7 +310,7 @@ impl Settings {
         Ok(get_all_checks()?
             .iter()
             .filter(|&c| self.includes.contains(&c.from))
-            .filter(|&c| !self.ignores.contains(&c.id))
+            .filter(|&c| !self.ignores_patterns_ids.contains(&c.id))
             .cloned()
             .collect::<Vec<Check>>())
     }
@@ -365,7 +383,7 @@ mod test_config {
     }
 
     #[test]
-    fn can_can_update_challenge() {
+    fn can_update_challenge() {
         let temp_dir = TempDir::new("config-app").unwrap();
         let config = initialize_config_folder(&temp_dir);
 
@@ -382,7 +400,20 @@ mod test_config {
 
         assert_debug_snapshot!(config.get_settings_from_file());
         config
-            .update_ignores(vec!["id-1".to_string(), "id-2".to_string()])
+            .update_ignores_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
+            .unwrap();
+        assert_debug_snapshot!(config.get_settings_from_file());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_update_deny() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+
+        assert_debug_snapshot!(config.get_settings_from_file());
+        config
+            .update_deny_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
             .unwrap();
         assert_debug_snapshot!(config.get_settings_from_file());
         temp_dir.close().unwrap();

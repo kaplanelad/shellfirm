@@ -10,9 +10,10 @@ Ok(
             "fs",
             "git",
         ],
-        ignores: [
+        ignores_patterns_ids: [
             "id-1",
             "id-2",
         ],
+        deny_patterns_ids: [],
     },
 )

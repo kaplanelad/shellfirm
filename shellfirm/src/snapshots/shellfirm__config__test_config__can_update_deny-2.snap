@@ -4,12 +4,16 @@ expression: config.get_settings_from_file()
 ---
 Ok(
     Settings {
-        challenge: Yes,
+        challenge: Math,
         includes: [
             "base",
             "fs",
             "git",
         ],
-        ignores: [],
+        ignores_patterns_ids: [],
+        deny_patterns_ids: [
+            "id-1",
+            "id-2",
+        ],
     },
 )

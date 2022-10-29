@@ -49,23 +49,45 @@ pub fn get_all_checks() -> Result<Vec<Check>> {
 /// # Errors
 ///
 /// Will return `Err` when could not convert checks to yaml
-pub fn challenge(challenge: &Challenge, checks: &[Check]) -> Result<bool> {
-    eprintln!("{}", style("#######################").yellow().bold());
-    eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
-    eprintln!("{}", style("#######################").yellow().bold());
-
+pub fn challenge(
+    challenge: &Challenge,
+    checks: &[Check],
+    deny_pattern_ids: &[String],
+) -> Result<bool> {
     let mut descriptions: Vec<String> = Vec::new();
+    let mut should_deny_command = false;
+
+    debug!("list of denied pattern ids {:?}", deny_pattern_ids);
+
     for check in checks {
         if !descriptions.contains(&check.description) {
             descriptions.push(check.description.to_string());
         }
+        if !should_deny_command && deny_pattern_ids.contains(&check.id) {
+            should_deny_command = true;
+        }
     }
+
+    if should_deny_command {
+        eprintln!("{}", style("##################").red().bold());
+        eprintln!("{}", style("# COMMAND DENIED #").red().bold());
+        eprintln!("{}", style("##################").red().bold());
+    } else {
+        eprintln!("{}", style("#######################").yellow().bold());
+        eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
+        eprintln!("{}", style("#######################").yellow().bold());
+    }
+
     for description in descriptions {
         eprintln!("* {}", description);
     }
     eprintln!();
 
     let show_challenge = challenge;
+    if should_deny_command {
+        debug!("command denied.");
+        prompt::deny();
+    }
 
     Ok(match show_challenge {
         Challenge::Math => prompt::math_challenge(),

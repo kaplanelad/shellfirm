@@ -17,6 +17,7 @@ pub fn command() -> Command<'static> {
         .subcommand(App::new("reset").about("Reset configuration"))
         .subcommand(App::new("challenge").about("Reset configuration"))
         .subcommand(App::new("ignore").about("Ignore command pattern"))
+        .subcommand(App::new("deny").about("Deny command pattern"))
 }
 
 pub fn run(
@@ -33,6 +34,7 @@ pub fn run(
             ("reset", _subcommand_matches) => Ok(run_reset(config, None)),
             ("challenge", _subcommand_matches) => run_challenge(config, None),
             ("ignore", _subcommand_matches) => run_ignore(config, settings, None),
+            ("deny", _subcommand_matches) => run_deny(config, settings, None),
             _ => unreachable!(),
         },
     }
@@ -117,12 +119,46 @@ pub fn run_ignore(
         dialog::multi_choice(
             "select checks",
             all_check_ids,
-            settings.ignores.clone(),
+            settings.ignores_patterns_ids.clone(),
             100,
         )?
     };
 
-    match config.update_ignores(selected) {
+    match config.update_ignores_pattern_ids(selected) {
+        Ok(()) => Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: None,
+        }),
+        Err(e) => Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some(format!("update pattern ignore errors: {:?}", e)),
+        }),
+    }
+}
+
+pub fn run_deny(
+    config: &Config,
+    settings: &Settings,
+    force_ignore: Option<Vec<String>>,
+) -> Result<shellfirm::CmdExit> {
+    let all_check_ids: Vec<String> = settings
+        .get_active_checks()?
+        .iter()
+        .map(|c| c.id.to_string())
+        .collect();
+
+    let selected = if let Some(force_ignore) = force_ignore {
+        force_ignore
+    } else {
+        dialog::multi_choice(
+            "select checks",
+            all_check_ids,
+            settings.deny_patterns_ids.clone(),
+            100,
+        )?
+    };
+
+    match config.update_deny_pattern_ids(selected) {
         Ok(()) => Ok(shellfirm::CmdExit {
             code: exitcode::OK,
             message: None,
@@ -239,7 +275,26 @@ mod test_config_cli_command {
             &settings,
             Some(vec!["id-1".to_string(), "id-2".to_string()])
         ));
-        assert_debug_snapshot!(config.get_settings_from_file().unwrap().ignores);
+        assert_debug_snapshot!(
+            config
+                .get_settings_from_file()
+                .unwrap()
+                .ignores_patterns_ids
+        );
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_deny() {
+        let temp_dir = TempDir::new("config-app").unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_debug_snapshot!(run_deny(
+            &config,
+            &settings,
+            Some(vec!["id-1".to_string(), "id-2".to_string()])
+        ));
+        assert_debug_snapshot!(config.get_settings_from_file().unwrap().deny_patterns_ids);
         temp_dir.close().unwrap();
     }
 }

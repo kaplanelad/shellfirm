@@ -20,7 +20,7 @@ Do you want to learn from other people's mistakes?
 `shellfirm` will intercept any risky patterns and immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
 
 ```bash
-$ rm -rf /
+rm -rf /
 #######################
 # RISKY COMMAND FOUND #
 #######################
@@ -53,9 +53,9 @@ shellfirm --version
 
 ## Verify installation
 ```
-$ mkdir /tmp/shellfirm
-$ cd /tmp/shellfirm
-$ git reset --hard
+mkdir /tmp/shellfirm
+cd /tmp/shellfirm
+git reset --hard
 ```
 
 ## Select your shell
@@ -148,7 +148,7 @@ We have predefined a baseline of risky groups command that will be enabled by de
 
 ### Add/Remove new group checks
 ```bash
-$ shellfirm config update-groups
+shellfirm config update-groups
 ```
 
 ## Change challenge:
@@ -160,7 +160,7 @@ Currently we support 3 different challenges when a risky command is intercepted:
 
 You can change the default challenge by running the command:
 ```bash
-$ shellfirm config challenge
+shellfirm config challenge
 ```
 
 *At any time you can cancel a risky command by hitting `^C`*
@@ -171,10 +171,16 @@ You can disable one or more patterns in a selected group by running the command:
 ```bash
 shellfirm config ignore
 ```
+## Deny pattern command:
+
+Restrict user run command by select pattern id's that you not allow to run in the shell:
+```bash
+shellfirm config deny
+```
 
 ## To Upgrade `shellfirm`
 ```bash
-$ brew upgrade shellfirm
+brew upgrade shellfirm
 ```
 
 ## Contributing

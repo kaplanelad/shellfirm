@@ -1,0 +1,8 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: config.get_settings_from_file().unwrap().deny_patterns_ids
+---
+[
+    "id-1",
+    "id-2",
+]

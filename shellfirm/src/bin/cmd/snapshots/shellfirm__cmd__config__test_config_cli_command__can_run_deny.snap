@@ -1,0 +1,10 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: "run_deny(&config, &settings,\n    Some(vec![\"id-1\".to_string(), \"id-2\".to_string()]))"
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: None,
+    },
+)

@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, thread, time::Duration};
 
 use console::style;
 use rand::Rng;
@@ -11,6 +11,8 @@ const SOLVE_MATH_TEXT: &str = "Solve the challenge:";
 const SOLVE_ENTER_TEXT: &str = "Type `Enter` to continue";
 /// show yes challenge text
 const SOLVE_YES_TEXT: &str = "Type `yes` to continue";
+/// show yes challenge text
+const DENIED_TEXT: &str = "The command is not allowed.";
 /// show to the user how can he cancel the command
 const CANCEL_PROMPT_TEXT: &str = "^C to cancel";
 
@@ -66,6 +68,15 @@ pub fn yes_challenge() -> bool {
         eprintln!("{}", WRONG_ANSWER);
     }
     true
+}
+
+/// Deny function will loop FOREVER until the user kill the process ^C.
+/// it mean that the use command will never executed
+pub fn deny() {
+    eprintln!("{} type {}", DENIED_TEXT, get_cancel_string());
+    loop {
+        thread::sleep(Duration::from_secs(60));
+    }
 }
 
 /// Catch user stdin. and return the user type
