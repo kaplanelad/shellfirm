@@ -1,9 +1,9 @@
 mod cmd;
 use std::process::exit;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use console::{style, Style};
-use shellfirm::Config;
+use shellfirm::{CmdExit, Config};
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
 
@@ -26,6 +26,13 @@ fn main() {
         Err(err) => {
             eprintln!("Loading config error: {}", err);
             exit(1)
+        }
+    };
+
+    if let Some((command_name, subcommand_matches)) = matches.subcommand() {
+        if command_name == "config" && subcommand_matches.subcommand_name() == Some("reset") {
+            let c = cmd::config::run_reset(&config, None);
+            shellfirm_exit(Ok(c));
         }
     };
 
@@ -62,6 +69,10 @@ fn main() {
         },
     );
 
+    shellfirm_exit(res);
+}
+
+fn shellfirm_exit(res: Result<CmdExit>) {
     let exit_with = match res {
         Ok(cmd) => {
             if let Some(message) = cmd.message {
@@ -79,5 +90,5 @@ fn main() {
             DEFAULT_ERR_EXIT_CODE
         }
     };
-    exit(exit_with)
+    exit(exit_with);
 }
