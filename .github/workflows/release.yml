@@ -15,9 +15,9 @@ jobs:
     name: Dist
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false 
+      fail-fast: false
       matrix:
-        build: [x86_64-linux, aarch64-linux, x86_64-macos, x86_64-windows] 
+        build: [x86_64-linux, aarch64-linux, x86_64-macos, aarch64-macos, x86_64-windows]
         include:
         - build: x86_64-linux
           os: ubuntu-20.04
@@ -34,12 +34,17 @@ jobs:
           rust: stable
           target: x86_64-apple-darwin
           cross: false
+        - build: aarch64-macos
+          os: macos-latest
+          rust: stable
+          target: aarch64-apple-darwin
+          cross: false
         - build: x86_64-windows
           os: windows-2019
           rust: stable
           target: x86_64-pc-windows-msvc
           cross: false
-       
+
 
     steps:
       - name: Checkout sources
@@ -70,7 +75,7 @@ jobs:
           args: --release --locked --target ${{ matrix.target }}
 
       - name: Strip release binary (linux and macos)
-        if: matrix.build == 'x86_64-linux' || matrix.build == 'x86_64-macos'
+        if: matrix.build == 'x86_64-linux' || matrix.build == 'x86_64-macos' || matrix.build == 'aarch64-macos'
         run: strip "target/${{ matrix.target }}/release/$BIN_NAME"
 
       - name: Strip release binary (arm)
@@ -106,7 +111,7 @@ jobs:
           submodules: false
 
       - uses: actions/download-artifact@v2
-     
+
       - run: ls -al bins-*
 
       - name: Calculate tag name

@@ -21,6 +21,6 @@ clean-doc: # clean doc folder.
 	cargo clean --doc
 
 all-validation: test fmt clippy validate-doc ## runs all ci validation.
- 
+
 help: ## Prints help information.
 	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'
