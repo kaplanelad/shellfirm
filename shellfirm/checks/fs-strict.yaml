@@ -8,3 +8,9 @@
   id: fs-strict:any_deletion
   filters:
     IsExists: "1"
+- from: fs-strict
+  test: rmdir\s
+  description: "Are you sure you want to continue with deletion?"
+  id: fs-strict:folder_deletion
+  filters:
+    IsExists: "1"
