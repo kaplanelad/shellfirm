@@ -64,7 +64,7 @@ pub fn run_update_groups(
         }),
         Err(e) => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("Could not update checks group. error: {}", e)),
+            message: Some(format!("Could not update checks group. error: {e}")),
         }),
     }
 }
@@ -77,7 +77,7 @@ pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::
         },
         Err(e) => shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("reset settings error: {:?}", e)),
+            message: Some(format!("reset settings error: {e:?}")),
         },
     }
 }
@@ -97,7 +97,7 @@ pub fn run_challenge(config: &Config, challenge: Option<Challenge>) -> Result<sh
         }),
         Err(e) => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("change challenge error: {:?}", e)),
+            message: Some(format!("change challenge error: {e:?}")),
         }),
     }
 }
@@ -131,7 +131,7 @@ pub fn run_ignore(
         }),
         Err(e) => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("update pattern ignore errors: {:?}", e)),
+            message: Some(format!("update pattern ignore errors: {e:?}")),
         }),
     }
 }
@@ -165,7 +165,7 @@ pub fn run_deny(
         }),
         Err(e) => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("update pattern ignore errors: {:?}", e)),
+            message: Some(format!("update pattern ignore errors: {e:?}")),
         }),
     }
 }

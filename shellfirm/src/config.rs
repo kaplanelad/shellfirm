@@ -55,7 +55,7 @@ pub struct Settings {
 }
 
 impl fmt::Display for Challenge {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Math => write!(f, "Math"),
             Self::Enter => write!(f, "Enter"),
@@ -103,7 +103,7 @@ impl Config {
                     // compatibility if the folder $HOME/.shellfirm exists, shillfirm
                     // continue work with that folder. If the folder does not exists, the default
                     // use config dir
-                    let homedir = p.join(format!(".{}", package_name));
+                    let homedir = p.join(format!(".{package_name}"));
                     let conf_dir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
                     if homedir.is_dir() {
                         homedir
