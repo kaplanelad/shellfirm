@@ -24,7 +24,7 @@ fn main() {
     let config = match Config::new(None) {
         Ok(config) => config,
         Err(err) => {
-            eprintln!("Loading config error: {}", err);
+            eprintln!("Loading config error: {err}");
             exit(1)
         }
     };
@@ -51,7 +51,7 @@ fn main() {
     let checks = match settings.get_active_checks() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Could not load checks. err: Error: {}", e);
+            eprintln!("Could not load checks. err: Error: {e}");
             exit(1)
         }
     };

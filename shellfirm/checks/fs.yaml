@@ -1,5 +1,5 @@
 - from: fs
-  test: 'rm\s{1,}(-r|-fr|-rf)\s*(\*|\.{1,}|/)\s*$'
+  test: 'rm\s{1,}(-R|-r|-fR|-fr|-Rf|-rf)\s*(\*|\.{1,}|/)\s*$'
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
   filters:

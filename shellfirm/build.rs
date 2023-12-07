@@ -9,7 +9,7 @@ fn main() -> Result<()> {
 
     let dest_checks_path = Path::new(&out_dir).join("all-checks.yaml");
     let dest_groups = Path::new(&out_dir).join("all_the_files.rs");
-    let mut groups_names = File::create(&dest_groups)?;
+    let mut groups_names = File::create(dest_groups)?;
 
     writeln!(&mut groups_names, r##"["##,)?;
 
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
             .unwrap()
             .to_str()
             .expect("could not get file name");
-        writeln!(&mut groups_names, r##""{name}","##, name = file_name)?;
+        writeln!(&mut groups_names, r##""{file_name}","##)?;
     }
 
     writeln!(&mut groups_names, r##"]"##,)?;

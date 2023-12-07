@@ -13,3 +13,7 @@
   description: folder not found
 - test: rmm -rf /
   description: folder not found
+- test: rm -Rf /
+  description: Handle capital R
+- test: rm -FR /
+  description: invalid command

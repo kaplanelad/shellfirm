@@ -40,7 +40,7 @@ pub fn math_challenge() -> bool {
         if answer == expected_answer {
             break;
         }
-        eprintln!("{}", WRONG_ANSWER);
+        eprintln!("{WRONG_ANSWER}");
     }
     true
 }
@@ -53,7 +53,7 @@ pub fn enter_challenge() -> bool {
         if answer == "\n" {
             break;
         }
-        eprintln!("{}", WRONG_ANSWER);
+        eprintln!("{WRONG_ANSWER}");
     }
     true
 }
@@ -65,7 +65,7 @@ pub fn yes_challenge() -> bool {
         if show_stdin_prompt().trim() == "yes" {
             break;
         }
-        eprintln!("{}", WRONG_ANSWER);
+        eprintln!("{WRONG_ANSWER}");
     }
     true
 }

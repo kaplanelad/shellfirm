@@ -83,7 +83,7 @@ pub fn challenge(
     }
 
     for description in descriptions {
-        eprintln!("* {}", description);
+        eprintln!("* {description}");
     }
     eprintln!();
 
