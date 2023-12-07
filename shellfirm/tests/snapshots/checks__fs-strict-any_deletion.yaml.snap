@@ -63,4 +63,28 @@ expression: test_file_results
         check_detection_ids: [],
         test_description: "without arguments",
     },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -R src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "with capital r",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -Rf src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "with capital r",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-strict-any_deletion.yaml",
+        test: "rm -fR src",
+        check_detection_ids: [
+            "fs-strict:any_deletion",
+        ],
+        test_description: "with capital r",
+    },
 ]

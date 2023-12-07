@@ -65,6 +65,7 @@ expression: test_file_results
         test: "rm -Rf /",
         check_detection_ids: [
             "fs:recursively_delete",
+            "fs-strict:any_deletion",
         ],
         test_description: "Handle capital R",
     },
