@@ -1,0 +1,18 @@
+---
+- test: route del default
+  check_detection_ids:
+    - network:delete_default_route
+  description: match command
+
+- test: sudo route del default
+  check_detection_ids:
+    - network:delete_default_route
+  description: match command with sudo
+
+- test: route add default
+  check_detection_ids: []
+  description: should not match add command
+
+- test: route show
+  check_detection_ids: []
+  description: should not match show command

@@ -1,0 +1,12 @@
+---
+- test: ufw --force reset
+  description: match command
+
+- test: sudo ufw --force reset
+  description: match command with sudo
+
+- test: ufw reset
+  description: should not match without force flag
+
+- test: ufw status
+  description: should not match status command

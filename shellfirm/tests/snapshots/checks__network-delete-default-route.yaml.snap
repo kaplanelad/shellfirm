@@ -1,0 +1,35 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "network-delete-default-route.yaml",
+        test: "route del default",
+        check_detection_ids: [
+            "network:delete_default_route",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-delete-default-route.yaml",
+        test: "sudo route del default",
+        check_detection_ids: [
+            "network:delete_default_route",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-delete-default-route.yaml",
+        test: "route add default",
+        check_detection_ids: [],
+        test_description: "should not match add command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-delete-default-route.yaml",
+        test: "route show",
+        check_detection_ids: [],
+        test_description: "should not match show command",
+    },
+]

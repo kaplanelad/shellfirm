@@ -1,0 +1,35 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "network-bring-down-interface-ip.yaml",
+        test: "ip link set eth0 down",
+        check_detection_ids: [
+            "network:bring_down_interface_ip",
+        ],
+        test_description: "match command with ip link",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-bring-down-interface-ip.yaml",
+        test: "sudo ip link set eth0 down",
+        check_detection_ids: [
+            "network:bring_down_interface_ip",
+        ],
+        test_description: "match command with sudo and ip link",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-bring-down-interface-ip.yaml",
+        test: "ip link set eth0 up",
+        check_detection_ids: [],
+        test_description: "should not match up command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-bring-down-interface-ip.yaml",
+        test: "ip link show eth0",
+        check_detection_ids: [],
+        test_description: "should not match show command",
+    },
+]
