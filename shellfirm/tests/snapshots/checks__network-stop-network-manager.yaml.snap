@@ -1,0 +1,35 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "network-stop-network-manager.yaml",
+        test: "systemctl stop NetworkManager",
+        check_detection_ids: [
+            "network:stop_network_manager",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-stop-network-manager.yaml",
+        test: "sudo systemctl stop NetworkManager",
+        check_detection_ids: [
+            "network:stop_network_manager",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-stop-network-manager.yaml",
+        test: "systemctl status NetworkManager",
+        check_detection_ids: [],
+        test_description: "should not match status command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-stop-network-manager.yaml",
+        test: "systemctl restart NetworkManager",
+        check_detection_ids: [],
+        test_description: "should not match restart command",
+    },
+]

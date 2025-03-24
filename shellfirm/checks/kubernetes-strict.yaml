@@ -3,7 +3,7 @@
   description: "This command will going to delete a given resource."
   id: kubernetes-strict:delete_resource
 - from: kubernetes-strict
-  test: (k|kubectl)\s*set\s*([[:word:]]+)
+  test: ^(k|kubectl)\s*set\s*([[:word:]]+)
   description: "This command will update the given given resource."
   id: kubernetes-strict:update_resource
 - from: kubernetes-strict

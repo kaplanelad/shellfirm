@@ -1,0 +1,37 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "network-flush-nat-rules.yaml",
+        test: "iptables -t nat -F",
+        check_detection_ids: [
+            "network:flush_nat_rules",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-flush-nat-rules.yaml",
+        test: "sudo iptables -t nat -F",
+        check_detection_ids: [
+            "network:flush_nat_rules",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-flush-nat-rules.yaml",
+        test: "iptables -t nat -F PREROUTING",
+        check_detection_ids: [
+            "network:flush_nat_rules",
+        ],
+        test_description: "should not match specific chain",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-flush-nat-rules.yaml",
+        test: "iptables -t nat -L",
+        check_detection_ids: [],
+        test_description: "should not match list command",
+    },
+]

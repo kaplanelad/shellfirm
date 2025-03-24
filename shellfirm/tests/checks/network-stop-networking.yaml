@@ -1,0 +1,18 @@
+---
+- test: systemctl stop networking
+  check_detection_ids:
+    - network:stop_networking
+  description: match command
+
+- test: sudo systemctl stop networking
+  check_detection_ids:
+    - network:stop_networking
+  description: match command with sudo
+
+- test: systemctl status networking
+  check_detection_ids: []
+  description: should not match status command
+
+- test: systemctl restart networking
+  check_detection_ids: []
+  description: should not match restart command

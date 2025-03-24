@@ -1,0 +1,40 @@
+- from: network
+  test: iptables\s+-F
+  description: "Flushing all firewall rules"
+  id: network:flush_iptables
+- from: network
+  test: iptables\s+-X
+  description: "Deleting all custom chains"
+  id: network:delete_custom_chains
+- from: network
+  test: iptables\s+-t\s+nat\s+-F
+  description: "Flushing all NAT rules"
+  id: network:flush_nat_rules
+- from: network
+  test: ufw\s+disable
+  description: "Disabling firewall"
+  id: network:disable_firewall
+- from: network
+  test: ufw\s+--force\s+reset
+  description: "Force resetting firewall rules"
+  id: network:force_reset_firewall
+- from: network
+  test: systemctl\s+stop\s+networking
+  description: "Stopping network service"
+  id: network:stop_networking
+- from: network
+  test: systemctl\s+stop\s+NetworkManager
+  description: "Stopping NetworkManager service"
+  id: network:stop_network_manager
+- from: network
+  test: ifconfig\s+eth\d+\s+down
+  description: "Bringing down network interface"
+  id: network:bring_down_interface
+- from: network
+  test: ip\s+link\s+set\s+eth\d+\s+down
+  description: "Bringing down network interface using ip command"
+  id: network:bring_down_interface_ip
+- from: network
+  test: route\s+del\s+default
+  description: "Deleting default route"
+  id: network:delete_default_route

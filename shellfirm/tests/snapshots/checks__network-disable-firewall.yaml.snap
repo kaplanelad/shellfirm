@@ -1,0 +1,35 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "network-disable-firewall.yaml",
+        test: "ufw disable",
+        check_detection_ids: [
+            "network:disable_firewall",
+        ],
+        test_description: "match command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-disable-firewall.yaml",
+        test: "sudo ufw disable",
+        check_detection_ids: [
+            "network:disable_firewall",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-disable-firewall.yaml",
+        test: "ufw enable",
+        check_detection_ids: [],
+        test_description: "should not match enable command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "network-disable-firewall.yaml",
+        test: "ufw status",
+        check_detection_ids: [],
+        test_description: "should not match status command",
+    },
+]

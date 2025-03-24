@@ -1,0 +1,12 @@
+---
+- test: ufw disable
+  description: match command
+
+- test: sudo ufw disable
+  description: match command with sudo
+
+- test: ufw enable
+  description: should not match enable command
+
+- test: ufw status
+  description: should not match status command
