@@ -1,0 +1,77 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup luksFormat /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match formatting LUKS partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup open /dev/sda1 my_encrypted",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match opening encrypted device",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup close my_encrypted /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match closing encrypted device",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup luksAddKey /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match adding LUKS key",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup luksRemoveKey /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match removing LUKS key",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup luksDump /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match dumping LUKS header",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup resize my_encrypted /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match resizing encrypted device",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup -v status my_encrypted",
+        check_detection_ids: [],
+        test_description: "should not match checking status",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-encryption_operations.yaml",
+        test: "cryptsetup isLuks /dev/sda1",
+        check_detection_ids: [
+            "fs:encryption_operations",
+        ],
+        test_description: "match checking if LUKS",
+    },
+]

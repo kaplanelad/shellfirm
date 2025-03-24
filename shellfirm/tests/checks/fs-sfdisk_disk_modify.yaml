@@ -1,0 +1,19 @@
+---
+- test: sfdisk /dev/sda
+  description: match interactive partition editor
+- test: sfdisk -d /dev/sda > backup.txt
+  description: match dumping partition table
+- test: sfdisk /dev/sda < backup.txt
+  description: match restoring partition table
+- test: sfdisk -l /dev/sda
+  description: match listing partitions
+- test: sfdisk -f /dev/sda
+  description: match forcing write
+- test: sfdisk -N 1 /dev/sda
+  description: match modifying specific partition
+- test: sfdisk --delete /dev/sda
+  description: match deleting all partitions
+- test: sfdisk -l
+  description: should not match listing all devices without modification
+- test: sfdisk /tmp/test.img
+  description: should not match regular file

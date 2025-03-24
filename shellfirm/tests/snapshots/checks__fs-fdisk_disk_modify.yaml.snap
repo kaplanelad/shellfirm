@@ -1,0 +1,75 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match interactive partition editor",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -l /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match listing partitions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -w /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match writing changes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -u /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match using sectors instead of cylinders",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -b 2048 /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match specifying sector size",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -c /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match disabling DOS compatibility mode",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -w always /dev/sda",
+        check_detection_ids: [
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match writing changes without confirmation",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk -l",
+        check_detection_ids: [],
+        test_description: "should not match listing all devices without modification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-fdisk_disk_modify.yaml",
+        test: "fdisk /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match regular file",
+    },
+]

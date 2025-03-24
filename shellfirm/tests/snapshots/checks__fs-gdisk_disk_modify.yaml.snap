@@ -1,0 +1,75 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match interactive GPT partition editor",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -l /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match listing GPT partitions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match writing GPT changes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -o /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match creating new GPT partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -r /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match recovery and transformation",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -v /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match verification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -p /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match printing partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -l",
+        check_detection_ids: [],
+        test_description: "should not match listing all devices without modification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match regular file",
+    },
+]

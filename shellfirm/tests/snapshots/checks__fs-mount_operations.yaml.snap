@@ -1,0 +1,75 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount /dev/sda1 /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match basic mount operation",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,rw /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match remounting with options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o noatime /dev/sdb1 /data",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match mounting with specific options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o loop /dev/sda1 /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match loopback mounting",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o defaults /dev/sda1 /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match mounting with defaults",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -t ext4 /dev/sda1 /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match mounting with filesystem type",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,ro /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match remounting as read-only",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -a",
+        check_detection_ids: [],
+        test_description: "should not match mounting all from fstab",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount /tmp/test.img /mnt",
+        check_detection_ids: [],
+        test_description: "should not match mounting regular file",
+    },
+]

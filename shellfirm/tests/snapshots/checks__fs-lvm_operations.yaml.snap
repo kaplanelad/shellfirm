@@ -1,0 +1,65 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove /dev/vg0/lv1",
+        check_detection_ids: [],
+        test_description: "match removing logical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match removing physical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove vg0",
+        check_detection_ids: [],
+        test_description: "match removing volume group",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove -f /dev/vg0/lv1",
+        check_detection_ids: [],
+        test_description: "match force removing logical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove -ff /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match force removing physical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove -f vg0",
+        check_detection_ids: [],
+        test_description: "match force removing volume group",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvcreate -L 10G vg0",
+        check_detection_ids: [],
+        test_description: "should not match creating logical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvcreate /dev/sda1",
+        check_detection_ids: [],
+        test_description: "should not match creating physical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgcreate vg0 /dev/sda1",
+        check_detection_ids: [],
+        test_description: "should not match creating volume group",
+    },
+]
