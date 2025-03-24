@@ -1,0 +1,31 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-merge_no_ff.yaml",
+        test: "git merge --no-ff feature",
+        check_detection_ids: [
+            "git:merge_no_ff",
+        ],
+        test_description: "match non-fast-forward merge",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-merge_no_ff.yaml",
+        test: "git merge --abort",
+        check_detection_ids: [
+            "git:merge_no_ff",
+        ],
+        test_description: "match merge abort",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-merge_no_ff.yaml",
+        test: "git merge --no-ff",
+        check_detection_ids: [
+            "git:merge_no_ff",
+        ],
+        test_description: "match non-fast-forward merge without branch",
+    },
+]

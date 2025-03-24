@@ -1,0 +1,31 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-force_push.yaml",
+        test: "git push -f",
+        check_detection_ids: [
+            "git:force_push",
+        ],
+        test_description: "match force push command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-force_push.yaml",
+        test: "git push --force",
+        check_detection_ids: [
+            "git:force_push",
+        ],
+        test_description: "match force push with long option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-force_push.yaml",
+        test: "git push --force-with-lease",
+        check_detection_ids: [
+            "git:force_push",
+        ],
+        test_description: "match force push with lease",
+    },
+]

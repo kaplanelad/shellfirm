@@ -1,0 +1,31 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-submodule_update.yaml",
+        test: "git submodule update",
+        check_detection_ids: [
+            "git-strict:submodule_update",
+        ],
+        test_description: "match submodule update",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-submodule_update.yaml",
+        test: "git submodule deinit",
+        check_detection_ids: [
+            "git-strict:submodule_update",
+        ],
+        test_description: "match submodule deinit",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-submodule_update.yaml",
+        test: "git submodule update --init",
+        check_detection_ids: [
+            "git-strict:submodule_update",
+        ],
+        test_description: "match submodule update with init",
+    },
+]

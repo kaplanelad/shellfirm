@@ -1,0 +1,23 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-create_tag.yaml",
+        test: "git tag -a v1.0.0",
+        check_detection_ids: [
+            "git-strict:create_tag",
+        ],
+        test_description: "match create annotated tag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-create_tag.yaml",
+        test: "git tag -a",
+        check_detection_ids: [
+            "git-strict:create_tag",
+        ],
+        test_description: "match create annotated tag without name",
+    },
+]

@@ -1,0 +1,16 @@
+- test: "git worktree add ../other"
+  description: "match add worktree"
+  expected_detection_ids:
+    - git:worktree_management
+- test: "git worktree remove ../other"
+  description: "match remove worktree"
+  expected_detection_ids:
+    - git:worktree_management
+- test: "git worktree add -f ../other"
+  description: "match force add worktree"
+  expected_detection_ids:
+    - git:worktree_management
+- test: "git worktree remove -f ../other"
+  description: "match force remove worktree"
+  expected_detection_ids:
+    - git:worktree_management

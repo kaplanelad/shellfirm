@@ -1,0 +1,8 @@
+- test: "git clean -fd"
+  description: "match force clean command"
+  expected_detection_ids:
+    - git:clean_force
+- test: "git clean -fdx"
+  description: "match force clean command with x option"
+  expected_detection_ids:
+    - git:clean_force

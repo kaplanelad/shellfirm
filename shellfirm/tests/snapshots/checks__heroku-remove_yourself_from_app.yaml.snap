@@ -1,6 +1,7 @@
 ---
 source: shellfirm/tests/checks.rs
 expression: test_file_results
+snapshot_kind: text
 ---
 [
     TestSensitivePatternsResult {

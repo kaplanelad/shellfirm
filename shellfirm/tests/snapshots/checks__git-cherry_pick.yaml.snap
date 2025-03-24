@@ -1,0 +1,23 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-cherry_pick.yaml",
+        test: "git cherry-pick abc123",
+        check_detection_ids: [
+            "git:cherry_pick",
+        ],
+        test_description: "match cherry-pick command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-cherry_pick.yaml",
+        test: "git cherry-pick --no-commit",
+        check_detection_ids: [
+            "git:cherry_pick",
+        ],
+        test_description: "match cherry-pick without commit",
+    },
+]

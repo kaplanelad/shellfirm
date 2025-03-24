@@ -1,0 +1,25 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-interactive_rebase.yaml",
+        test: "git rebase -i HEAD~3",
+        check_detection_ids: [
+            "git:interactive_rebase",
+            "git-strict:rebase",
+        ],
+        test_description: "match interactive rebase",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-interactive_rebase.yaml",
+        test: "git rebase -i",
+        check_detection_ids: [
+            "git:interactive_rebase",
+            "git-strict:rebase",
+        ],
+        test_description: "match interactive rebase without range",
+    },
+]
