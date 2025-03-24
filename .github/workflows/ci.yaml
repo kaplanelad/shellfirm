@@ -12,6 +12,9 @@ on:
       - 'docs/**'
       - '**.md'
 
+env:
+  RUST_TOOLCHAIN: stable
+
 jobs:
   check:
     name: Check
@@ -19,48 +22,13 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Run cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-
-  # coverage:
-  #   name: Coverage
-  #   strategy:
-  #     matrix:
-  #       os: [ubuntu-latest]
-  #       rust: [stable]
-  #   runs-on: ${{ matrix.os }}
-  #   steps:
-  #     - name: Checkout sources
-  #       uses: actions/checkout@v2
-
-  #     - name: Install stable toolchain
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         toolchain: ${{ matrix.rust }}
-  #         override: true
-  #         components: llvm-tools-preview
-
-  #     - uses: Swatinem/rust-cache@v1
-
-  #     - name: Download grcov
-  #       run: |
-  #         mkdir -p "${HOME}/.local/bin"
-  #         curl -sL https://github.com/mozilla/grcov/releases/download/v0.8.10/grcov-x86_64-unknown-linux-gnu.tar.bz2 | tar jxf - -C "${HOME}/.local/bin"
-  #         echo "$HOME/.local/bin" >> $GITHUB_PATH
-  #     - name: Run xtask coverage
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: xtask
-  #         args: coverage
-
-
-  #     - name: Upload to codecov.io
-  #       uses: codecov/codecov-action@v3
-  #       with:
-  #         files: coverage/*.lcov
+        run: cargo check
 
   test:
     name: Test Suite
@@ -74,20 +42,14 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - uses: Swatinem/rust-cache@v1
 
       - name: Run test
-        uses: actions-rs/cargo@v1
-        with:
-          command: xtask
-          args: test
+        run: cargo test
 
   clippy:
     name: clippy
@@ -96,40 +58,12 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: clippy
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Run clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: xtask
-          args: clippy
-
-  fmt:
-    name: fmt
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt
-
-      - name: Run fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: xtask
-          args: fmt
+        run: cargo clippy --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
 
   docs:
     name: Docs
@@ -138,12 +72,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
+    - uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        profile: minimal
-        override: true
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
+        
     - uses: Swatinem/rust-cache@v1
 
     - name: Check documentation
