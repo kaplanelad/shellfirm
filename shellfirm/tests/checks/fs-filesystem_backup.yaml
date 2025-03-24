@@ -1,0 +1,19 @@
+---
+- test: dump -0f /backup.dump /dev/sda1
+  description: match creating filesystem dump
+- test: restore -rf /backup.dump /dev/sda1
+  description: match restoring from dump
+- test: dump -0u /dev/sda1
+  description: match updating dump
+- test: dump -0f /backup.dump -b 1024 /dev/sda1
+  description: match dump with block size
+- test: restore -rf -b 1024 /backup.dump /dev/sda1
+  description: match restore with block size
+- test: dump -0f /backup.dump -z 9 /dev/sda1
+  description: match compressed dump
+- test: restore -rf -z /backup.dump /dev/sda1
+  description: match compressed restore
+- test: dump -0f /backup.dump /tmp/test.img
+  description: should not match dumping regular file
+- test: restore -rf /backup.dump /tmp/test.img
+  description: should not match restoring to regular file

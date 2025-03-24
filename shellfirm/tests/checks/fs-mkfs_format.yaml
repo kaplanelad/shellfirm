@@ -1,0 +1,19 @@
+---
+- test: mkfs.ext4 /dev/sda1
+  description: match formatting a partition with ext4
+- test: mkfs.ext3 /dev/sdb2
+  description: match formatting a partition with ext3
+- test: mkfs -t ext4 /dev/sda
+  description: match formatting entire disk with type parameter
+- test: mkfs.fat /dev/mmcblk0p1
+  description: match formatting SD card partition with FAT
+- test: mkfs.xfs /dev/sdc
+  description: match formatting disk with XFS
+- test: mkfs.btrfs /dev/mmcblk0
+  description: match formatting entire SD card with btrfs
+- test: mkfs /tmp/test.img
+  description: should not match formatting a regular file
+- test: mkfs.ext4 /mnt/external
+  description: should not match formatting a mount point
+- test: mkfs.ext4
+  description: should not match without device parameter

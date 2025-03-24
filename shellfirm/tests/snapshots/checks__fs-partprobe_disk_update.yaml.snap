@@ -1,0 +1,51 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe /dev/sda",
+        check_detection_ids: [
+            "fs:partprobe_disk_update",
+        ],
+        test_description: "match probing partition table changes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe -s /dev/sda",
+        check_detection_ids: [
+            "fs:partprobe_disk_update",
+        ],
+        test_description: "match showing summary of changes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe -d /dev/sda",
+        check_detection_ids: [
+            "fs:partprobe_disk_update",
+        ],
+        test_description: "match dry run mode",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe -w /dev/sda",
+        check_detection_ids: [
+            "fs:partprobe_disk_update",
+        ],
+        test_description: "match waiting for completion",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe -s",
+        check_detection_ids: [],
+        test_description: "should not match probing all devices without modification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-partprobe_disk_update.yaml",
+        test: "partprobe /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match regular file",
+    },
+]

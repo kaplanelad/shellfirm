@@ -1,0 +1,19 @@
+---
+- test: parted /dev/sda mklabel gpt
+  description: match creating new GPT partition table
+- test: parted /dev/sdb mkpart primary
+  description: match creating new partition
+- test: parted /dev/sda rm 1
+  description: match removing partition
+- test: parted /dev/sda print
+  description: match listing partitions
+- test: parted /dev/sda resizepart 1 100%
+  description: match resizing partition
+- test: parted /dev/sda toggle 1 boot
+  description: match toggling partition flags
+- test: parted /dev/sda
+  description: match interactive mode
+- test: parted -l
+  description: should not match listing all devices without modification
+- test: parted /tmp/test.img
+  description: should not match regular file

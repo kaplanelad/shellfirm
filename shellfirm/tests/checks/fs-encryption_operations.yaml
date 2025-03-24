@@ -1,0 +1,19 @@
+---
+- test: cryptsetup luksFormat /dev/sda1
+  description: match formatting LUKS partition
+- test: cryptsetup open /dev/sda1 my_encrypted
+  description: match opening encrypted device
+- test: cryptsetup close my_encrypted /dev/sda1
+  description: match closing encrypted device
+- test: cryptsetup luksAddKey /dev/sda1
+  description: match adding LUKS key
+- test: cryptsetup luksRemoveKey /dev/sda1
+  description: match removing LUKS key
+- test: cryptsetup luksDump /dev/sda1
+  description: match dumping LUKS header
+- test: cryptsetup resize my_encrypted /dev/sda1
+  description: match resizing encrypted device
+- test: cryptsetup -v status my_encrypted
+  description: should not match checking status
+- test: cryptsetup isLuks /dev/sda1
+  description: match checking if LUKS

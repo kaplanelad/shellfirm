@@ -1,0 +1,15 @@
+---
+- test: dd if=image.img of=/dev/sda
+  description: match command writing to hard disk
+- test: dd if=image.img of=/dev/sdb
+  description: match command writing to second hard disk
+- test: dd if=image.img of=/dev/mmcblk0
+  description: match command writing to SD card
+- test: dd if=image.img of=/dev/sda1
+  description: match command writing to partition
+- test: dd if=image.img of=/dev/sda bs=4M
+  description: match command with block size parameter
+- test: dd if=/dev/sda of=backup.img
+  description: should not match reading from disk
+- test: dd if=file.txt of=output.txt
+  description: should not match regular file operations

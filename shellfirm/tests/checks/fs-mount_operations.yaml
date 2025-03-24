@@ -1,0 +1,19 @@
+---
+- test: mount /dev/sda1 /mnt
+  description: match basic mount operation
+- test: mount -o remount,rw /dev/sda1
+  description: match remounting with options
+- test: mount -o noatime /dev/sdb1 /data
+  description: match mounting with specific options
+- test: mount -o loop /dev/sda1 /mnt
+  description: match loopback mounting
+- test: mount -o defaults /dev/sda1 /mnt
+  description: match mounting with defaults
+- test: mount -t ext4 /dev/sda1 /mnt
+  description: match mounting with filesystem type
+- test: mount -o remount,ro /dev/sda1
+  description: match remounting as read-only
+- test: mount -a
+  description: should not match mounting all from fstab
+- test: mount /tmp/test.img /mnt
+  description: should not match mounting regular file

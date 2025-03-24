@@ -1,0 +1,82 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match interactive partition editor",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -d /dev/sda > backup.txt",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match dumping partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /dev/sda < backup.txt",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match restoring partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -l /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match listing partitions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -f /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match forcing write",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -N 1 /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match modifying specific partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk --delete /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match deleting all partitions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -l",
+        check_detection_ids: [],
+        test_description: "should not match listing all devices without modification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match regular file",
+    },
+]

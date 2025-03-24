@@ -1,0 +1,19 @@
+---
+- test: lvremove /dev/vg0/lv1
+  description: match removing logical volume
+- test: pvremove /dev/sda1
+  description: match removing physical volume
+- test: vgremove vg0
+  description: match removing volume group
+- test: lvremove -f /dev/vg0/lv1
+  description: match force removing logical volume
+- test: pvremove -ff /dev/sda1
+  description: match force removing physical volume
+- test: vgremove -f vg0
+  description: match force removing volume group
+- test: lvcreate -L 10G vg0
+  description: should not match creating logical volume
+- test: pvcreate /dev/sda1
+  description: should not match creating physical volume
+- test: vgcreate vg0 /dev/sda1
+  description: should not match creating volume group

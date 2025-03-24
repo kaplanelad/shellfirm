@@ -1,0 +1,75 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda mklabel gpt",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match creating new GPT partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sdb mkpart primary",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match creating new partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda rm 1",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match removing partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda print",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match listing partitions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda resizepart 1 100%",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match resizing partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda toggle 1 boot",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match toggling partition flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /dev/sda",
+        check_detection_ids: [
+            "fs:parted_disk_modify",
+        ],
+        test_description: "match interactive mode",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted -l",
+        check_detection_ids: [],
+        test_description: "should not match listing all devices without modification",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-parted_disk_modify.yaml",
+        test: "parted /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match regular file",
+    },
+]

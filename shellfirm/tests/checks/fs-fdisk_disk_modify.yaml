@@ -1,0 +1,19 @@
+---
+- test: fdisk /dev/sda
+  description: match interactive partition editor
+- test: fdisk -l /dev/sda
+  description: match listing partitions
+- test: fdisk -w /dev/sda
+  description: match writing changes
+- test: fdisk -u /dev/sda
+  description: match using sectors instead of cylinders
+- test: fdisk -b 2048 /dev/sda
+  description: match specifying sector size
+- test: fdisk -c /dev/sda
+  description: match disabling DOS compatibility mode
+- test: fdisk -w always /dev/sda
+  description: match writing changes without confirmation
+- test: fdisk -l
+  description: should not match listing all devices without modification
+- test: fdisk /tmp/test.img
+  description: should not match regular file

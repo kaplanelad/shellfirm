@@ -1,0 +1,73 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.ext4 /dev/sda1",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting a partition with ext4",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.ext3 /dev/sdb2",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting a partition with ext3",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs -t ext4 /dev/sda",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting entire disk with type parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.fat /dev/mmcblk0p1",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting SD card partition with FAT",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.xfs /dev/sdc",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting disk with XFS",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.btrfs /dev/mmcblk0",
+        check_detection_ids: [
+            "fs:mkfs_format",
+        ],
+        test_description: "match formatting entire SD card with btrfs",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs /tmp/test.img",
+        check_detection_ids: [],
+        test_description: "should not match formatting a regular file",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.ext4 /mnt/external",
+        check_detection_ids: [],
+        test_description: "should not match formatting a mount point",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mkfs_format.yaml",
+        test: "mkfs.ext4",
+        check_detection_ids: [],
+        test_description: "should not match without device parameter",
+    },
+]

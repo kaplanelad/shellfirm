@@ -1,0 +1,19 @@
+---
+- test: gdisk /dev/sda
+  description: match interactive GPT partition editor
+- test: gdisk -l /dev/sda
+  description: match listing GPT partitions
+- test: gdisk -w /dev/sda
+  description: match writing GPT changes
+- test: gdisk -o /dev/sda
+  description: match creating new GPT partition table
+- test: gdisk -r /dev/sda
+  description: match recovery and transformation
+- test: gdisk -v /dev/sda
+  description: match verification
+- test: gdisk -p /dev/sda
+  description: match printing partition table
+- test: gdisk -l
+  description: should not match listing all devices without modification
+- test: gdisk /tmp/test.img
+  description: should not match regular file
