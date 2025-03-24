@@ -1,2 +1,2 @@
 [workspace]
-members = ["shellfirm", "xtask"]
+members = ["shellfirm"]
