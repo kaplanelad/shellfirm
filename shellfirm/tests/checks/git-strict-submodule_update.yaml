@@ -1,0 +1,12 @@
+- test: "git submodule update"
+  description: "match submodule update"
+  expected_detection_ids:
+    - git:submodule_update
+- test: "git submodule deinit"
+  description: "match submodule deinit"
+  expected_detection_ids:
+    - git:submodule_update
+- test: "git submodule update --init"
+  description: "match submodule update with init"
+  expected_detection_ids:
+    - git:submodule_update

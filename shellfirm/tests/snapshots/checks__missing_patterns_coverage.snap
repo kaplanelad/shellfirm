@@ -1,5 +1,6 @@
 ---
 source: shellfirm/tests/checks.rs
 expression: not_covered
+snapshot_kind: text
 ---
 []

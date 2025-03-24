@@ -1,0 +1,39 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-stash_pop_drop.yaml",
+        test: "git stash pop",
+        check_detection_ids: [
+            "git-strict:stash_pop_drop",
+        ],
+        test_description: "match stash pop",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-stash_pop_drop.yaml",
+        test: "git stash drop",
+        check_detection_ids: [
+            "git-strict:stash_pop_drop",
+        ],
+        test_description: "match stash drop",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-stash_pop_drop.yaml",
+        test: "git stash pop stash@{1}",
+        check_detection_ids: [
+            "git-strict:stash_pop_drop",
+        ],
+        test_description: "match stash pop with index",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-stash_pop_drop.yaml",
+        test: "git stash drop stash@{1}",
+        check_detection_ids: [
+            "git-strict:stash_pop_drop",
+        ],
+        test_description: "match stash drop with index",
+    },
+]

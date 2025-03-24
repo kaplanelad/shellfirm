@@ -1,0 +1,12 @@
+- test: "git merge --no-ff feature"
+  description: "match non-fast-forward merge"
+  expected_detection_ids:
+    - git:merge_no_ff
+- test: "git merge --abort"
+  description: "match merge abort"
+  expected_detection_ids:
+    - git:merge_no_ff
+- test: "git merge --no-ff"
+  description: "match non-fast-forward merge without branch"
+  expected_detection_ids:
+    - git:merge_no_ff

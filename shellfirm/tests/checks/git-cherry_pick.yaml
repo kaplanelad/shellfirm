@@ -1,0 +1,8 @@
+- test: "git cherry-pick abc123"
+  description: "match cherry-pick command"
+  expected_detection_ids:
+    - git:cherry_pick
+- test: "git cherry-pick --no-commit"
+  description: "match cherry-pick without commit"
+  expected_detection_ids:
+    - git:cherry_pick

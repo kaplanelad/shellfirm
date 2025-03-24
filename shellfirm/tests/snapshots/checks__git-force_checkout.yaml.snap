@@ -1,0 +1,23 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-force_checkout.yaml",
+        test: "git checkout -f main",
+        check_detection_ids: [
+            "git:force_checkout",
+        ],
+        test_description: "match force checkout",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-force_checkout.yaml",
+        test: "git checkout -f",
+        check_detection_ids: [
+            "git:force_checkout",
+        ],
+        test_description: "match force checkout current branch",
+    },
+]

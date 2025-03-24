@@ -1,0 +1,31 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-strict-commit_all.yaml",
+        test: "git commit --all",
+        check_detection_ids: [
+            "git-strict:commit_all",
+        ],
+        test_description: "match commit all changes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-commit_all.yaml",
+        test: "git commit -a",
+        check_detection_ids: [
+            "git-strict:commit_all",
+        ],
+        test_description: "match commit all with short option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-strict-commit_all.yaml",
+        test: "git commit -am 'message'",
+        check_detection_ids: [
+            "git-strict:commit_all",
+        ],
+        test_description: "match commit all with message",
+    },
+]

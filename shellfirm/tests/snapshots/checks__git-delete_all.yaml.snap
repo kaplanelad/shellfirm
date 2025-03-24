@@ -1,6 +1,7 @@
 ---
 source: shellfirm/tests/checks.rs
 expression: test_file_results
+snapshot_kind: text
 ---
 [
     TestSensitivePatternsResult {
@@ -8,7 +9,6 @@ expression: test_file_results
         test: "git  rm *",
         check_detection_ids: [
             "git:delete_all",
-            "fs-strict:any_deletion",
         ],
         test_description: "match command",
     },
@@ -17,7 +17,6 @@ expression: test_file_results
         test: "git rm .",
         check_detection_ids: [
             "git:delete_all",
-            "fs-strict:any_deletion",
         ],
         test_description: "match command",
     },

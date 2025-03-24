@@ -1,0 +1,23 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-force_delete_branch.yaml",
+        test: "git branch -D feature",
+        check_detection_ids: [
+            "git:force_delete_branch",
+        ],
+        test_description: "match force delete branch",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-force_delete_branch.yaml",
+        test: "git branch -D",
+        check_detection_ids: [
+            "git:force_delete_branch",
+        ],
+        test_description: "match force delete current branch",
+    },
+]

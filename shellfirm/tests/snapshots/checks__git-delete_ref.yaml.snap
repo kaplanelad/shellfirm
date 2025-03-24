@@ -1,0 +1,23 @@
+---
+source: shellfirm/tests/checks.rs
+expression: test_file_results
+snapshot_kind: text
+---
+[
+    TestSensitivePatternsResult {
+        file_path: "git-delete_ref.yaml",
+        test: "git update-ref -d refs/heads/feature",
+        check_detection_ids: [
+            "git:delete_ref",
+        ],
+        test_description: "match delete reference",
+    },
+    TestSensitivePatternsResult {
+        file_path: "git-delete_ref.yaml",
+        test: "git update-ref -d HEAD",
+        check_detection_ids: [
+            "git:delete_ref",
+        ],
+        test_description: "match delete HEAD reference",
+    },
+]

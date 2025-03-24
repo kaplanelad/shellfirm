@@ -3,7 +3,7 @@
   description: "Are you sure that you want to change permissions?"
   id: fs-strict:change_permissions
 - from: fs-strict
-  test: rm\s{1,}(?:-Rf|-rf|-fR|-fr|-r|-R|-f)?\s*(.*)
+  test: ^rm\s{1,}(?:-Rf|-rf|-fR|-fr|-r|-R|-f)?\s*(.*)
   description: "Are you sure you want to continue with deletion?"
   id: fs-strict:any_deletion
   filters:
