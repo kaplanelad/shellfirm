@@ -5,6 +5,10 @@
   description: match command with flag
 - test: shutdown -r now
   description: match command with flag value
+- test: shutdown  -r    now
+  description: match command with spaces
+- test: shutdown    now  -r
+  description: match command with spaces
 - test: shutdown    
   description: match command with spaces
 - test: shutdownn

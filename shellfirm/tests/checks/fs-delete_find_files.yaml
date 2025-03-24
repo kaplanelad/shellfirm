@@ -3,5 +3,33 @@
   description: match command
 - test: find / | -delete
   description: match command
+- test: find   /    |   -delete
+  description: match command with spaves
 - test: findd / | -delete
   description: invalid command
+- test: "find   .   -delete"
+  description: "match command with extra spaces"
+- test: "find   /   -delete"
+  description: "match command with extra spaces"
+- test: "sudo find . -delete"
+  description: "match command with sudo"
+- test: "sudo find / -delete"
+  description: "match command with sudo"
+- test: "find . -type f -delete"
+  description: "match command with type option"
+- test: "find / -name '*.txt' -delete"
+  description: "match command with name pattern"
+- test: "find . -mtime +7 -delete"
+  description: "match command with time option"
+- test: "find /home -delete"
+  description: "match command with home directory"
+- test: "find /var -delete"
+  description: "match command with var directory"
+- test: "find /usr -delete"
+  description: "match command with usr directory"
+- test: "find . -type f -name '*.log' -delete"
+  description: "match command with multiple conditions"
+- test: "find / -type d -empty -delete"
+  description: "match command with empty directory condition"
+- test: "find . -type f -size +100M -delete"
+  description: "match command with size condition"

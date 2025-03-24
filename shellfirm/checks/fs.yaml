@@ -1,11 +1,11 @@
 - from: fs
-  test: 'rm\s{1,}(-R|-r|-fR|-fr|-Rf|-rf)\s*(\*|\.{1,}|/)\s*$'
+  test: 'rm\s{1,}(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(?:\*|\.{1,}|/)\s*$'
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
   filters:
     IsExists: "3"
 - from: fs
-  test: mv\s{1,}([a-zA-Z0-9.!@/#$%^&*()']+)\s*/dev/null
+  test: mv\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:[^\s]+\s+)+/dev/null
   description: "The files will be discarded and destroyed."
   id: fs:move_to_dev_null
   filters:
@@ -65,7 +65,7 @@
   description: "Are you sure you want to mount this device? This could affect system stability."
   id: fs:mount_operations
 - from: fs
-  test: '(?:lvremove|pvremove|vgremove)\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  test: '(?:sudo\s+)?(?:lvremove|pvremove|vgremove)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
   description: "Are you sure you want to remove this logical volume/volume group? This will delete all data."
   id: fs:lvm_operations
 - from: fs

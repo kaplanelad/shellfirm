@@ -7,7 +7,9 @@ snapshot_kind: text
     TestSensitivePatternsResult {
         file_path: "fs-lvm_operations.yaml",
         test: "lvremove /dev/vg0/lv1",
-        check_detection_ids: [],
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
         test_description: "match removing logical volume",
     },
     TestSensitivePatternsResult {
@@ -21,13 +23,17 @@ snapshot_kind: text
     TestSensitivePatternsResult {
         file_path: "fs-lvm_operations.yaml",
         test: "vgremove vg0",
-        check_detection_ids: [],
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
         test_description: "match removing volume group",
     },
     TestSensitivePatternsResult {
         file_path: "fs-lvm_operations.yaml",
         test: "lvremove -f /dev/vg0/lv1",
-        check_detection_ids: [],
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
         test_description: "match force removing logical volume",
     },
     TestSensitivePatternsResult {
@@ -41,7 +47,9 @@ snapshot_kind: text
     TestSensitivePatternsResult {
         file_path: "fs-lvm_operations.yaml",
         test: "vgremove -f vg0",
-        check_detection_ids: [],
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
         test_description: "match force removing volume group",
     },
     TestSensitivePatternsResult {
@@ -61,5 +69,221 @@ snapshot_kind: text
         test: "vgcreate vg0 /dev/sda1",
         check_detection_ids: [],
         test_description: "should not match creating volume group",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove   /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove   /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove   vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "sudo lvremove /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "sudo pvremove /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "sudo vgremove vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove --force /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with long force flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove --force --force /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with long force flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove --force vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with long force flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove /dev/mapper/vg0-lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with mapper path",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove /dev/sdb1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with different disk",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove vg1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with different volume group",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove -y /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with yes option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove -y /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with yes option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove -y vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with yes option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove /dev/vg0/lv2",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with different logical volume",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove /dev/sdc1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with third disk",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove vg2",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with second volume group",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove -v /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with verbose option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove -v /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with verbose option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove -v vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with verbose option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove -f -y /dev/vg0/lv1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove -ff -y /dev/sda1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove -f -y vg0",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "lvremove /dev/vg0/lv1 /dev/vg0/lv2",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple volumes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "pvremove /dev/sda1 /dev/sdb1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple physical volumes",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-lvm_operations.yaml",
+        test: "vgremove vg0 vg1",
+        check_detection_ids: [
+            "fs:lvm_operations",
+        ],
+        test_description: "match command with multiple volume groups",
     },
 ]

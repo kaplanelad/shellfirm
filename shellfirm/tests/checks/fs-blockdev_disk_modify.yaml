@@ -1,12 +1,18 @@
 ---
 - test: blockdev --setro /dev/sda
   description: match setting read-only mode
+- test: blockdev   --setro   /dev/sda
+  description: match setting read-only mode with spaces
 - test: blockdev --setrw /dev/sda
   description: match setting read-write mode
+- test: blockdev   --setrw  /dev/sda
+  description: match setting read-write mode with spaces
 - test: blockdev --flushbufs /dev/sda
   description: match flushing buffers
 - test: blockdev --rereadpt /dev/sda
   description: match rereading partition table
+- test: blockdev  --rereadpt  /dev/sda
+  description: match rereading partition table with spaces
 - test: blockdev --report /dev/sda
   description: match reporting device information
 - test: blockdev --getro /dev/sda

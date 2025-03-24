@@ -1,6 +1,8 @@
 ---
 - test: parted /dev/sda mklabel gpt
   description: match creating new GPT partition table
+- test: parted    /dev/sda    mklabel gpt
+  description: match creating new GPT partition table with spaces
 - test: parted /dev/sdb mkpart primary
   description: match creating new partition
 - test: parted /dev/sda rm 1
@@ -17,3 +19,51 @@
   description: should not match listing all devices without modification
 - test: parted /tmp/test.img
   description: should not match regular file
+- test: "parted   /dev/sda   mklabel   gpt"
+  description: "match command with extra spaces"
+- test: "sudo parted /dev/sda mklabel gpt"
+  description: "match command with sudo"
+- test: "sudo   parted   /dev/sda   mklabel   gpt"
+  description: "match command with sudo and extra spaces"
+- test: "parted /dev/sda mklabel gpt --script"
+  description: "match command with script mode"
+- test: "parted --script /dev/sda mklabel gpt"
+  description: "match command with script mode in different position"
+- test: "parted /dev/sda mkpart primary ext4 0% 100%"
+  description: "match command with full partition parameters"
+- test: "parted /dev/sda mkpart primary 0% 100% ext4"
+  description: "match command with parameters in different order"
+- test: "parted /dev/mmcblk0 mklabel gpt"
+  description: "match command with SD card device"
+- test: "parted /dev/sda1 mklabel gpt"
+  description: "match command with partition device"
+- test: "parted /dev/sda move 1 1000 2000"
+  description: "match command with move partition"
+- test: "parted /dev/sda name 1 boot"
+  description: "match command with name partition"
+- test: "parted /dev/sda set 1 lvm on"
+  description: "match command with set partition flag"
+- test: "parted /dev/sdc mklabel gpt"
+  description: "match command with third disk"
+- test: "parted /dev/mmcblk0p1 mklabel gpt"
+  description: "match command with SD card partition"
+- test: "parted /dev/sda2 mklabel gpt"
+  description: "match command with second partition"
+- test: "parted -a optimal /dev/sda mklabel gpt"
+  description: "match command with alignment option"
+- test: "parted -s /dev/sda mklabel gpt"
+  description: "match command with silent mode"
+- test: "parted --version /dev/sda mklabel gpt"
+  description: "match command with version option"
+- test: "parted /dev/sda mklabel gpt mkpart primary ext4 0% 100%"
+  description: "match command with multiple operations"
+- test: "parted /dev/sda rm 1 rm 2"
+  description: "match command with multiple remove operations"
+- test: "parted /dev/sda mkpart primary ext4 0% 50% mkpart primary ext4 50% 100%"
+  description: "match command with multiple create operations"
+- test: "parted /dev/sda mkpart primary ext4 0% 50%"
+  description: "match command with percentage parameters"
+- test: "parted /dev/sda mkpart primary ext4 0 1000"
+  description: "match command with size parameters"
+- test: "parted /dev/sda mkpart primary ext4 1000 2000"
+  description: "match command with start and end parameters"

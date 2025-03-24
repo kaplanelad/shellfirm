@@ -22,8 +22,120 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-delete_find_files.yaml",
+        test: "find   /    |   -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with spaves",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
         test: "findd / | -delete",
         check_detection_ids: [],
         test_description: "invalid command",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find   .   -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find   /   -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "sudo find . -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "sudo find / -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find . -type f -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with type option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find / -name '*.txt' -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with name pattern",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find . -mtime +7 -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with time option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find /home -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with home directory",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find /var -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with var directory",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find /usr -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with usr directory",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find . -type f -name '*.log' -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with multiple conditions",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find / -type d -empty -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with empty directory condition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-delete_find_files.yaml",
+        test: "find . -type f -size +100M -delete",
+        check_detection_ids: [
+            "fs:delete_find_files",
+        ],
+        test_description: "match command with size condition",
     },
 ]

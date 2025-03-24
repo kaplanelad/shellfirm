@@ -14,6 +14,14 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-filesystem_backup.yaml",
+        test: "dump  -0f  /backup.dump  /dev/sda1",
+        check_detection_ids: [
+            "fs:filesystem_backup",
+        ],
+        test_description: "match creating filesystem dump with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-filesystem_backup.yaml",
         test: "restore -rf /backup.dump /dev/sda1",
         check_detection_ids: [
             "fs:filesystem_backup",

@@ -14,11 +14,27 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-blockdev_disk_modify.yaml",
+        test: "blockdev   --setro   /dev/sda",
+        check_detection_ids: [
+            "fs:blockdev_disk_modify",
+        ],
+        test_description: "match setting read-only mode with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-blockdev_disk_modify.yaml",
         test: "blockdev --setrw /dev/sda",
         check_detection_ids: [
             "fs:blockdev_disk_modify",
         ],
         test_description: "match setting read-write mode",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-blockdev_disk_modify.yaml",
+        test: "blockdev   --setrw  /dev/sda",
+        check_detection_ids: [
+            "fs:blockdev_disk_modify",
+        ],
+        test_description: "match setting read-write mode with spaces",
     },
     TestSensitivePatternsResult {
         file_path: "fs-blockdev_disk_modify.yaml",
@@ -35,6 +51,14 @@ snapshot_kind: text
             "fs:blockdev_disk_modify",
         ],
         test_description: "match rereading partition table",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-blockdev_disk_modify.yaml",
+        test: "blockdev  --rereadpt  /dev/sda",
+        check_detection_ids: [
+            "fs:blockdev_disk_modify",
+        ],
+        test_description: "match rereading partition table with spaces",
     },
     TestSensitivePatternsResult {
         file_path: "fs-blockdev_disk_modify.yaml",
