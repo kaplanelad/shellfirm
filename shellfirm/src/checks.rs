@@ -187,8 +187,8 @@ fn filter_is_file_or_directory_exists(file_path: &str) -> bool {
     };
 
     log::debug!("check is {} path is exists", full_path);
-    return std::path::Path::new(full_path.trim()).exists()
-        || std::path::Path::new(full_path.trim()).is_dir();
+    std::path::Path::new(full_path.trim()).exists()
+        || std::path::Path::new(full_path.trim()).is_dir()
 }
 
 fn filter_is_command_contains_string(command: &str, filter_params: &str) -> bool {

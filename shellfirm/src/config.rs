@@ -317,7 +317,7 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn get_active_groups(&self) -> &Vec<String> {
+    pub const fn get_active_groups(&self) -> &Vec<String> {
         &self.includes
     }
 }

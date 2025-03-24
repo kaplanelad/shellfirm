@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     let dest_groups = Path::new(&out_dir).join("all_the_files.rs");
     let mut groups_names = File::create(dest_groups)?;
 
-    writeln!(&mut groups_names, r##"["##,)?;
+    writeln!(&mut groups_names, r"[",)?;
 
     let paths = fs::read_dir("./checks")?;
     let mut all_group_checks = String::new();
@@ -26,10 +26,10 @@ fn main() -> Result<()> {
             .unwrap()
             .to_str()
             .expect("could not get file name");
-        writeln!(&mut groups_names, r##""{file_name}","##)?;
+        writeln!(&mut groups_names, r#""{file_name}","#)?;
     }
 
-    writeln!(&mut groups_names, r##"]"##,)?;
+    writeln!(&mut groups_names, r"]",)?;
 
     let mut file = File::create(dest_checks_path)?;
     file.write_all(all_group_checks.as_bytes())?;
