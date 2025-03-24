@@ -22,6 +22,14 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-move_to_dev_null.yaml",
+        test: "mv   ./    /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
         test: "mv .",
         check_detection_ids: [],
         test_description: "match command",
@@ -31,5 +39,77 @@ snapshot_kind: text
         test: "mv /dev/null",
         check_detection_ids: [],
         test_description: "missing argument",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv   Cargo.toml   /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "sudo mv Cargo.toml /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "sudo   mv   Cargo.toml   /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with sudo and extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv file1 file2 /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with multiple files",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv file1 /dev/null file2",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with files in different order",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv -f Cargo.toml /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with force flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv --force Cargo.toml /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with long force flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv ../file /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with parent directory",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-move_to_dev_null.yaml",
+        test: "mv ~/file /dev/null",
+        check_detection_ids: [
+            "fs:move_to_dev_null",
+        ],
+        test_description: "match command with home directory",
     },
 ]

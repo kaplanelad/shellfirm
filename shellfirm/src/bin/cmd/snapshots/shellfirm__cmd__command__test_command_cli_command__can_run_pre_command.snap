@@ -1,12 +1,13 @@
 ---
 source: shellfirm/src/bin/cmd/command.rs
 expression: "execute(\"rm -rf /\", &settings, &settings.get_active_checks().unwrap(), true)"
+snapshot_kind: text
 ---
 Ok(
     CmdExit {
         code: 0,
         message: Some(
-            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s{1,}(-R|-r|-fR|-fr|-Rf|-rf)\\\\s*(\\\\*|\\\\.{1,}|/)\\\\s*$\"\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters:\n    IsExists: \"3\"\n",
+            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s{1,}(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\\\\s*(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\\\\s*(?:\\\\*|\\\\.{1,}|/)\\\\s*$\"\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters:\n    IsExists: \"3\"\n",
         ),
     },
 )

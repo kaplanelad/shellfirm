@@ -14,6 +14,14 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk  /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match interactive GPT partition editor with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
         test: "gdisk -l /dev/sda",
         check_detection_ids: [
             "fs:gdisk_disk_modify",
@@ -46,7 +54,7 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-gdisk_disk_modify.yaml",
-        test: "gdisk -v /dev/sda",
+        test: "gdisk    -v /dev/sda",
         check_detection_ids: [
             "fs:gdisk_disk_modify",
         ],
@@ -71,5 +79,189 @@ snapshot_kind: text
         test: "gdisk /tmp/test.img",
         check_detection_ids: [],
         test_description: "should not match regular file",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk   -w   /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "sudo gdisk /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "sudo   gdisk   /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with sudo and extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with multiple flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -v -w /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with flags in different order",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /dev/sda -w -v",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with flags after device",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --load-backup=backup.gpt /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with backup file",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --backup=backup.gpt /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with backup parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -c /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with change partition type",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -d /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with delete partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -n /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with new partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /dev/sdb",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with second disk",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /dev/mmcblk0",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with SD card",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk /dev/sda1",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --backup=backup.gpt --load-backup=backup.gpt /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with multiple backup parameters",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --new-table /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with new table parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --clear /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with clear parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v -d 1 /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with delete partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v -n 1 /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with new partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v -c 1 /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with change partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --verbose /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with verbose flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --debug /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with debug flag",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-gdisk_disk_modify.yaml",
+        test: "gdisk -w -v --help /dev/sda",
+        check_detection_ids: [
+            "fs:gdisk_disk_modify",
+        ],
+        test_description: "match command with help flag",
     },
 ]

@@ -14,6 +14,23 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-dd_advanced_disk_write.yaml",
+        test: "dd  if=file  of=/dev/sda    seek=1",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match writing at specific sector with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_advanced_disk_write.yaml",
+        test: "dd  seek=1   of=/dev/sda    if=file",
+        check_detection_ids: [
+            "fs:dd_block_device",
+            "fs:dd_advanced_disk_write",
+        ],
+        test_description: "match writing at specific sector with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_advanced_disk_write.yaml",
         test: "dd if=file of=/dev/sda conv=notrunc",
         check_detection_ids: [
             "fs:dd_block_device",

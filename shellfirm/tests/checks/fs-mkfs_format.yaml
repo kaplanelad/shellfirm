@@ -1,6 +1,8 @@
 ---
 - test: mkfs.ext4 /dev/sda1
   description: match formatting a partition with ext4
+- test: mkfs.ext4      /dev/sda1
+  description: match formatting a partition with ext4 with spaces
 - test: mkfs.ext3 /dev/sdb2
   description: match formatting a partition with ext3
 - test: mkfs -t ext4 /dev/sda
@@ -17,3 +19,51 @@
   description: should not match formatting a mount point
 - test: mkfs.ext4
   description: should not match without device parameter
+- test: "mkfs.ext4   /dev/sda1"
+  description: "match command with extra spaces"
+- test: "mkfs   -t   ext4   /dev/sda"
+  description: "match command with extra spaces"
+- test: "sudo mkfs.ext4 /dev/sda1"
+  description: "match command with sudo"
+- test: "sudo mkfs -t ext4 /dev/sda"
+  description: "match command with sudo"
+- test: "mkfs.ext4 -F /dev/sda1"
+  description: "match command with force flag"
+- test: "mkfs -t ext4 -F /dev/sda"
+  description: "match command with force flag"
+- test: "mkfs.ext4 -L mylabel /dev/sda1"
+  description: "match command with label"
+- test: "mkfs.ext4 /dev/sda2"
+  description: "match command with different partition"
+- test: "mkfs.ext4 /dev/sdb"
+  description: "match command with different disk"
+- test: "mkfs.ext4 /dev/mmcblk0p2"
+  description: "match command with different SD card partition"
+- test: "mkfs.ntfs /dev/sda1"
+  description: "match command with NTFS filesystem"
+- test: "mkfs -t ntfs /dev/sda"
+  description: "match command with NTFS filesystem type"
+- test: "mkfs.exfat /dev/sda1"
+  description: "match command with exFAT filesystem"
+- test: "mkfs.ext4 -c /dev/sda1"
+  description: "match command with check option"
+- test: "mkfs.ext4 -n /dev/sda1"
+  description: "match command with dry run option"
+- test: "mkfs.ext4 -q /dev/sda1"
+  description: "match command with quiet option"
+- test: "mkfs.ext4 -F -L mylabel -c /dev/sda1"
+  description: "match command with multiple options"
+- test: "mkfs -t ext4 -F -L mylabel -c /dev/sda"
+  description: "match command with multiple options"
+- test: "mkfs.ext4 /dev/sda3"
+  description: "match command with third partition"
+- test: "mkfs.ext4 /dev/sdc1"
+  description: "match command with third disk"
+- test: "mkfs.ext4 /dev/mmcblk0p3"
+  description: "match command with third SD card partition"
+- test: "mkfs.ext4 -b 4096 /dev/sda1"
+  description: "match command with block size"
+- test: "mkfs.ext4 -i 4096 /dev/sda1"
+  description: "match command with inode size"
+- test: "mkfs.ext4 -m 5 /dev/sda1"
+  description: "match command with reserved blocks percentage"

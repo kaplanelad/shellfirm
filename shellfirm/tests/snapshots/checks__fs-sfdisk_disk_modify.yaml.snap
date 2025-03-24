@@ -79,4 +79,121 @@ snapshot_kind: text
         check_detection_ids: [],
         test_description: "should not match regular file",
     },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk   /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk   -l   /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sudo sfdisk /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sudo sfdisk -l /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -g /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with gpt option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -s /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with size option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -v /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with version option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /dev/sdb",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with second disk",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /dev/mmcblk0",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with SD card",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk /dev/sda1",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk --delete --force /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with multiple options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -N 1 -f /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with multiple options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-sfdisk_disk_modify.yaml",
+        test: "sfdisk -d -f /dev/sda",
+        check_detection_ids: [
+            "fs:sfdisk_disk_modify",
+            "fs:fdisk_disk_modify",
+        ],
+        test_description: "match command with multiple options",
+    },
 ]

@@ -14,6 +14,14 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-mount_operations.yaml",
+        test: "mount  /dev/sda1    /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match basic mount operation with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
         test: "mount -o remount,rw /dev/sda1",
         check_detection_ids: [
             "fs:mount_operations",
@@ -71,5 +79,77 @@ snapshot_kind: text
         test: "mount /tmp/test.img /mnt",
         check_detection_ids: [],
         test_description: "should not match mounting regular file",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount   -o   remount,rw   /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "sudo mount /dev/sda1 /mnt",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "sudo   mount   -o   remount,rw   /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with sudo and extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,rw -t ext4 /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with multiple flags",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -t ext4 -o remount,rw /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with flags in different order",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,rw,noatime /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with multiple mount options",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o noatime,remount,rw /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with mount options in different order",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,rw,exec /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with exec option",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-mount_operations.yaml",
+        test: "mount -o remount,rw,noexec /dev/sda1",
+        check_detection_ids: [
+            "fs:mount_operations",
+        ],
+        test_description: "match command with noexec option",
     },
 ]

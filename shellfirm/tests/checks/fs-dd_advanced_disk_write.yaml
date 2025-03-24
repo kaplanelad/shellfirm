@@ -1,6 +1,10 @@
 ---
 - test: dd if=file of=/dev/sda seek=1
   description: match writing at specific sector
+- test: dd  if=file  of=/dev/sda    seek=1
+  description: match writing at specific sector with spaces
+- test: dd  seek=1   of=/dev/sda    if=file
+  description: match writing at specific sector with spaces
 - test: dd if=file of=/dev/sda conv=notrunc
   description: match writing without truncating
 - test: dd if=/dev/sda of=file skip=1

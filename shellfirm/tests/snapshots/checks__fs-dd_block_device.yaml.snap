@@ -14,6 +14,22 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "fs-dd_block_device.yaml",
+        test: "dd  if=image.img    of=/dev/sda",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command writing to hard disk with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd      of=/dev/sda if=image.img",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command writing to hard disk with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
         test: "dd if=image.img of=/dev/sdb",
         check_detection_ids: [
             "fs:dd_block_device",
@@ -55,5 +71,109 @@ snapshot_kind: text
         test: "dd if=file.txt of=output.txt",
         check_detection_ids: [],
         test_description: "should not match regular file operations",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd   if=image.img   of=/dev/sda",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd   of=/dev/sda   if=image.img",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with extra spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "sudo dd if=image.img of=/dev/sda",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "sudo dd of=/dev/sda if=image.img",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with sudo",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda bs=4M count=1",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with count parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda bs=4M seek=1",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with seek parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda bs=4M conv=notrunc",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with conv parameter",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda2",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with different partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sdb",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with different disk",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/mmcblk0p2",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with different SD card partition",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda status=progress",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with progress status",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda status=none",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with no status",
+    },
+    TestSensitivePatternsResult {
+        file_path: "fs-dd_block_device.yaml",
+        test: "dd if=image.img of=/dev/sda status=noxfer",
+        check_detection_ids: [
+            "fs:dd_block_device",
+        ],
+        test_description: "match command with no transfer status",
     },
 ]

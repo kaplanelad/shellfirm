@@ -30,11 +30,27 @@ snapshot_kind: text
     },
     TestSensitivePatternsResult {
         file_path: "base-reboot_machine.yaml",
+        test: "reboot    -r   now",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
         test: "reboot",
         check_detection_ids: [
             "base:reboot_machine",
         ],
         test_description: "match command with spaces",
+    },
+    TestSensitivePatternsResult {
+        file_path: "base-reboot_machine.yaml",
+        test: "reboot  now   -r",
+        check_detection_ids: [
+            "base:reboot_machine",
+        ],
+        test_description: "match command with flag value",
     },
     TestSensitivePatternsResult {
         file_path: "base-reboot_machine.yaml",
