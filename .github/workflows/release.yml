@@ -53,10 +53,9 @@ jobs:
         with:
           submodules: true
 
-      - name: Install ${{ matrix.rust }} toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          toolchain: ${{ env.RUST_TOOLCHAIN }} 
 
       - name: Run cargo test
         if: matrix.build != 'aarch64-macos'
