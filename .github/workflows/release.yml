@@ -54,6 +54,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }} 
+          targets: ${{ matrix.target }}
 
       - name: Run cargo test
         if: matrix.build != 'aarch64-macos'
