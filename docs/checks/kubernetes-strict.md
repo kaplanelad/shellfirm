@@ -1,12 +1,11 @@
 # Kubernetes-Strict Checks:
 
-:warning: make sure that `kubernetes` group also enabled :warning: 
+:warning: Make sure that the `kubernetes` group is also enabled :warning:
 
-* Detect any deletion (`kubectl delete ...`) command.  
+- `kubectl delete {RESOURCE}` - This command will delete a given resource and prompts for confirmation.
 
-* Detect any resource update (`kubectl set ...`) command.
+- `kubectl set {RESOURCE}` - This command will update the given resource and prompts for confirmation.
 
-* Detect any pod scale (`kubectl scale ...`) command.
+- `kubectl scale {RESOURCE}` - This command will set a new size for a given resource and prompts for confirmation.
 
-* Detect any pod rollout (`kubectl scarolloutle ...`) command.
-
+- `kubectl rollout {ACTION} {RESOURCE}` - This command will manage a rollout for a given resource and prompts for confirmation.

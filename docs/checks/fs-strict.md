@@ -1,11 +1,11 @@
-# FS-Strict Checks:
+# FS-Strict Checks
 
-:warning: make sure that `fs` group also enabled :warning: 
+:warning: Make sure that the `fs` group is also enabled :warning:
 
-* Detect any deletion (`rm`) command.
+- `rm {OPTIONS} {FILES}` - This command detects any deletion operation and prompts for confirmation.
 
-* Detect any folder deletion (`rmdir`) command.  
+- `rmdir {DIRECTORY}` - This command detects any folder deletion operation and prompts for confirmation.
 
-* Detect and permissions changes (`chmod`) command.
+- `chmod {OPTIONS} {FILES}` - This command detects any permissions change operation and prompts for confirmation.
 
-* Detect and file text override `some text > file.txt`.
+- `echo "some text" > file.txt` - This command detects file text override operations and prompts for confirmation.
