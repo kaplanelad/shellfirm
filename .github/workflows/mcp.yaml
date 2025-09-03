@@ -109,11 +109,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Create temp directory for Playwright artifacts
-          $tempDir = "$env:TEMP\playwright-artifacts"
-          if (-not (Test-Path $tempDir)) {
-            New-Item -ItemType Directory -Path $tempDir -Force
+          # Use RUNNER_TEMP for Playwright and Node temp dirs to avoid AppData path issues
+          $pwTmp = Join-Path $env:RUNNER_TEMP "playwright-tmp"
+          if (-not (Test-Path $pwTmp)) {
+            New-Item -ItemType Directory -Path $pwTmp -Force | Out-Null
           }
+          # Export TEMP and TMP for subsequent steps
+          "TEMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Run tests
         run: npm run test
