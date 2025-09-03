@@ -79,6 +79,8 @@ jobs:
           npm install @rollup/rollup-win32-x64-msvc --save-optional
           # Verify Rollup installation
           npx rollup --version
+          # Install Playwright browsers after dependency changes
+          npx playwright install chromium --with-deps
 
       - name: Install dependencies (Unix)
         if: runner.os != 'Windows'
@@ -96,9 +98,15 @@ jobs:
           fi
           # Verify Rollup installation
           npx rollup --version
+          # Install Playwright browsers after dependency changes
+          npx playwright install chromium --with-deps
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps
+        run: |
+          # Ensure Playwright browsers are installed after dependency changes
+          npx playwright install --with-deps
+          # Verify browser installation
+          npx playwright --version
 
       - name: Setup Windows environment for Playwright
         if: runner.os == 'Windows'
@@ -111,13 +119,12 @@ jobs:
           }
           # Set environment variable for Playwright
           $env:PLAYWRIGHT_BROWSERS_PATH = "0"
-          $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
 
       - name: Run tests
         run: npm run test
         env:
           CI: true
-          # Windows CI environment variables for Playwright
+          # Playwright environment variables
           PLAYWRIGHT_BROWSERS_PATH: 0
 
   security:

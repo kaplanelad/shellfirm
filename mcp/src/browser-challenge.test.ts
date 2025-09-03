@@ -4,22 +4,43 @@ import { chromium, Browser, Page } from 'playwright';
 
 // Helper function to create browser with Windows CI compatibility
 async function createBrowser(): Promise<Browser> {
-  return await chromium.launch({
+  const launchOptions: any = {
     headless: process.env.CI === 'true', // Headless in CI, visible locally
     slowMo: process.env.CI === 'true' ? 0 : 1000, // No slowMo in CI
-    // Fix for Windows CI temporary directory issues
-    ...(process.env.CI === 'true' && process.platform === 'win32' && {
+  };
+
+  // Fix for Windows CI temporary directory issues
+  if (process.env.CI === 'true' && process.platform === 'win32') {
+    launchOptions.args = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
+    ];
+  }
+
+  // Try to launch with fallback options
+  try {
+    return await chromium.launch(launchOptions);
+  } catch (error) {
+    console.warn('Failed to launch with default options, trying fallback:', error);
+    // Fallback: try with system browser
+    return await chromium.launch({
+      ...launchOptions,
+      executablePath: undefined, // Use system browser
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-first-run',
-        '--no-zygote',
-        '--single-process'
+        '--headless'
       ]
-    })
-  });
+    });
+  }
 }
 
 describe('Browser Challenge - Math Challenge', () => {
