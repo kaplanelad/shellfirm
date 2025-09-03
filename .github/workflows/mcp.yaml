@@ -64,9 +64,23 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
-          cache-dependency-path: "./mcp/package-lock.json"
+          cache-dependency-path: ${{ runner.os == 'Windows' && './mcp/package.json' || './mcp/package-lock.json' }}
 
-      - name: Install dependencies
+      - name: Install dependencies (Windows fix)
+        if: runner.os == 'Windows'
+        run: |
+          # Remove package-lock.json and node_modules to fix npm optional dependency bug
+          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
+          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
+          # Install with --force to ensure optional dependencies are installed
+          npm install --force
+          # Explicitly install the missing Rollup binary for Windows
+          npm install @rollup/rollup-win32-x64-msvc --save-optional
+          # Verify Rollup installation
+          npx rollup --version
+
+      - name: Install dependencies (Unix)
+        if: runner.os != 'Windows'
         run: npm ci
 
       - name: Install Playwright browsers

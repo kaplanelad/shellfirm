@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:vitest:ui": "vitest --ui",
     "test:vitest:run": "vitest run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "install:windows": "npm install @rollup/rollup-win32-x64-msvc --save-optional"
   },
   "keywords": [
     "mcp",
