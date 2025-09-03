@@ -14,7 +14,7 @@
     "test:vitest:ui": "vitest --ui",
     "test:vitest:run": "vitest run",
     "clean": "rm -rf dist",
-    "install:windows": "npm install @rollup/rollup-win32-x64-msvc --save-optional"
+    "install:rollup": "npm install @rollup/rollup-win32-x64-msvc @rollup/rollup-linux-x64-gnu @rollup/rollup-darwin-x64 --save-optional"
   },
   "keywords": [
     "mcp",

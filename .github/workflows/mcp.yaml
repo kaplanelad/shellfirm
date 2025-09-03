@@ -64,24 +64,30 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
-          cache-dependency-path: ${{ runner.os == 'Windows' && './mcp/package.json' || './mcp/package-lock.json' }}
+          cache-dependency-path: "./mcp/package.json"
 
-      - name: Install dependencies (Windows fix)
-        if: runner.os == 'Windows'
+      - name: Install dependencies (fix Rollup optional deps)
         run: |
           # Remove package-lock.json and node_modules to fix npm optional dependency bug
-          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
-          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
+            if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
+          else
+            rm -f package-lock.json
+            rm -rf node_modules
+          fi
           # Install with --force to ensure optional dependencies are installed
           npm install --force
-          # Explicitly install the missing Rollup binary for Windows
-          npm install @rollup/rollup-win32-x64-msvc --save-optional
+          # Explicitly install the missing Rollup binary for the current platform
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            npm install @rollup/rollup-win32-x64-msvc --save-optional
+          elif [ "$RUNNER_OS" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --save-optional
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            npm install @rollup/rollup-darwin-x64 --save-optional
+          fi
           # Verify Rollup installation
           npx rollup --version
-
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
