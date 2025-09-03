@@ -100,10 +100,25 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
 
+      - name: Setup Windows environment for Playwright
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Create temp directory for Playwright artifacts
+          $tempDir = "$env:TEMP\playwright-artifacts"
+          if (-not (Test-Path $tempDir)) {
+            New-Item -ItemType Directory -Path $tempDir -Force
+          }
+          # Set environment variable for Playwright
+          $env:PLAYWRIGHT_BROWSERS_PATH = "0"
+          $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1"
+
       - name: Run tests
         run: npm run test
         env:
           CI: true
+          # Windows CI environment variables for Playwright
+          PLAYWRIGHT_BROWSERS_PATH: 0
 
   security:
     name: Security Audit

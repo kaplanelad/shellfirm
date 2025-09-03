@@ -2,6 +2,26 @@ import { test, expect, describe, beforeAll, afterAll } from 'vitest';
 import { BrowserChallenge } from './browser-challenge';
 import { chromium, Browser, Page } from 'playwright';
 
+// Helper function to create browser with Windows CI compatibility
+async function createBrowser(): Promise<Browser> {
+  return await chromium.launch({
+    headless: process.env.CI === 'true', // Headless in CI, visible locally
+    slowMo: process.env.CI === 'true' ? 0 : 1000, // No slowMo in CI
+    // Fix for Windows CI temporary directory issues
+    ...(process.env.CI === 'true' && process.platform === 'win32' && {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process'
+      ]
+    })
+  });
+}
+
 describe('Browser Challenge - Math Challenge', () => {
   let browser: Browser;
   let page: Page;
@@ -9,10 +29,7 @@ describe('Browser Challenge - Math Challenge', () => {
 
   beforeAll(async () => {
     // Launch browser for testing
-    browser = await chromium.launch({
-      headless: process.env.CI === 'true', // Headless in CI, visible locally
-      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
-    });
+    browser = await createBrowser();
     
     page = await browser.newPage();
     
@@ -284,10 +301,7 @@ describe('Browser Challenge - Word Challenge', () => {
 
   beforeAll(async () => {
     // Launch browser for testing
-    browser = await chromium.launch({
-      headless: process.env.CI === 'true', // Headless in CI, visible locally
-      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
-    });
+    browser = await createBrowser();
     
     page = await browser.newPage();
     
@@ -476,10 +490,7 @@ describe('Browser Challenge - Confirm Challenge', () => {
   let challengeInstance: BrowserChallenge;
 
   beforeAll(async () => {
-    browser = await chromium.launch({
-      headless: process.env.CI === 'true', // Headless in CI, visible locally
-      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
-    });
+    browser = await createBrowser();
     
     page = await browser.newPage();
     
@@ -587,10 +598,7 @@ describe('Browser Challenge - Block Challenge', () => {
   let challengeInstance: BrowserChallenge;
 
   beforeAll(async () => {
-    browser = await chromium.launch({
-      headless: process.env.CI === 'true', // Headless in CI, visible locally
-      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
-    });
+    browser = await createBrowser();
     
     page = await browser.newPage();
     
@@ -689,10 +697,7 @@ describe('Browser Challenge - Integration Tests', () => {
   let page: Page;
 
   beforeAll(async () => {
-    browser = await chromium.launch({
-      headless: process.env.CI === 'true', // Headless in CI, visible locally
-      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
-    });
+    browser = await createBrowser();
     
     page = await browser.newPage();
   });
