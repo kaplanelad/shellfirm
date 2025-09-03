@@ -10,8 +10,8 @@ describe('Browser Challenge - Math Challenge', () => {
   beforeAll(async () => {
     // Launch browser for testing
     browser = await chromium.launch({
-      headless: false, // Show browser for visual verification
-      slowMo: 1000 // Slow down for visibility
+      headless: process.env.CI === 'true', // Headless in CI, visible locally
+      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
     });
     
     page = await browser.newPage();
@@ -242,8 +242,8 @@ describe('Browser Challenge - Word Challenge', () => {
   beforeAll(async () => {
     // Launch browser for testing
     browser = await chromium.launch({
-      headless: false,
-      slowMo: 1000
+      headless: process.env.CI === 'true', // Headless in CI, visible locally
+      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
     });
     
     page = await browser.newPage();
@@ -434,8 +434,8 @@ describe('Browser Challenge - Confirm Challenge', () => {
 
   beforeAll(async () => {
     browser = await chromium.launch({
-      headless: false,
-      slowMo: 1000
+      headless: process.env.CI === 'true', // Headless in CI, visible locally
+      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
     });
     
     page = await browser.newPage();
@@ -545,8 +545,8 @@ describe('Browser Challenge - Block Challenge', () => {
 
   beforeAll(async () => {
     browser = await chromium.launch({
-      headless: false,
-      slowMo: 1000
+      headless: process.env.CI === 'true', // Headless in CI, visible locally
+      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
     });
     
     page = await browser.newPage();
@@ -647,8 +647,8 @@ describe('Browser Challenge - Integration Tests', () => {
 
   beforeAll(async () => {
     browser = await chromium.launch({
-      headless: false,
-      slowMo: 1000
+      headless: process.env.CI === 'true', // Headless in CI, visible locally
+      slowMo: process.env.CI === 'true' ? 0 : 1000 // No slowMo in CI
     });
     
     page = await browser.newPage();

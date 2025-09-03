@@ -41,7 +41,7 @@ export class BrowserChallenge {
   async initialize(): Promise<void> {
     try {
       this.browser = await chromium.launch({
-        headless: false,
+        headless: process.env.CI === 'true', // Headless in CI, visible locally
         args: [
 
         ]
