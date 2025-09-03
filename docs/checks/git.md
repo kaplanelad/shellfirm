@@ -15,3 +15,6 @@
 - `git cherry-pick {COMMIT}` - This command will apply changes from existing commits to the current branch and prompts for confirmation.
 - `git bisect` - This command will start a binary search to find a commit that introduced a bug and prompts for confirmation.
 - `git worktree add/remove {PATH}` - This command will add or remove a Git worktree and prompts for confirmation.
+- `git push --tags -f` - This command force pushes tags, rewriting tag history and prompts for confirmation.
+- `git worktree add/remove {PATH}` - This command will add or remove a Git worktree and prompts for confirmation.
+- `git bisect` - This command starts or controls a binary search for a bad commit, checking out many commits; ensure a clean working tree.

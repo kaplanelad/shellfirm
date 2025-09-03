@@ -1,0 +1,50 @@
+- from: network
+  test: iptables\s+-F
+  description: "Flushes all iptables rules, removing all filtering. This can expose services and drop established connections."
+  severity: high
+  id: network:flush_iptables
+- from: network
+  test: iptables\s+-X
+  description: "Deletes all custom chains in iptables. Combined with flushes, this dismantles firewall policy."
+  severity: high
+  id: network:delete_custom_chains
+- from: network
+  test: iptables\s+-t\s+nat\s+-F
+  description: "Flushes NAT table rules. Breaks port forwarding and outbound masquerading; traffic may fail."
+  severity: medium
+  id: network:flush_nat_rules
+- from: network
+  test: ufw\s+disable
+  description: "Disables UFW firewall entirely, exposing the host to inbound traffic."
+  severity: high
+  id: network:disable_firewall
+- from: network
+  test: ufw\s+--force\s+reset
+  description: "Resets UFW to defaults, deleting existing rules. Network access policies will be lost."
+  severity: high
+  id: network:force_reset_firewall
+- from: network
+  test: systemctl\s+stop\s+networking
+  description: "Stops the networking service, likely severing all network connectivity to/from the host."
+  severity: high
+  id: network:stop_networking
+- from: network
+  test: systemctl\s+stop\s+NetworkManager
+  description: "Stops NetworkManager, disrupting network interfaces and managed connections."
+  severity: high
+  id: network:stop_network_manager
+- from: network
+  test: ifconfig\s+eth\d+\s+down
+  description: "Brings the interface down, disconnecting that network link and active sessions."
+  severity: medium
+  id: network:bring_down_interface
+- from: network
+  test: ip\s+link\s+set\s+eth\d+\s+down
+  description: "Disables the interface with ip link set down, interrupting connectivity on that device."
+  severity: medium
+  id: network:bring_down_interface_ip
+- from: network
+  test: route\s+del\s+default
+  description: "Deletes the default route. Host loses outbound connectivity until a new default route is configured."
+  severity: high
+  id: network:delete_default_route

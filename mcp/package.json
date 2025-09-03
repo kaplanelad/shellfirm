@@ -1,0 +1,43 @@
+{
+  "name": "@shellfirm/mcp",
+  "version": "0.1.0",
+  "description": "MCP server for shellfirm - provides interactive command validation with captcha",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "eslint src/**/*.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:vitest:ui": "vitest --ui",
+    "test:vitest:run": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "mcp",
+    "security",
+    "command-validation",
+    "shellfirm"
+  ],
+  "author": "Shellfirm",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "handlebars": "^4.7.8",
+    "playwright": "^1.47.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.40.0",
+    "@typescript-eslint/parser": "^8.40.0",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^9.33.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

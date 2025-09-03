@@ -35,3 +35,9 @@
 - `dump {DEVICE}` - This command backs up or restores a filesystem, which could affect system stability.
 
 - `cryptsetup {DEVICE}` - This command encrypts or decrypts a device, which could affect data accessibility.
+
+- `rm {PATH}` - Detects any deletion operation when the file exists (safer prompt for common deletes).
+
+- `rmdir {DIRECTORY}` - Detects folder deletion operations when the folder exists.
+
+- `chmod {MODE}` - Detects risky permission changes such as 777/000/666.

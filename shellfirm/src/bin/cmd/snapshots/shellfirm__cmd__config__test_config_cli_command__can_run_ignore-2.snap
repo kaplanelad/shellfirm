@@ -1,6 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
-expression: config.get_settings_from_file().unwrap().ignores
+expression: config.get_settings_from_file().unwrap().ignores_patterns_ids
+snapshot_kind: text
 ---
 [
     "id-1",

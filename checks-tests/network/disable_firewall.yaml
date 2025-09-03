@@ -1,0 +1,5 @@
+check_id: "network:disable_firewall"
+should_catch:
+  - "ufw disable"
+should_not_catch:
+  - "ufw enable"

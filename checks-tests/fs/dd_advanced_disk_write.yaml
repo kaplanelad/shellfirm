@@ -1,0 +1,12 @@
+check_id: "fs:dd_advanced_disk_write"
+should_catch:
+  - "dd if=image.img seek=1 of=/dev/sda"
+  - "dd if=/dev/zero conv=notrunc of=/dev/mmcblk0"
+  - "sudo dd if=foo skip=1024 of=/dev/sdb"
+  - "dd of=/dev/sda seek=1 if=image.img"
+  - "dd of=/dev/mmcblk0 conv=notrunc if=/dev/zero"
+  - "sudo dd of=/dev/sdb skip=1024 if=foo"
+should_not_catch:
+  - "dd if=image.img of=./sda.img seek=1"
+  - "echo dd of=/dev/sda seek=1"
+  - "dd --help"

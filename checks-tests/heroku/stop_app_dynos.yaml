@@ -1,0 +1,5 @@
+check_id: "heroku:stop_app_dynos"
+should_catch:
+  - "heroku ps:stop"
+should_not_catch:
+  - "ps:stop"

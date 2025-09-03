@@ -1,0 +1,7 @@
+check_id: "git:force_push"
+should_catch:
+  - "git push -f"
+  - "git push --force"
+  - "git --no-verify push --force"
+should_not_catch:
+  - "push --force"

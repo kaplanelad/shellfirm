@@ -21,3 +21,5 @@ This document provides an overview of the network checks implemented in the `she
 - `ip link set ethX down` - This command brings down the network interface using the ip command and prompts for confirmation.
 
 - `route del default` - This command deletes the default route and prompts for confirmation.
+
+- `ifconfig ethX down` / `ip link set ethX down` - Brings the interface down, disrupting connectivity for that device.

@@ -1,0 +1,13 @@
+check_id: "git:push_tags"
+should_catch:
+  - "git push --force --tags"
+  - "git push -f origin --tags"
+  - "git push --force origin tag v1.2.3"
+  - "git push -f origin refs/tags/v1.2.3"
+should_not_catch:
+  - "git push --tags"
+  - "git push origin --tags"
+  - "git push origin tag v1.2.3"
+  - "git push origin refs/tags/v1.2.3"
+  - "push --tags"
+  - "git push origin main"

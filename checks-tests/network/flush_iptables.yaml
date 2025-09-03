@@ -1,0 +1,6 @@
+check_id: "network:flush_iptables"
+should_catch:
+  - "iptables -F"
+  - "iptables    -F"
+should_not_catch:
+  - "iptables"

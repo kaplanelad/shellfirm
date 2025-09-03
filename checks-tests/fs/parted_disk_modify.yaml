@@ -1,0 +1,9 @@
+check_id: "fs:parted_disk_modify"
+should_catch:
+  - "parted /dev/sda print"
+  - "sudo parted /dev/mmcblk0 mklabel gpt"
+  - "parted -s /dev/sdb mkpart primary 0% 100%"
+should_not_catch:
+  - "parted ./sda.img print"
+  - "ls -la"
+  - "printf test"

@@ -1,0 +1,6 @@
+check_id: "git:delete_ref"
+should_catch:
+  - "git update-ref -d refs/heads/feature"
+  - "git update-ref refs/heads/feature -d"
+should_not_catch:
+  - "git update-ref refs/heads/feature newhash"

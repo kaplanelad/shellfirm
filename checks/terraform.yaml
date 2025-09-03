@@ -1,0 +1,32 @@
+- from: terraform
+  test: terraform\s*apply.*-auto-approve
+  method: Regex
+  description: "Applies changes without interactive approval. Risky in shared or production environments; unintended plans will execute."
+  severity: high
+  id: terraform:apply_with_auto_approve
+- from: terraform
+  test: terraform\s*state\s*(mv|replace-provider)
+  method: Regex
+  description: "Mutates Terraform state (mv/replace-provider). Wrong targets can orphan resources or break future applies."
+  severity: medium
+  filters:
+    NotContains: "-dry-run"
+  id: terraform:state
+- from: terraform
+  test: terraform\s*workspace\s*delete.*(-force)
+  method: Regex
+  description: "Force deletes a workspace. Associated state for that workspace may be lost or hard to recover."
+  severity: high
+  id: terraform:workspace_delete_with_force_flag
+- from: terraform
+  test: terraform\s*workspace\s*delete.*(-lock=false)
+  method: Regex
+  description: "Deletes a workspace with state locking disabled. Concurrent operations could corrupt or race the state."
+  severity: high
+  id: terraform:workspace_delete_without_lock
+- from: terraform
+  test: '^terraform\s+(?:\S+\s+)*force-unlock\s+-force\b'
+  method: Regex
+  description: "Forcefully unlocks the state. If another operation is actually running, unlocking can corrupt state or cause conflicting writes."
+  severity: medium
+  id: terraform:force_unlock_with_force_flag

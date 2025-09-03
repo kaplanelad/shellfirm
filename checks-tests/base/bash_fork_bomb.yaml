@@ -1,0 +1,17 @@
+check_id: "base:bash_fork_bomb"
+should_catch:
+  - ":(){ :|:& };:"
+  - " :(){ :|:& };: "
+  - "bash -c ':(){ :|:& };:'"
+  - "sh -c ':(){ :|:& };:'"
+  - "zsh -c ':(){ :|:& };:'"
+  - "echo ':(){ :|:& };:' | grep fork"
+  - "echo ':(){ :|:& };:' > dangerous.txt"
+should_not_catch:
+  - "echo hello"
+  - "echo 'fork bomb example'"
+  - "echo 'safe command'"
+  - "cat dangerous.txt"
+  - "echo 'This is safe'"
+  - "ls -la"
+  - "pwd"

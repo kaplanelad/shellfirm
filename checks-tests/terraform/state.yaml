@@ -1,0 +1,7 @@
+check_id: "terraform:state"
+should_catch:
+  - "terraform state mv module.a module.b"
+  - "terraform state replace-provider 'registry.terraform.io/hashicorp/aws' 'registry.terraform.io/custom/aws'"
+should_not_catch:
+  - "terraform state mv -dry-run module.a module.b"
+  - "terraform state replace-provider -dry-run 'a' 'b'"

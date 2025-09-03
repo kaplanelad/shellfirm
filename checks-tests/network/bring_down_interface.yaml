@@ -1,0 +1,5 @@
+check_id: "network:bring_down_interface"
+should_catch:
+  - "ifconfig eth0 down"
+should_not_catch:
+  - "ifconfig"

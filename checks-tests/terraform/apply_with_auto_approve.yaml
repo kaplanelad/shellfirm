@@ -1,0 +1,6 @@
+check_id: "terraform:apply_with_auto_approve"
+should_catch:
+  - "terraform apply -auto-approve"
+  - "terraform    apply   -auto-approve"
+should_not_catch:
+  - "terraform apply"

@@ -1,14 +1,14 @@
 ---
 source: shellfirm/src/config.rs
 expression: config.get_settings_from_file()
+snapshot_kind: text
 ---
 Ok(
     Settings {
         challenge: Math,
-        includes: [
-            "base",
-            "fs",
-            "git",
+        includes_severities: [
+            High,
+            Critical,
         ],
         ignores_patterns_ids: [],
         deny_patterns_ids: [

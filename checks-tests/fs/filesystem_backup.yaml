@@ -1,0 +1,14 @@
+check_id: "fs:filesystem_backup"
+should_catch:
+  - "restore -rf /backup/root.dump"
+  - "restore -rf /backup/home.dump /home"
+  - "restore -rf /backup/var.dump /var"
+should_not_catch:
+  - "dump -0f /backup/root.dump /"
+  - "dump -0f /backup/home.dump /home"
+  - "dump -0f /backup/var.dump /var"
+  - "restore -tf /backup/root.dump"
+  - "restore -if /backup/root.dump"
+  - "dump -0 -f backup.dump ./sda1.img"
+  - "tar -czf backup.tar.gz /home"
+  - "rsync -av /home/ /backup/"

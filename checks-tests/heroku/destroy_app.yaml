@@ -1,0 +1,5 @@
+check_id: "heroku:destroy_app"
+should_catch:
+  - "heroku apps:destroy --app my-app"
+should_not_catch:
+  - "apps:destroy"

@@ -1,0 +1,5 @@
+check_id: "heroku:enable_maintenance_mode"
+should_catch:
+  - "heroku maintenance:on"
+should_not_catch:
+  - "maintenance:on"

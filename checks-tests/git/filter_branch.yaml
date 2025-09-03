@@ -1,0 +1,6 @@
+check_id: "git:filter_branch"
+should_catch:
+  - "git filter-branch --tree-filter 'rm -rf secrets'"
+  - "git filter-branch 'rm -rf secrets' --tree-filter "
+should_not_catch:
+  - "filter-branch"

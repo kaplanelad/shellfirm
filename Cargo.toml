@@ -1,2 +1,12 @@
 [workspace]
-members = ["shellfirm"]
+members = ["shellfirm", "shellfirm_core"]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_regex = "1.1"
+strum = { version = "0.25", features = ["derive"] }
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

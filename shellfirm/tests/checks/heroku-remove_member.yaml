@@ -1,7 +1,0 @@
----
-- test: heroku members:remove
-  description: match command
-- test: heroku  members:remove
-  description: match command with spaces
-- test: herokuu members:remove
-  description: invalid command

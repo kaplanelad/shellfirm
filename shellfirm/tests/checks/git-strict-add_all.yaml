@@ -1,8 +1,0 @@
-- test: "git add ."
-  description: "match add all files"
-  expected_detection_ids:
-    - git:add_all
-- test: "git add -A"
-  description: "match add all files with -A"
-  expected_detection_ids:
-    - git:add_all

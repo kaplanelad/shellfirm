@@ -1,0 +1,5 @@
+check_id: "network:delete_custom_chains"
+should_catch:
+  - "iptables -X"
+should_not_catch:
+  - "iptables"

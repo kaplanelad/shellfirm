@@ -1,0 +1,6 @@
+check_id: "heroku:restart_app_dynos"
+should_catch:
+  - "heroku ps:restart"
+  - "heroku    ps:restart"
+should_not_catch:
+  - "ps:restart"

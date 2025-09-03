@@ -1,0 +1,15 @@
+check_id: "fs:mount_operations"
+should_catch:
+  - "mount /dev/sdb1 /"
+  - "mount /dev/sda1 /home"
+  - "mount /dev/sdc1 /usr"
+  - "mount /dev/sdd1 /var"
+  - "mount /dev/sde1 /opt"
+should_not_catch:
+  - "mount /dev/sdb1 /mnt/backup"
+  - "mount /dev/sda1 /media/usb"
+  - "mount /dev/sdc1 /mnt/data"
+  - "mount /dev/sdd1 /tmp/mount"
+  - "mount ./sda1.img /mnt"
+  - "umount /mnt"
+  - "mount"

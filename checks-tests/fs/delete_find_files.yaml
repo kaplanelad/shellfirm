@@ -1,0 +1,9 @@
+check_id: "fs:delete_find_files"
+should_catch:
+  - "find . -type f -delete"
+  - "find /tmp -name '*.log' -delete"
+  - "find . -mindepth 1 -delete"
+should_not_catch:
+  - "find . -print"
+  - "find . -name '*.txt'"
+  - "find /tmp -type f"

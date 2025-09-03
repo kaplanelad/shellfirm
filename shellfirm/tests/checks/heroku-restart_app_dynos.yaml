@@ -1,7 +1,0 @@
----
-- test: heroku ps:restart
-  description: match command
-- test: heroku   ps:restart
-  description: match command with spaces
-- test: herokuu ps:restart
-  description: invalid command

@@ -1,6 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
-expression: "run_deny(&config, &settings,\n    Some(vec![\"id-1\".to_string(), \"id-2\".to_string()]))"
+expression: "run_deny(&config, &settings,\nSome(vec![\"id-1\".to_string(), \"id-2\".to_string()]))"
+snapshot_kind: text
 ---
 Ok(
     CmdExit {

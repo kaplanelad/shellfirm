@@ -1,0 +1,16 @@
+check_id: "fs:encryption_operations"
+should_catch:
+  - "cryptsetup luksFormat /dev/sdb1"
+  - "cryptsetup luksRemoveKey /dev/sdb1"
+  - "cryptsetup luksFormat /dev/sda1"
+  - "sudo cryptsetup luksRemoveKey /dev/sda1"
+  - "cryptsetup luksFormat /dev/sdc1"
+should_not_catch:
+  - "cryptsetup luksOpen /dev/sdb1 backup"
+  - "cryptsetup luksClose backup"
+  - "cryptsetup luksAddKey /dev/sdb1"
+  - "cryptsetup luksChangeKey /dev/sdb1"
+  - "cryptsetup luksDump /dev/sdb1"
+  - "cryptsetup status backup"
+  - "cryptsetup --help"
+  - "cryptsetup luksFormat ./sda1.img"

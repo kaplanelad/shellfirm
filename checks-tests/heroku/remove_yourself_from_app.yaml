@@ -1,0 +1,5 @@
+check_id: "heroku:remove_yourself_from_app"
+should_catch:
+  - "heroku apps:leave --app my-app"
+should_not_catch:
+  - "apps:leave"

@@ -1,0 +1,5 @@
+check_id: "network:flush_nat_rules"
+should_catch:
+  - "iptables -t nat -F"
+should_not_catch:
+  - "iptables"

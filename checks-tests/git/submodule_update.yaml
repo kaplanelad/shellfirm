@@ -1,0 +1,10 @@
+check_id: "git:submodule_update"
+should_catch:
+  - "git submodule deinit -f ."
+  - "git submodule deinit --force ."
+  - "git submodule deinit -f submodule-name"
+should_not_catch:
+  - "git submodule update --init --recursive"
+  - "git submodule update"
+  - "git submodule update --init"
+  - "submodule update"

@@ -1,0 +1,11 @@
+check_id: "git:commit_all"
+should_catch:
+  - "git commit --amend -a"
+  - "git commit --no-verify -a -m 'msg'"
+  - "git commit --amend --all -m 'msg'"
+  - "git commit -a --no-verify -m 'msg'"
+should_not_catch:
+  - "git commit --all -m 'msg'"
+  - "git commit -am 'msg'"
+  - "git commit -m 'msg'"
+  - "git commit -a -m 'msg'"

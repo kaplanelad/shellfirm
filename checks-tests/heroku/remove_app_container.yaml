@@ -1,0 +1,5 @@
+check_id: "heroku:remove_app_container"
+should_catch:
+  - "heroku container:rm web"
+should_not_catch:
+  - "container:rm"

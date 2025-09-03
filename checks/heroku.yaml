@@ -1,0 +1,95 @@
+- from: heroku
+  test: heroku\s*ps:restart
+  description: "Restarts all or selected dynos. Causes transient downtime and resets in‑memory state."
+  severity: low
+  id: heroku:restart_app_dynos
+- from: heroku
+  test: heroku\s*ps:stop
+  description: "Stops running dynos. The application will be unavailable until dynos are started again."
+  severity: low
+  id: heroku:stop_app_dynos
+- from: heroku
+  test: heroku\s*ps:kill
+  description: "Forcefully terminates dynos immediately, interrupting requests and background jobs without graceful shutdown."
+  severity: medium
+  id: heroku:kill_app_dynos
+- from: heroku
+  test: heroku\s*maintenance:on
+  description: "Enables maintenance mode, returning maintenance pages to users and blocking normal traffic."
+  severity: low
+  id: heroku:enable_maintenance_mode
+- from: heroku
+  test: heroku\s*members:remove
+  description: "Removes a team member’s access. They will lose permissions to manage or deploy the app."
+  severity: medium
+  id: heroku:remove_member
+- from: heroku
+  test: heroku\s*features:disable
+  description: "Disables a platform feature for the app. May change runtime behavior or disable integrations."
+  severity: medium
+  id: heroku:disable_app_feature
+- from: heroku
+  test: heroku\s*container:rm
+  description: "Removes a container process type from the app. This can stop services tied to that process type."
+  severity: medium
+  id: heroku:remove_app_container
+- from: heroku
+  test: heroku\s*config:unset
+  description: "Unsets one or more config vars. Removing required env vars can break the app or deployments."
+  severity: medium
+  id: heroku:unset_environment_variable
+- from: heroku
+  test: heroku\s*clients:destroy
+  description: "Deletes an OAuth client by ID. Integrations using this client will stop working."
+  severity: medium
+  id: heroku:destroy_client
+- from: heroku
+  test: heroku\s*clients:rotate
+  description: "Rotates an OAuth client secret. All consumers must update credentials immediately to avoid outages."
+  severity: high
+  id: heroku:rotate_oauth_client
+- from: heroku
+  test: heroku\s*clients:update
+  description: "Updates OAuth client metadata. Incorrect settings can disrupt auth flows."
+  severity: low
+  id: heroku:update_oauth_client
+- from: heroku
+  test: heroku\s*apps:destroy
+  description: "Permanently deletes the app and associated resources. This action is irreversible."
+  severity: high
+  id: heroku:destroy_app
+- from: heroku
+  test: heroku\s*apps:leave
+  description: "Removes your access to the app. You will no longer be able to manage or deploy it."
+  severity: low
+  id: heroku:remove_yourself_from_app
+- from: heroku
+  test: heroku\s*apps:rename
+  description: "Renames the app. Affects app URL and integrations that rely on the old name."
+  severity: low
+  id: heroku:rename_app_name
+- from: heroku
+  test: heroku\s*addons:destroy
+  description: "Permanently deletes an add‑on (e.g., database). All stored data and connections may be lost."
+  severity: high
+  id: heroku:destroy_addons
+- from: heroku
+  test: heroku\s*addons:detach
+  description: "Detaches an add‑on from the app. The service remains but the app loses its binding and env vars."
+  severity: medium
+  id: heroku:detach_addon
+- from: heroku
+  test: heroku\s*access:remove
+  description: "Removes user access to the app. Users lose permissions and cannot deploy or view resources."
+  severity: medium
+  id: heroku:remove_user_access
+- from: heroku
+  test: heroku\s*access:update
+  description: "Updates collaborator roles or permissions. Incorrect changes may escalate or remove critical access."
+  severity: low
+  id: heroku:update_collaborators_access
+- from: heroku
+  test: heroku\s*repo:reset
+  description: "Resets the Heroku Git repo, discarding all history in the platform copy. Deployments will start from scratch."
+  severity: medium
+  id: heroku:reset_repo

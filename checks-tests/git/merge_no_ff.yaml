@@ -1,0 +1,10 @@
+check_id: "git:merge_no_ff"
+should_catch:
+  - "git merge --no-ff feature-branch"
+  - "git merge --no-ff main"
+  - "git merge --no-ff origin/develop"
+should_not_catch:
+  - "git merge --abort"
+  - "git merge feature-branch"
+  - "git merge main"
+  - "git merge"

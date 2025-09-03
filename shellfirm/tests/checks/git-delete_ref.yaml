@@ -1,8 +1,0 @@
-- test: "git update-ref -d refs/heads/feature"
-  description: "match delete reference"
-  expected_detection_ids:
-    - git:delete_ref
-- test: "git update-ref -d HEAD"
-  description: "match delete HEAD reference"
-  expected_detection_ids:
-    - git:delete_ref

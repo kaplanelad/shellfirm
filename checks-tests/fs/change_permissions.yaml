@@ -1,0 +1,17 @@
+check_id: "fs:change_permissions"
+should_catch:
+  - "chmod 777 file.txt"
+  - "chmod 777 *"
+  - "chmod -R 000 /"
+  - "chmod 666 /etc/passwd"
+  - "chmod 777 /tmp"
+  - "chmod -R 777 /var/www"
+should_not_catch:
+  - "chmod 644 file.txt"
+  - "chmod 755 script.sh"
+  - "chmod +x script.sh"
+  - "chmod u+x file.txt"
+  - "chmod 600 ~/.ssh/id_rsa"
+  - "chmod 644 /etc/hosts"
+  - "chown user file.txt"
+  - "chmod"

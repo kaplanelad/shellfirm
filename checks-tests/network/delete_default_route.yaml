@@ -1,0 +1,5 @@
+check_id: "network:delete_default_route"
+should_catch:
+  - "route del default"
+should_not_catch:
+  - "route del"

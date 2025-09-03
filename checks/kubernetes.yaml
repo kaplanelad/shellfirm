@@ -1,0 +1,20 @@
+- from: kubernetes
+  test: '^(k|kubectl)\s+delete\s+(?:--all\b|all\b)'
+  description: "Deletes Kubernetes resources (pods, deployments, services, secrets, etc.). May cause downtime, data loss (PVC/PV), or revoke access."
+  severity: high
+  id: kubernetes:delete_resource
+- from: kubernetes
+  test: '^(k|kubectl)\s*set\s+image\b'
+  description: "Updates live resource fields (e.g., image, env). Typos or wrong selectors can roll out unintended changes cluster‑wide."
+  severity: medium
+  id: kubernetes:update_resource
+- from: kubernetes
+  test: '^(kubectl|k)\s*scale\b.*--replicas=0\b'
+  description: "Changes replica counts. Scaling down can terminate pods and disrupt traffic; scaling up consumes resources."
+  severity: medium
+  id: kubernetes:change_resource_size
+- from: kubernetes
+  test: '^(k|kubectl)\s*rollout\s*(restart|undo)\b'
+  description: "Controls rollouts: pause/restart/resume/undo. Undo or restart can replace running pods and revert recent changes."
+  severity: low
+  id: kubernetes:rollout_resource

@@ -1,0 +1,9 @@
+check_id: "fs:fdisk_disk_modify"
+should_catch:
+  - "fdisk /dev/sda"
+  - "sudo fdisk /dev/mmcblk0"
+  - "fdisk -l /dev/sdb"
+should_not_catch:
+  - "fdisk -l ./sda.img"
+  - "ls -la"
+  - "printf test"

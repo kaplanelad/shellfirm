@@ -1,0 +1,5 @@
+check_id: "git:gc_prune"
+should_catch:
+  - "git gc --prune=now"
+should_not_catch:
+  - "git gc --prune=1.day.ago"

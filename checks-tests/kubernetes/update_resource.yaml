@@ -1,0 +1,10 @@
+check_id: "kubernetes:update_resource"
+should_catch:
+  - "kubectl set image deployment/mydep myc=img:v2"
+  - "kubectl set image deployment/mydep nginx=nginx:latest"
+  - "k set image deployment/mydep app=app:dev"
+should_not_catch:
+  - "kubectl set env deployment/mydep KEY=VALUE"
+  - "kubectl set resources deployment/mydep --limits=cpu=200m"
+  - "kubectl set selector deployment/mydep app=myapp"
+  - "set image deployment/mydep myc=img:v2"

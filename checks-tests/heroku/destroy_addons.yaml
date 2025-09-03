@@ -1,0 +1,5 @@
+check_id: "heroku:destroy_addons"
+should_catch:
+  - "heroku addons:destroy heroku-postgresql"
+should_not_catch:
+  - "addons:destroy"

@@ -1,0 +1,7 @@
+check_id: "git:clean_force"
+should_catch:
+  - "git clean -fd"
+  - "git    clean   -fd"
+should_not_catch:
+  - "git clean -n"
+  - "clean -fd"

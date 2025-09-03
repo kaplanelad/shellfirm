@@ -1,0 +1,11 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: "run_update_severity(&config, &config.get_settings_from_file().unwrap(),\nSome(vec![\"high\".to_string(), \"critical\".to_string()]))"
+snapshot_kind: text
+---
+Ok(
+    CmdExit {
+        code: 0,
+        message: None,
+    },
+)

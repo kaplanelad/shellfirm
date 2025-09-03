@@ -1,0 +1,15 @@
+check_id: "vercel:deploy_to_production"
+should_catch:
+  - "vercel --prod"
+  - "vercel --yes --prod"
+  - "vercel --force --prod"
+  - "vercel --debug --prod"
+  - "vercel --prod && echo 'deployed'"
+  - "vercel --prod || echo 'failed'"
+  - "vercel --env production --prod"
+  - "vercel --build-env NODE_ENV=production --prod"
+should_not_catch:
+  - "vercel"
+  - "vercel --help"
+  - "vercel dev"
+  - "vercel build"

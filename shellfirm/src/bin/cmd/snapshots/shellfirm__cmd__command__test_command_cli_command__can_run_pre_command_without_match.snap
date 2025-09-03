@@ -1,6 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/command.rs
-expression: "run_pre_command(\"command\", &settings, &settings.get_active_checks().unwrap(),\n    true)"
+expression: "execute(\"command\", &settings, &settings.get_active_checks().unwrap(), true)"
+snapshot_kind: text
 ---
 Ok(
     CmdExit {

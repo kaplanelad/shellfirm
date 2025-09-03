@@ -9,3 +9,5 @@
 - `reboot` - This command reboots your machine and prompts for confirmation.
 
 - `shutdown` - This command shuts down your machine and prompts for confirmation.
+
+- `find | bash/sh/...` - Piping `find` results into a shell can execute arbitrary files found, leading to unintended and dangerous executions.

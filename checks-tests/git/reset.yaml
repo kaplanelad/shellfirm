@@ -1,0 +1,12 @@
+check_id: "git:reset"
+should_catch:
+  - "git reset --hard HEAD~1"
+  - "git reset --hard origin/main"
+  - "git reset --hard abc123"
+  - "git reset --hard HEAD"
+should_not_catch:
+  - "git reset HEAD~1"
+  - "git reset --soft HEAD~1"
+  - "git reset --mixed HEAD~1"
+  - "git reset"
+  - "reset"

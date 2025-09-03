@@ -1,0 +1,12 @@
+check_id: "kubernetes:rollout_resource"
+should_catch:
+  - "kubectl rollout restart deployment/mydep"
+  - "kubectl rollout undo deployment/mydep"
+  - "k rollout restart deployment/mydep"
+  - "k rollout undo deployment/mydep"
+should_not_catch:
+  - "kubectl rollout pause deployment/mydep"
+  - "kubectl rollout resume deployment/mydep"
+  - "k rollout pause deployment/mydep"
+  - "k rollout resume deployment/mydep"
+  - "rollout restart deployment/mydep"

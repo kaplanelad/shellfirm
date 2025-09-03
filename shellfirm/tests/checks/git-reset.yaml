@@ -1,7 +1,0 @@
----
-- test: git reset
-  description: match command
-- test: git    reset
-  description: match command
-- test: gitt reset
-  description: invalid command

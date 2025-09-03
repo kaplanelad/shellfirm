@@ -4,6 +4,7 @@ use std::process::exit;
 use anyhow::{anyhow, Result};
 use console::{style, Style};
 use shellfirm::{CmdExit, Config};
+use tracing::debug;
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
 
@@ -12,13 +13,18 @@ fn main() {
         .subcommand(cmd::command::command())
         .subcommand(cmd::config::command());
 
-    let matches = app.clone().get_matches();
+    let matches = app.get_matches();
 
-    let env = env_logger::Env::default().filter_or(
-        "LOG",
-        matches.value_of("log").unwrap_or(log::Level::Info.as_str()),
-    );
-    env_logger::init_from_env(env);
+    // Initialize tracing subscriber with env filter. The CLI --log flag overrides env.
+    let level_str = matches
+        .get_one::<String>("log")
+        .map_or("info", String::as_str);
+    let env_filter = std::env::var("LOG").unwrap_or_else(|_| level_str.to_string());
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(env_filter))
+        .with_target(false)
+        .without_time()
+        .init();
 
     // load configuration
     let config = match Config::new(None) {
@@ -34,7 +40,7 @@ fn main() {
             let c = cmd::config::run_reset(&config, None);
             shellfirm_exit(Ok(c));
         }
-    };
+    }
 
     let settings = match config.get_settings_from_file() {
         Ok(c) => c,
@@ -86,7 +92,7 @@ fn shellfirm_exit(res: Result<CmdExit>) {
             cmd.code
         }
         Err(e) => {
-            log::debug!("{:?}", e);
+            debug!(error = ?e, "command execution failed");
             DEFAULT_ERR_EXIT_CODE
         }
     };

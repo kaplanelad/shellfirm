@@ -1,7 +1,0 @@
----
-- test: heroku apps:rename
-  description: match command
-- test: heroku   apps:rename
-  description: match command with spaces
-- test: herokuu apps:rename
-  description: invalid command

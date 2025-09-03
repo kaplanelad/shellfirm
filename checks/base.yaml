@@ -1,0 +1,32 @@
+- from: base
+  test: ':\(\)\{ :|:& \};:'
+  description: "This is a classic bash fork bomb. It defines a function that recursively spawns new copies of itself, rapidly exhausting CPU, memory, and process limits, which can freeze or crash the system (denial‑of‑service)."
+  severity: critical
+  id: base:bash_fork_bomb
+- from: base
+  test: \s*crontab\s+-r
+  description: "Removes the entire crontab for the current user, deleting all scheduled jobs and automation. This is irreversible without a backup."
+  severity: high
+  id: base:delete_all_cron_tasks
+- from: base
+  test: \s*history(.*)[|](.*)(bash|sh|zsh|fish|dash|ksh|\$SHELL|['"]bash['"]|['"]sh['"]|['"]zsh['"]|['"]fish['"]|['"]dash['"]|['"]ksh['"])($|\s)
+  description: "Pipes your command history into a shell, re‑executing past commands en masse. This can repeat destructive operations and re‑expose secrets or tokens."
+  severity: high
+  id: base:execute_all_history_commands
+  validation_mode: Whole
+- from: base
+  test: reboot(\s|$)
+  description: "Immediately reboots the machine, interrupting running processes and potentially causing data loss or downtime."
+  severity: high
+  id: base:reboot_machine
+- from: base
+  test: shutdown(\s|$)
+  description: "Shuts down the machine, stopping all services and sessions. Unsaved work will be lost and remote users will be disconnected."
+  severity: high
+  id: base:shutdown_machine
+- from: base
+  test: \s*find\s+.*[|](.*)(bash|sh|zsh|fish|dash|ksh|\$SHELL|['"]bash['"]|['"]sh['"]|['"]zsh['"]|['"]fish['"]|['"]dash['"]|['"]ksh['"])($|\s)
+  description: "Pipes find command output into a shell, which can execute arbitrary files found in the directory. This is extremely dangerous as it can run any executable found by find."
+  severity: critical
+  id: base:find_pipe_to_shell
+  validation_mode: Whole

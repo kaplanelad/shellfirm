@@ -1,0 +1,9 @@
+check_id: "fs:partprobe_disk_update"
+should_catch:
+  - "partprobe /dev/sda"
+  - "sudo partprobe /dev/mmcblk0"
+  - "partprobe -s /dev/sdb"
+should_not_catch:
+  - "partprobe ./sda.img"
+  - "ls -la"
+  - "printf test"

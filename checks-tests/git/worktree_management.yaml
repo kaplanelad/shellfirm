@@ -1,0 +1,10 @@
+check_id: "git:worktree_management"
+should_catch:
+  - "git worktree remove ../wt"
+  - "git worktree remove ../feature"
+  - "git worktree remove /tmp/worktree"
+should_not_catch:
+  - "git worktree add ../wt"
+  - "git worktree add ../feature feature-branch"
+  - "git worktree add /tmp/worktree main"
+  - "worktree add ../wt"

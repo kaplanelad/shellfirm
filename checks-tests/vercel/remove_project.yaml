@@ -1,0 +1,18 @@
+check_id: "vercel:remove_project"
+should_catch:
+  - "vercel remove --yes"
+  - "vercel remove --force --yes"
+  - "vercel remove --debug --yes"
+  - "vercel remove --yes && echo 'removed'"
+  - "vercel remove --yes || echo 'failed'"
+  - "vercel remove my-project --yes"
+  - "vercel remove --yes my-project"
+should_not_catch:
+  - "vercel remove"
+  - "vercel remove --help"
+  - "vercel remove --debug"
+  - "vercel remove --force"
+  - "vercel remove my-project"
+  - "vercel"
+  - "vercel --help"
+  - "vercel list"

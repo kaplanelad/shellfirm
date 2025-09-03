@@ -1,0 +1,5 @@
+check_id: "heroku:destroy_client"
+should_catch:
+  - "heroku clients:destroy 12345"
+should_not_catch:
+  - "clients:destroy"

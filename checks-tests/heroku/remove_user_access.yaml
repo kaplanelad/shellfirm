@@ -1,0 +1,5 @@
+check_id: "heroku:remove_user_access"
+should_catch:
+  - "heroku access:remove user@example.com --app my-app"
+should_not_catch:
+  - "access:remove"

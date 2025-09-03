@@ -1,13 +1,13 @@
 ---
 source: shellfirm/src/bin/cmd/command.rs
-expression: "execute(\"rm -rf /\", &settings, &settings.get_active_checks().unwrap(), true)"
+expression: "execute(\"rm -rf /\", &settings,\n&settings.get_active_checks().expect(\"Failed to get active checks\"), true)"
 snapshot_kind: text
 ---
 Ok(
     CmdExit {
         code: 0,
         message: Some(
-            "---\n- id: \"fs:recursively_delete\"\n  test: \"rm\\\\s{1,}(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\\\\s*(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\\\\s*(?:\\\\*|\\\\.{1,}|/)\\\\s*$\"\n  description: You are going to delete everything in the path.\n  from: fs\n  challenge: Math\n  filters:\n    IsExists: \"3\"\n",
+            "---\n- id: \"fs:recursively_delete\"\n  test: \"^(?:rm\\\\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\\\\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\\\\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*\\\\s*(\\\\*|\\\\.|\\\\.\\\\.|/|\\\\.\\\\./[^\\\\s]+|[^\\\\s]*/[^\\\\s]*)\\\\s*$|rm\\\\s+(\\\\*|\\\\.|\\\\.\\\\.|/|\\\\.\\\\./[^\\\\s]+|[^\\\\s]*/[^\\\\s]*)\\\\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\\\\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\\\\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*)\\\\s*$\"\n  description: \"Recursive rm targeting wildcard, top‑level paths (., .., /, *), or specific directory paths. This can wipe entire directories or the filesystem root.\"\n  from: fs\n  severity: high\n  challenge: math\n  filters: {}\n  validation_mode: Split\n",
         ),
     },
 )

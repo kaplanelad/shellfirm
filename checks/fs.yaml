@@ -1,0 +1,113 @@
+- from: fs
+  test: '^(?:rm\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*\s*(\*|\.|\.\.|/|\.\./[^\s]+|[^\s]*/[^\s]*)\s*$|rm\s+(\*|\.|\.\.|/|\.\./[^\s]+|[^\s]*/[^\s]*)\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*)\s*$'
+  description: "Recursive rm targeting wildcard, top‑level paths (., .., /, *), or specific directory paths. This can wipe entire directories or the filesystem root."
+  severity: high
+  id: fs:recursively_delete
+- from: fs
+  test: '^rm(?:\s+-[A-QS-Za-qs-z]+)*\s+([^\s-][^\s]*)(?:\s+-[A-QS-Za-qs-z]+)*\s*$'
+  description: "Deletes the specified path. Ensure the target is correct; typos or glob expansion may remove unintended files."
+  severity: medium
+  id: fs:any_deletion
+  filters:
+    IsExists: "1"
+- from: fs
+  test: mv\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:[^\s]+\s+)+/dev/null
+  description: "Moves files to /dev/null, permanently discarding data with no recovery."
+  severity: high
+  id: fs:move_to_dev_null
+  filters:
+    IsExists: "1"
+- from: fs
+  test: '^\s*(?:>\s+|:\s*>\s+|\S+\s+\S+(?:[^>]*)>\s+)([^\s>][^\s]*)\s*$'
+  description: "Truncates or overwrites a file via redirection, destroying existing content immediately."
+  severity: medium
+  id: fs:flush_file_content
+  filters:
+    NotContains: ":(){"
+- from: fs
+  test: '^chmod\s+(?:(-R|--recursive)\s+(\*|\.{2,}|/)|(\*|\.{2,}|/)\s+(-R|--recursive))|^chmod\s+/(?:\s+)?-R'
+  description: "Recursive chmod on wildcard or root paths can break permissions across the system (e.g., SSH keys), causing lockouts or security issues."
+  severity: high
+  id: fs:recursively_chmod
+- from: fs
+  test: '^chmod\s+(?:-R\s+)?(?:777|000|666)\b'
+  description: "Changes file permissions. Incorrect modes can expose secrets or block access to required files."
+  severity: medium
+  id: fs:change_permissions
+- from: fs
+  test: find\s.*-delete
+  description: "find ... -delete removes matched files. Option order or missing predicates can delete more than intended (including entire trees)."
+  severity: high
+  id: fs:delete_find_files
+- from: fs
+  test: '^\brmdir\b(?:\s+(?:-[a-zA-Z]+|--[a-zA-Z-]+))*\s+([^\s-][^\s]*)'
+  description: "Removes an empty directory. If misused with globbing or scripts, may target important directories."
+  severity: high
+  id: fs:folder_deletion
+  filters:
+    IsExists: "1"
+- from: fs
+  test: '^\bdd\b\s+(?:if=\S+\s+)?of=/dev/([hs]d[a-z]|mmcblk[0-9])\s*$'
+  description: "Writes directly to a block device. Overwrites disk data and partition tables, destroying filesystems."
+  severity: critical
+  id: fs:dd_block_device
+- from: fs
+  test: 'mkfs(?:\.(?:ext[2-4]|fat|ntfs|xfs|btrfs))?\s+(?:-t\s+\w+\s+)?/dev/([hs]d[a-z][0-9]*|mmcblk[0-9]p?[0-9]*)'
+  description: "Creates a filesystem (mkfs) on a block device/partition. Formatting erases all existing data."
+  severity: critical
+  id: fs:mkfs_format
+- from: fs
+  test: 'parted\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "Edits partition tables with parted. Incorrect operations can delete partitions and make data inaccessible."
+  severity: critical
+  id: fs:parted_disk_modify
+- from: fs
+  test: '\bfdisk\b\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "Interactive partitioning with fdisk. Missteps can corrupt or delete partitions, leading to data loss."
+  severity: critical
+  id: fs:fdisk_disk_modify
+- from: fs
+  test: '\bsfdisk\b\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "Scriptable partition changes with sfdisk. Wrong layouts or offsets will destroy existing partition data."
+  severity: critical
+  id: fs:sfdisk_disk_modify
+- from: fs
+  test: '^(?:sudo\s+)?\bdd\b\s+(?:(?:.*(?:conv=notrunc|seek=\d+|skip=\d+).*of=/dev/([hs]d[a-z]|mmcblk[0-9]))|(?:.*of=/dev/([hs]d[a-z]|mmcblk[0-9]).*(?:conv=notrunc|seek=\d+|skip=\d+)))'
+  description: "Performs targeted writes to specific disk offsets (seek/skip/notrunc). Easily corrupts filesystems or boot sectors."
+  severity: critical
+  id: fs:dd_advanced_disk_write
+- from: fs
+  test: 'gdisk\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "GPT partition editor (gdisk). Incorrect edits can invalidate the GPT and orphan data."
+  severity: critical
+  id: fs:gdisk_disk_modify
+- from: fs
+  test: 'partprobe\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "Informs the kernel of partition table changes. May disrupt mounted devices or trigger re‑reads mid‑operation."
+  severity: high
+  id: fs:partprobe_disk_update
+- from: fs
+  test: 'blockdev\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]))'
+  description: "Modifies block device parameters. Unsafe values can harm performance or cause I/O errors."
+  severity: high
+  id: fs:blockdev_disk_modify
+- from: fs
+  test: '^(?:sudo\s+)?mount\s+\S+\s+(?:/|/home|/usr|/var|/opt)(?:\s|$)'
+  description: "Mounts a device. Mounting wrong targets or over critical paths can break services or lead to data writes in unintended locations."
+  severity: medium
+  id: fs:mount_operations
+- from: fs
+  test: '(?:sudo\s+)?(?:lvremove|pvremove|vgremove)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
+  description: "Removes LVM physical/volume groups or logical volumes. This permanently deletes contained data and may unmount live filesystems."
+  severity: high
+  id: fs:lvm_operations
+- from: fs
+  test: '^(?:sudo\s+)?restore\b[^\n]*-[A-Za-z]*r[A-Za-z]*f\b'
+  description: "Filesystem backup/restore operations. Running against active devices or wrong targets can cause inconsistencies or overwrite data."
+  severity: medium
+  id: fs:filesystem_backup
+- from: fs
+  test: '^(?:sudo\s+)?cryptsetup\s+.*\b(luksFormat|luksErase|luksRemoveKey)\b.*(/dev/([hs]d[a-z][0-9]*|mmcblk[0-9]p?[0-9]*))'
+  description: "Manages disk encryption with cryptsetup. Formatting or key changes can render data permanently inaccessible."
+  severity: high
+  id: fs:encryption_operations

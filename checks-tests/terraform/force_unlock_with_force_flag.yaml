@@ -1,0 +1,6 @@
+check_id: "terraform:force_unlock_with_force_flag"
+should_catch:
+  - "terraform force-unlock -force 123456"
+  - "terraform -chdir=infra force-unlock -force 123456"
+should_not_catch:
+  - "terraform force-unlock 123456"

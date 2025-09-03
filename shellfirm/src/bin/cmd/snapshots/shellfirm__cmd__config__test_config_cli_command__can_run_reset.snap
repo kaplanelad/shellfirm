@@ -1,10 +1,11 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
 expression: "run_reset(&config, Some(1))"
+snapshot_kind: text
 ---
 CmdExit {
     code: 0,
     message: Some(
-        "shellfirm configuration reset successfully",
+        "Shellfirm configuration reset successfully",
     ),
 }

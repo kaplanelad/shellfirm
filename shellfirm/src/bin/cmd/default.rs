@@ -1,6 +1,6 @@
-use clap::{crate_version, Arg, Command};
+use clap::{builder::PossibleValuesParser, crate_version, Arg, Command};
 
-pub fn command() -> Command<'static> {
+pub fn command() -> Command {
     Command::new("shellfirm")
         .version(crate_version!())
         .about("Intercept any risky patterns")
@@ -9,16 +9,11 @@ pub fn command() -> Command<'static> {
                 .long("log")
                 .help("Set logging level")
                 .value_name("LEVEL")
-                .possible_values(vec![
-                    log::LevelFilter::Off.as_str(),
-                    log::LevelFilter::Trace.as_str(),
-                    log::LevelFilter::Debug.as_str(),
-                    log::LevelFilter::Info.as_str(),
-                    log::LevelFilter::Warn.as_str(),
-                    log::LevelFilter::Error.as_str(),
-                ])
-                .default_value(log::Level::Info.as_str())
+                .value_parser(PossibleValuesParser::new([
+                    "off", "trace", "debug", "info", "warn", "error",
+                ]))
+                .default_value("info")
                 .ignore_case(true)
-                .takes_value(true),
+                .global(true),
         )
 }

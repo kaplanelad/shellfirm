@@ -1,0 +1,8 @@
+check_id: "fs:sfdisk_disk_modify"
+should_catch:
+  - "sfdisk /dev/sda"
+  - "sudo sfdisk /dev/mmcblk0"
+  - "sfdisk -l /dev/sdb"
+  - "sfdisk    -l    /dev/sdb"
+should_not_catch:
+  - "sfdisk -l ./sda.img"

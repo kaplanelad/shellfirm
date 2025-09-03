@@ -1,8 +1,0 @@
-- test: "git branch -D feature"
-  description: "match force delete branch"
-  expected_detection_ids:
-    - git:force_delete_branch
-- test: "git branch -D"
-  description: "match force delete current branch"
-  expected_detection_ids:
-    - git:force_delete_branch

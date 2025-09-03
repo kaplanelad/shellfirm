@@ -1,0 +1,13 @@
+---
+source: shellfirm/src/bin/cmd/config.rs
+expression: "run_update_severity(&config, &settings, Some(vec![\"high\".to_string()]))"
+snapshot_kind: text
+---
+Ok(
+    CmdExit {
+        code: 78,
+        message: Some(
+            "Could not update severities. error message
+        ),
+    },
+)

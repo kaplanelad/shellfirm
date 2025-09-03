@@ -1,0 +1,11 @@
+check_id: "git:cherry_pick"
+should_catch:
+  - "git cherry-pick --no-commit abcdef1"
+  - "git cherry-pick --continue"
+  - "git cherry-pick --abort"
+  - "git cherry-pick --no-commit HEAD~2"
+should_not_catch:
+  - "git cherry-pick abcdef1"
+  - "git cherry-pick HEAD~2"
+  - "git cherry-pick main"
+  - "git cherry-pick"

@@ -3,7 +3,7 @@ use std::{env, fs, fs::File, io::prelude::*, path::Path};
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    println!("cargo:rerun-if-changed=checks/");
+    println!("cargo:rerun-if-changed=../checks/");
 
     let out_dir = env::var("OUT_DIR")?;
 
@@ -13,7 +13,7 @@ fn main() -> Result<()> {
 
     writeln!(&mut groups_names, r"[",)?;
 
-    let paths = fs::read_dir("./checks")?;
+    let paths = fs::read_dir("../checks")?;
     let mut all_group_checks = String::new();
     for path in paths {
         let path_name = format!("{}", &path?.path().display());
@@ -23,7 +23,7 @@ fn main() -> Result<()> {
 
         let file_name = Path::new(&path_name)
             .file_stem()
-            .unwrap()
+            .expect("Failed to get file stem")
             .to_str()
             .expect("could not get file name");
         writeln!(&mut groups_names, r#""{file_name}","#)?;

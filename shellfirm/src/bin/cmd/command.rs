@@ -1,14 +1,11 @@
 use anyhow::Result;
-use clap::{Arg, ArgMatches, Command};
-use lazy_static::lazy_static;
-use regex::Regex;
-use shellfirm::{checks, checks::Check, Settings};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use shellfirm::{challenge, Settings};
+use shellfirm_core::checks::{get_all_checks, Check};
+use std::collections::HashSet;
+use tracing::debug;
 
-lazy_static! {
-    static ref REGEX_STRING_COMMAND_REPLACE: Regex = Regex::new(r#"('|")([\s\S]*?)('|")"#).unwrap();
-}
-
-pub fn command() -> Command<'static> {
+pub fn command() -> Command {
     Command::new("pre-command")
         .about("Check if given command marked as sensitive command that need your extra approval.")
         .arg(
@@ -17,14 +14,14 @@ pub fn command() -> Command<'static> {
                 .long("command")
                 .help("get the user command that should run.")
                 .required(true)
-                .takes_value(true),
+                .num_args(1),
         )
         .arg(
             Arg::new("test")
                 .short('t')
                 .long("test")
                 .help("Check if the command is risky and exit")
-                .takes_value(false),
+                .action(ArgAction::SetTrue),
         )
 }
 
@@ -34,10 +31,12 @@ pub fn run(
     checks: &[Check],
 ) -> Result<shellfirm::CmdExit> {
     execute(
-        arg_matches.value_of("command").unwrap_or(""),
+        arg_matches
+            .get_one::<String>("command")
+            .map_or("", String::as_str),
         settings,
         checks,
-        arg_matches.is_present("test"),
+        arg_matches.get_flag("test"),
     )
 }
 
@@ -47,21 +46,14 @@ fn execute(
     checks: &[Check],
     dryrun: bool,
 ) -> Result<shellfirm::CmdExit> {
-    let command = REGEX_STRING_COMMAND_REPLACE
-        .replace_all(command, "")
-        .to_string();
+    // Use the new core function that handles command parsing and splitting
+    let matches: Vec<Check> = challenge::validate_command_with_split(
+        checks,
+        command,
+        &challenge::ValidationOptions::default(),
+    );
 
-    let splitted_command: Vec<&str> = command
-        .split(|c| c == '&' || c == '|' || c == "&&".chars().next().unwrap())
-        .collect();
-
-    log::debug!("splitted_command {:?}", splitted_command);
-    let matches: Vec<checks::Check> = splitted_command
-        .iter()
-        .flat_map(|c| checks::run_check_on_command(checks, c))
-        .collect();
-
-    log::debug!("matches found {}. {:?}", matches.len(), matches);
+    debug!(matches_count = matches.len(), matches = ?matches, "matches found");
 
     if dryrun {
         return Ok(shellfirm::CmdExit {
@@ -70,8 +62,36 @@ fn execute(
         });
     }
 
+    // Compute ignored matches (rules that matched but are ignored by config)
+    let all_checks = get_all_checks()?;
+    let all_matches: Vec<challenge::Check> = challenge::validate_command_with_split(
+        &all_checks,
+        command,
+        &challenge::ValidationOptions::default(),
+    );
+
+    let active_ids: HashSet<String> = matches.iter().map(|c| c.id.clone()).collect();
+    let ignored_set: HashSet<String> = settings.ignores_patterns_ids.iter().cloned().collect();
+    let ignored_matches: Vec<challenge::Check> = all_matches
+        .into_iter()
+        .filter(|c| ignored_set.contains(&c.id) && !active_ids.contains(&c.id))
+        .collect();
+
     if !matches.is_empty() {
-        checks::challenge(&settings.challenge, &matches, &settings.deny_patterns_ids)?;
+        challenge::show(
+            &settings.challenge,
+            &matches,
+            &ignored_matches,
+            &settings.deny_patterns_ids,
+        )?;
+    } else if !ignored_matches.is_empty() {
+        eprintln!("Note: The following rules are ignored by your config:");
+        let mut seen: HashSet<String> = HashSet::new();
+        for c in ignored_matches {
+            if seen.insert(c.id.clone()) {
+                eprintln!("* [{}] {}", c.id, c.description);
+            }
+        }
     }
 
     Ok(shellfirm::CmdExit {
@@ -83,46 +103,51 @@ fn execute(
 #[cfg(test)]
 mod test_command_cli_command {
 
+    use super::*;
     use insta::assert_debug_snapshot;
     use shellfirm::Config;
-    use tempdir::TempDir;
+    use std::path::Path;
 
-    use super::*;
-
-    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let temp_dir = temp_dir.path().join("app");
-        Config::new(Some(&temp_dir.display().to_string())).unwrap()
+    fn initialize_config_folder(temp_dir: &Path) -> Config {
+        let temp_dir = temp_dir.join("app");
+        Config::new(Some(&temp_dir.display().to_string())).expect("Failed to create new config")
     }
 
     #[test]
     fn can_run_pre_command() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let settings = initialize_config_folder(&temp_dir)
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("Failed to create temp directory");
+        let settings = initialize_config_folder(temp_dir.root.as_path())
             .get_settings_from_file()
-            .unwrap();
+            .expect("Failed to get settings from file");
 
         assert_debug_snapshot!(execute(
             "rm -rf /",
             &settings,
-            &settings.get_active_checks().unwrap(),
+            &settings
+                .get_active_checks()
+                .expect("Failed to get active checks"),
             true
         ));
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_pre_command_without_match() {
-        let temp_dir = TempDir::new("config-app").unwrap();
-        let settings = initialize_config_folder(&temp_dir)
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("Failed to create temp directory");
+        let settings = initialize_config_folder(temp_dir.root.as_path())
             .get_settings_from_file()
-            .unwrap();
+            .expect("Failed to get settings from file");
 
         assert_debug_snapshot!(execute(
             "command",
             &settings,
-            &settings.get_active_checks().unwrap(),
+            &settings
+                .get_active_checks()
+                .expect("Failed to get active checks"),
             true
         ));
-        temp_dir.close().unwrap();
     }
 }

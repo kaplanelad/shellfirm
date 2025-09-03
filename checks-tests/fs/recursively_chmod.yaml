@@ -1,0 +1,10 @@
+check_id: "fs:recursively_chmod"
+should_catch:
+  - "chmod -R /"
+  - "chmod --recursive .."
+  - "chmod -R *"
+  - "chmod / -R"
+should_not_catch:
+  - "chmod 644 file.txt"
+  - "chmod +x script.sh"
+  - "chmod u+w file.txt"

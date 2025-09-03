@@ -1,0 +1,7 @@
+check_id: "fs:blockdev_disk_modify"
+should_catch:
+  - "blockdev --setro /dev/sda"
+  - "sudo blockdev --setrw /dev/mmcblk0"
+  - "blockdev --getsize64 /dev/sdb"
+should_not_catch:
+  - "blockdev --getsize64 ./sda.img"

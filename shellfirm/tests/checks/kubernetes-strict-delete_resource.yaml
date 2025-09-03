@@ -1,7 +1,0 @@
----
-- test: k delete -n test
-  description: match command
-- test: kubectl   delete   -n     test
-  description: match command with spaces
-- test: ka delete -n test
-  description: invalid command

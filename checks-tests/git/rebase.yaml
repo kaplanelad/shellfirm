@@ -1,0 +1,12 @@
+check_id: "git:rebase"
+should_catch:
+  - "git rebase -i HEAD~5"
+  - "git rebase --onto main feature"
+  - "git rebase -i main"
+  - "git rebase --continue"
+  - "git rebase --abort"
+should_not_catch:
+  - "git rebase main"
+  - "git rebase origin/main"
+  - "git rebase feature-branch"
+  - "rebase"

@@ -1,0 +1,10 @@
+check_id: "git:stash_pop_drop"
+should_catch:
+  - "git stash drop"
+  - "git stash drop stash@{0}"
+  - "git stash drop stash@{1}"
+should_not_catch:
+  - "git stash pop"
+  - "git stash pop stash@{0}"
+  - "git stash pop stash@{1}"
+  - "git stash"

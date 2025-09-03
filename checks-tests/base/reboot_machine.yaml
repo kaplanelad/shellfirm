@@ -1,0 +1,15 @@
+check_id: "base:reboot_machine"
+should_catch:
+  - "reboot"
+  - "reboot now"
+  - "reboot -r"
+  - "reboot    -r   now"
+  - "  reboot   "
+  - "reboot  now   -r"
+  - "reboot    -r   now"
+  - "sudo reboot"
+  - "git commit -m 'reboot service'" # matches current regex behavior
+should_not_catch:
+  - "echo 'reboot'"
+  - "reboott"
+  - "cat /var/log/reboot.log"

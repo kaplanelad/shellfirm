@@ -1,0 +1,14 @@
+check_id: "base:shutdown_machine"
+should_catch:
+  - "shutdown"
+  - "shutdown -h now"
+  - "sudo shutdown now"
+  - "git commit -m 'shutdown notice'" # matches current regex behavior
+  - "shutdown -r"
+  - "shutdown   -r"
+  - "shutdown\t-r"
+  - "  shutdown   "
+should_not_catch:
+  - "echo 'shutdown'"
+  - "systemctl status shutdown.service"
+  - "shutdownn"

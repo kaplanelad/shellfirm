@@ -1,0 +1,6 @@
+check_id: "git:force_delete_branch"
+should_catch:
+  - "git branch -D feature"
+  - "git branch feature -D"
+should_not_catch:
+  - "git branch -d feature"

@@ -1,0 +1,10 @@
+check_id: "fs:move_to_dev_null"
+should_catch:
+  - "mv file.txt /dev/null"
+  - "mv -f ./logs/*.log /dev/null"
+  - "mv --force archive.tar /dev/null"
+  - "mv file.txt /dev/null -f"
+should_not_catch:
+  - "cp file.txt /dev/null"
+  - "mv file.txt ./null"
+  - "mv file.txt /tmp/"

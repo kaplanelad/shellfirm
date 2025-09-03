@@ -1,7 +1,0 @@
----
-- test: heroku clients:update
-  description: match command
-- test: heroku   clients:update
-  description: match command with spaces
-- test: herokuu clients:update
-  description: invalid command

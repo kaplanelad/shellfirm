@@ -1,0 +1,12 @@
+check_id: "fs:flush_file_content"
+should_catch:
+  - "echo test > file.txt"
+  - "cat data > ./output.log"
+  - "> important.conf"
+  - "printf 'x' > ../tmp/file"
+  - ": > /tmp/emptied"
+should_not_catch:
+  - "echo test >> file.txt"
+  - "cat data >> ./output.log"
+  - "grep > file.txt"
+  - "echo >"

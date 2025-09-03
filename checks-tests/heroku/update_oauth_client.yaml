@@ -1,0 +1,5 @@
+check_id: "heroku:update_oauth_client"
+should_catch:
+  - "heroku clients:update 12345 --name new-name"
+should_not_catch:
+  - "clients:update"

@@ -1,0 +1,6 @@
+check_id: "git:add_all"
+should_catch:
+  - "git add ."
+  - "git add    ."
+should_not_catch:
+  - "git add file.txt"

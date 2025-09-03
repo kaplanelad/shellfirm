@@ -1,5 +1,6 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
 expression: config.get_settings_from_file().unwrap().challenge != settings.challenge
+snapshot_kind: text
 ---
 true

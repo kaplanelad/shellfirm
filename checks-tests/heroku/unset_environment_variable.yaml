@@ -1,0 +1,6 @@
+check_id: "heroku:unset_environment_variable"
+should_catch:
+  - "heroku config:unset FOO"
+  - "heroku config:unset FOO BAR"
+should_not_catch:
+  - "config:unset"

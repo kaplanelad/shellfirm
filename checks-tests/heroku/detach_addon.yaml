@@ -1,0 +1,5 @@
+check_id: "heroku:detach_addon"
+should_catch:
+  - "heroku addons:detach heroku-redis"
+should_not_catch:
+  - "addons:detach"

@@ -1,0 +1,6 @@
+check_id: "terraform:workspace_delete_without_lock"
+should_catch:
+  - "terraform workspace delete -lock=false dev"
+  - "terraform workspace delete dev -lock=false"
+should_not_catch:
+  - "terraform workspace delete dev"

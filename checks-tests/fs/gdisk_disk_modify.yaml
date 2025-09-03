@@ -1,0 +1,9 @@
+check_id: "fs:gdisk_disk_modify"
+should_catch:
+  - "gdisk /dev/sda"
+  - "sudo gdisk /dev/mmcblk0"
+  - "gdisk -l /dev/sdb"
+should_not_catch:
+  - "gdisk -l ./sda.img"
+  - "ls -la"
+  - "printf test"

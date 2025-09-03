@@ -1,0 +1,9 @@
+check_id: "fs:mkfs_format"
+should_catch:
+  - "mkfs.ext4 /dev/sda1"
+  - "mkfs -t ext4 /dev/mmcblk0p1"
+  - "sudo mkfs.xfs /dev/sdb"
+should_not_catch:
+  - "mkfs.ext4 ./sda1.img"
+  - "ls -la"
+  - "printf test"

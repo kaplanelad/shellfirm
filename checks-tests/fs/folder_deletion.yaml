@@ -1,0 +1,13 @@
+check_id: "fs:folder_deletion"
+should_catch:
+  - "rmdir .."
+  - "rmdir    ../checks"
+  - "rmdir  ."
+  - "rmdir -p ../checks"
+  - "rmdir -v ../checks"
+  - "rmdir -vp ../checks"
+  - "rmdir ../checks -vp"
+should_not_catch:
+  - "rm -rf testdir"
+  - "mkdir testdir"
+  - "rmdir --help"

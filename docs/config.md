@@ -1,36 +1,58 @@
 # Config
 
-When you install `shellfirm` the first time it creates a new config file in the home directory in the path: `~/.shellfirm/config.yaml`.
+When you install `shellfirm` the first time it creates a new settings file under your config directory. The path will typically be:
 
-You can always change your config file content and the `shellfirm` will never change it back. 
-[read here how to add and test new command](../readme.md#custom-checks-definition-examples)
+- macOS/Linux: `~/.config/shellfirm/settings.yaml` (if `~/.shellfirm` does not already exist)
+- Legacy compatibility: if `~/.shellfirm` exists, the file remains under `~/.shellfirm/settings.yaml`
 
+You can always change your settings, and `shellfirm` won’t overwrite them.
+[Read here how to add and test a new command](../readme.md#custom-checks-definition-examples)
 
-## Config
-| Parameter | Description | Values |
-| --- | --- | --- |
-| `challenge` | The way that you want to solve the challenge when risky command detected | `Math`, `Enter`, `Yes` |
-| `includes` | List of group checks. | `list` |
-| `checks[].test` | The value of the check | `String` |
-| `checks[].method` | How to make the check | `Contains`, `Regex`, `StartWith` |
-| `checks[].enable` | Enable/disable | `true`, `false` |
-| `checks[].description` | Prompt description when a risky command detected | `String` |
-| `checks[].from` | Group name | `String` |
+## Settings schema
 
+| Field                  | Description                                    | Values                                       |
+| ---------------------- | ---------------------------------------------- | -------------------------------------------- |
+| `challenge`            | Interactive challenge shown for risky commands | `Math`, `Enter`, `Yes`, `Block`              |
+| `includes_severities`  | Severities that are enforced                   | List of: `Low`, `Medium`, `High`, `Critical` |
+| `ignores_patterns_ids` | Rule IDs to ignore (will not prompt)           | List of rule IDs                             |
+| `deny_patterns_ids`    | Rule IDs to block immediately                  | List of rule IDs                             |
 
-## Update config file
+## CLI reference
 
-### Add new groups
-```bash
-$ shellfirm config update --check-group {group} {group}
-```
+Global option:
 
-### Remove groups
-```bash
-$ shellfirm config update --check-group {group} {group} --remove
-```
+- `--log {off|trace|debug|info|warn|error}`: Set logging level (default: `info`)
 
-### Reset 
-```bash
-$ shellfirm config reset
-```
+Subcommands:
+
+- `pre-command --command <string> [--test]`
+
+  - Validates the provided command against active checks.
+  - `--test`: print matched checks as YAML and exit with success.
+
+- `config update-severity`
+
+  - Interactively choose which severities are enforced.
+
+- `config challenge`
+
+  - Interactively select the default challenge type.
+
+- `config ignore`
+
+  - Interactively manage ignored rule IDs.
+
+- `config deny`
+
+  - Interactively manage denied rule IDs.
+
+- `config path`
+
+  - Print the absolute path to the settings file.
+
+- `config edit`
+
+  - Open the settings file in your editor (`$EDITOR`/`$VISUAL`), or system opener.
+
+- `config reset`
+  - Reset the settings file. Offers to back up the current file.

@@ -1,0 +1,13 @@
+check_id: "kubernetes:delete_resource"
+should_catch:
+  - "kubectl delete all"
+  - "kubectl delete --all pods"
+  - "kubectl delete all --all-namespaces"
+  - "k delete all"
+  - "k delete --all deployments"
+should_not_catch:
+  - "kubectl delete pod mypod"
+  - "kubectl delete deployment mydep"
+  - "kubectl delete service myservice"
+  - "k delete pod mypod"
+  - "delete pod mypod"

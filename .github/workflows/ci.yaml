@@ -49,7 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
 
       - name: Run test
-        run: cargo test
+        run: cargo test --all-features --workspace
 
   clippy:
     name: clippy
@@ -63,7 +63,7 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
+        run: cargo clippy --all-features --workspace -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
 
   docs:
     name: Docs

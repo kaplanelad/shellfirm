@@ -1,0 +1,25 @@
+- from: vercel
+  test: '^vercel\s+(?:\S+\s+)*--prod\b'
+  description: "Deploys directly to production environment without staging. This bypasses safety checks and can expose users to broken features or data loss."
+  severity: high
+  id: vercel:deploy_to_production
+- from: vercel
+  test: '^vercel\s+remove\s+(?:\S+\s+)*--yes\b'
+  description: "Removes a Vercel project without confirmation. This permanently deletes the project, all deployments, and associated data."
+  severity: high
+  id: vercel:remove_project
+- from: vercel
+  test: '^vercel\s+env\s+rm\s+(?:\S+\s+)*--yes\b'
+  description: "Removes environment variables without confirmation. This can break application functionality if required variables are deleted."
+  severity: medium
+  id: vercel:remove_env_vars
+- from: vercel
+  test: '^vercel\s+domains\s+rm\b'
+  description: "Removes a custom domain from the project. This will break external access to the application until DNS is reconfigured."
+  severity: medium
+  id: vercel:remove_domain
+- from: vercel
+  test: '^vercel\s+teams\s+rm\b'
+  description: "Removes team members from the project. This can revoke access to critical team members and break collaboration workflows."
+  severity: medium
+  id: vercel:remove_team_member

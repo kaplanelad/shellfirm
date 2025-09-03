@@ -1,0 +1,5 @@
+check_id: "heroku:reset_repo"
+should_catch:
+  - "heroku repo:reset --app my-app"
+should_not_catch:
+  - "repo:reset"

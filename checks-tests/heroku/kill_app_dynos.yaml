@@ -1,0 +1,5 @@
+check_id: "heroku:kill_app_dynos"
+should_catch:
+  - "heroku ps:kill"
+should_not_catch:
+  - "ps:kill"

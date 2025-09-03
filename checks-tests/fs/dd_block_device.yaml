@@ -1,0 +1,17 @@
+check_id: "fs:dd_block_device"
+should_catch:
+  - "dd if=file.img of=/dev/sda"
+  - "dd of=/dev/sdb"
+  - "dd if=/dev/zero of=/dev/sdc"
+  - "dd if=backup.img of=/dev/hda"
+  - "dd of=/dev/mmcblk0"
+should_not_catch:
+  - "dd if=file.img of=output.img"
+  - "dd if=/dev/zero of=file.txt"
+  - "dd if=input.txt of=output.txt"
+  - "dd if=/dev/urandom of=random.bin"
+  - "dd if=backup.img of=restore.img"
+  - "dd --help"
+  - "dd --version"
+  - "dd if=file.img"
+  - "dd of=file.img"

@@ -1,0 +1,11 @@
+check_id: "kubernetes:change_resource_size"
+should_catch:
+  - "kubectl scale deployment mydep --replicas=0"
+  - "kubectl scale --all --replicas=0"
+  - "k scale sts mysts --replicas=0"
+  - "kubectl scale deployment mydep --replicas=0 --all"
+should_not_catch:
+  - "kubectl scale deployment mydep --replicas=2"
+  - "kubectl scale deployment mydep --replicas=5"
+  - "k scale sts mysts --replicas=3"
+  - "scale deployment mydep --replicas=2"

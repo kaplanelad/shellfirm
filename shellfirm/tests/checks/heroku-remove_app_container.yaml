@@ -1,7 +1,0 @@
----
-- test: heroku container:rm
-  description: match command
-- test: heroku   container:rm
-  description: match command with spaces
-- test: herokuu container:rm
-  description: invalid command

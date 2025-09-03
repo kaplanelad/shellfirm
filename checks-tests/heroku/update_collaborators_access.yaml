@@ -1,0 +1,5 @@
+check_id: "heroku:update_collaborators_access"
+should_catch:
+  - "heroku access:update user@example.com --permissions deploy --app my-app"
+should_not_catch:
+  - "access:update"

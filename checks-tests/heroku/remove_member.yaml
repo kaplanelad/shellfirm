@@ -1,0 +1,5 @@
+check_id: "heroku:remove_member"
+should_catch:
+  - "heroku members:remove user@example.com"
+should_not_catch:
+  - "members:remove"

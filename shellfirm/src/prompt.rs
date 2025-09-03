@@ -1,3 +1,4 @@
+use std::io::BufRead;
 use std::{io, thread, time::Duration};
 
 use console::style;
@@ -70,6 +71,57 @@ pub fn yes_challenge() -> bool {
     true
 }
 
+/// Block the command execution - this function will never return true
+/// as the command is blocked and cannot be executed
+pub fn block_challenge() -> bool {
+    eprintln!("{}", style("#######################").red().bold());
+    eprintln!("{}", style("# COMMAND BLOCKED #").red().bold());
+    eprintln!("{}", style("#######################").red().bold());
+    eprintln!("This command has been blocked by security policy.");
+    eprintln!("The command cannot be executed.");
+    eprintln!("{}", get_cancel_string());
+
+    // Loop forever until user kills the process
+    loop {
+        thread::sleep(Duration::from_secs(60));
+    }
+}
+
+/// Show word challenge to the user.
+pub fn word_challenge() -> bool {
+    let words = ["security", "verify", "confirm", "approve", "execute"];
+    let mut rng = rand::thread_rng();
+    let word = words[rng.gen_range(0..words.len())];
+
+    eprintln!(
+        "Type the word exactly: {} {}",
+        style(word).bold().yellow(),
+        get_cancel_string()
+    );
+    loop {
+        let answer = show_stdin_prompt();
+        if answer.trim() == word {
+            break;
+        }
+        eprintln!("{WRONG_ANSWER}");
+    }
+    true
+}
+
+/// Show confirm challenge to the user.
+pub fn confirm_challenge() -> bool {
+    eprintln!("Are you absolutely certain you want to execute this command?");
+    eprintln!("Type 'yes' to confirm: {}", get_cancel_string());
+    loop {
+        let answer = show_stdin_prompt();
+        if answer.trim().to_lowercase() == "yes" {
+            break;
+        }
+        eprintln!("{WRONG_ANSWER}");
+    }
+    true
+}
+
 /// Deny function will loop FOREVER until the user kill the process ^C.
 /// it mean that the use command will never executed
 pub fn deny() {
@@ -81,11 +133,21 @@ pub fn deny() {
 
 /// Catch user stdin. and return the user type
 fn show_stdin_prompt() -> String {
+    // Prefer reading directly from the terminal device if available.
+    // This ensures prompts work even when stdin is redirected or not a TTY.
+    if let Ok(tty) = std::fs::File::open("/dev/tty") {
+        let mut reader = io::BufReader::new(tty);
+        let mut answer = String::new();
+        if reader.read_line(&mut answer).is_ok() {
+            return answer;
+        }
+    }
+
+    // Fallback to standard stdin
     let mut answer = String::new();
     io::stdin()
         .read_line(&mut answer)
         .expect("Failed to read line");
-
     answer
 }
 

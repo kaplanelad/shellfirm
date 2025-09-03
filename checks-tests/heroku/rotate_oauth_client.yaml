@@ -1,0 +1,5 @@
+check_id: "heroku:rotate_oauth_client"
+should_catch:
+  - "heroku clients:rotate 12345"
+should_not_catch:
+  - "clients:rotate"

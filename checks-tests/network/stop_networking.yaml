@@ -1,0 +1,5 @@
+check_id: "network:stop_networking"
+should_catch:
+  - "systemctl stop networking"
+should_not_catch:
+  - "systemctl start networking"

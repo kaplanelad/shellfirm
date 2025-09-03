@@ -1,0 +1,17 @@
+check_id: "base:delete_all_cron_tasks"
+should_catch:
+  - "crontab -r"
+  - "  crontab   -r  "
+  - "sudo crontab -r"
+  - "crontab    -r    # remove all"
+  - "\tcrontab -r"
+  - "nice crontab -r"
+  - "env VAR=1 crontab -r"
+  - "printf test; crontab -r && echo done"
+should_not_catch:
+  - "crontab -l"
+  - "crontab -e"
+  - "crontab -l | grep something"
+  - "echo hello"
+  - "crontab --help"
+  - "sudo crontab --help"

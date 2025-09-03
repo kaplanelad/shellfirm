@@ -12,3 +12,6 @@
 
 
 shellfirm/tmp/*
+mcp/node_modules
+mcp/dist
+.DS_Store

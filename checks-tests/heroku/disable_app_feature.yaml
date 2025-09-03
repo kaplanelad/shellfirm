@@ -1,0 +1,5 @@
+check_id: "heroku:disable_app_feature"
+should_catch:
+  - "heroku features:disable some-feature"
+should_not_catch:
+  - "features:disable"

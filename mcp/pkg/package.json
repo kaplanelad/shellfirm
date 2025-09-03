@@ -1,0 +1,16 @@
+{
+  "name": "shellfirm_core",
+  "collaborators": [
+    "Elad-Kaplan <kaplan.elad@gmail.com>"
+  ],
+  "description": "Core validation engine for shellfirm - WASM compatible",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "shellfirm_core_bg.wasm",
+    "shellfirm_core.js",
+    "shellfirm_core.d.ts"
+  ],
+  "main": "shellfirm_core.js",
+  "types": "shellfirm_core.d.ts"
+}

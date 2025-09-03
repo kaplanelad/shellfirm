@@ -1,6 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
 expression: "run_reset(&config, Some(1))"
+snapshot_kind: text
 ---
 CmdExit {
     code: 78,

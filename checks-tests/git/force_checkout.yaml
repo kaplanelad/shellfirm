@@ -1,0 +1,6 @@
+check_id: "git:force_checkout"
+should_catch:
+  - "git checkout -f"
+  - "git checkout . -f"
+should_not_catch:
+  - "git checkout main"

@@ -1,0 +1,6 @@
+check_id: "terraform:workspace_delete_with_force_flag"
+should_catch:
+  - "terraform workspace delete -force dev"
+  - "terraform workspace delete dev -force"
+should_not_catch:
+  - "terraform workspace delete dev"

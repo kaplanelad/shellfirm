@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shellfirm Security Challenge</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #333;
+        }
+
+        .challenge-container {
+            background: white;
+            border-radius: 14px;
+            padding: 40px 44px;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12);
+            text-align: center;
+            max-width: 760px;
+            width: 92%;
+            margin: 24px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .security-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .title {
+            font-size: 26px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #1a202c;
+        }
+
+        .subtitle {
+            font-size: 15px;
+            color: #4a5568;
+            margin-bottom: 22px;
+            line-height: 1.5;
+        }
+
+        .command-warning {
+            background: linear-gradient(0deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)), #ffe5e5;
+            border: 1px solid #ffb3b3;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 24px;
+            text-align: left;
+            word-break: break-all;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+        }
+
+        .command-warning strong {
+            color: #c53030;
+            display: block;
+            margin-bottom: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', system-ui, sans-serif;
+        }
+
+        .danger-patterns {
+            background: #fff9f1;
+            border: 1px solid #fbd38d;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 22px;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .danger-patterns strong {
+            color: #c05621;
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        /* Matches list styling */
+        .matches-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .matches-list li {
+            margin-bottom: 2px;
+        }
+
+        .match-item {
+            padding: 12px 14px;
+            border: 1px solid #f6ad55;
+            border-left-width: 6px;
+            border-radius: 10px;
+            background: #fffef8;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            transition: box-shadow .15s ease, transform .15s ease;
+        }
+
+        .match-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .match-header .spacer {
+            flex: 1;
+        }
+
+        .match-item:hover {
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+            transform: translateY(-1px);
+        }
+
+        .match-id {
+            font-weight: 700;
+            color: #2d3748;
+            background: #edf2f7;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .match-sev {
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 10px;
+            text-align: center;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid #e2e8f0;
+            letter-spacing: .5px;
+            min-width: 72px;
+        }
+
+        .match-desc {
+            color: #4a5568;
+            line-height: 1.45;
+        }
+
+        .sev-critical {
+            background: #ffe5e5;
+            color: #9b2c2c;
+            border-color: #feb2b2;
+        }
+
+        .sev-high {
+            background: #fff1db;
+            color: #9c4221;
+            border-color: #fbd38d;
+        }
+
+        .sev-medium {
+            background: #fffbe6;
+            color: #744210;
+            border-color: #f6e05e;
+        }
+
+        .sev-low {
+            background: #e6fffa;
+            color: #276749;
+            border-color: #9ae6b4;
+        }
+
+        /* left border color cue per severity */
+        .match-item.sev-critical {
+            border-left-color: #e53e3e;
+        }
+
+        .match-item.sev-high {
+            border-left-color: #dd6b20;
+        }
+
+        .match-item.sev-medium {
+            border-left-color: #d69e2e;
+        }
+
+        .match-item.sev-low {
+            border-left-color: #38a169;
+        }
+
+        @media (min-width: 700px) {
+            .matches-list {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+
+        .risk-level {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+        }
+
+        .risk-critical {
+            background: #fed7d7;
+            color: #c53030;
+            border: 1px solid #fc8181;
+        }
+
+        .risk-high {
+            background: #feebc8;
+            color: #c05621;
+            border: 1px solid #f6ad55;
+        }
+
+        .risk-medium {
+            background: #fefcbf;
+            color: #975a16;
+            border: 1px solid #f6e05e;
+        }
+
+        .risk-low {
+            background: #c6f6d5;
+            color: #276749;
+            border: 1px solid #9ae6b4;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            margin: 32px 0;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 140px;
+            justify-content: center;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-approve {
+            background: #38a169;
+            color: white;
+        }
+
+        .btn-approve:hover:not(:disabled) {
+            background: #2f855a;
+        }
+
+        .btn-deny {
+            background: #e53e3e;
+            color: white;
+        }
+
+        .btn-deny:hover:not(:disabled) {
+            background: #c53030;
+        }
+
+        .error-message {
+            background: #fed7d7;
+            color: #c53030;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 16px 0;
+            display: none;
+            font-weight: 500;
+        }
+
+        .success-message {
+            background: #c6f6d5;
+            color: #276749;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 16px 0;
+            display: none;
+            font-weight: 500;
+        }
+
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        .footer {
+            margin-top: 32px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+            font-size: 12px;
+            color: #a0aec0;
+            line-height: 1.4;
+        }
+
+        /* Challenge-specific styles */
+        .input-group {
+            margin: 24px 0;
+        }
+
+        .answer-input {
+            width: 100%;
+            max-width: 200px;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .answer-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .math-problem {
+            font-size: 24px;
+            font-weight: 600;
+            color: #2d3748;
+            margin: 24px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .word-display {
+            font-size: 32px;
+            font-weight: 700;
+            color: #2d3748;
+            margin: 24px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            letter-spacing: 2px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+
+        .instruction {
+            font-size: 14px;
+            color: #4a5568;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+
+        .case-sensitive {
+            background: #fefcbf;
+            color: #975a16;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #ffeaa7;
+        }
+
+        .confirmation-message {
+            background: #fed7d7;
+            border: 1px solid #fc8181;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+            text-align: left;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .warning-list {
+            margin-top: 12px;
+            padding-left: 20px;
+        }
+
+        .warning-list li {
+            margin-bottom: 8px;
+        }
+
+        .emphasis {
+            font-weight: 600;
+            color: #c53030;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            25% {
+                transform: translateX(-5px);
+            }
+
+            75% {
+                transform: translateX(5px);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="challenge-container">
+        <div class="security-icon">{{SECURITY_ICON}}</div>
+        <h1 class="title">{{CHALLENGE_TITLE}}</h1>
+        <p class="subtitle">{{CHALLENGE_SUBTITLE}}</p>
+
+        <div class="command-warning">
+            <strong>Command:</strong> <span id="command-text">{{COMMAND}}</span>
+        </div>
+
+        <div class="danger-patterns">
+            <strong>Security Issues Detected (<span id="matches-count">{{MATCHES_COUNT}}</span>):</strong>
+            <ul class="matches-list">
+                {{{MATCHES_LIST}}}
+            </ul>
+        </div>
+
+        {{{CHALLENGE_CONTENT}}}
+
+        <div class="button-group">
+            {{{CHALLENGE_BUTTONS}}}
+        </div>
+
+        <div class="error-message" id="error-message">
+            {{ERROR_MESSAGE}}
+        </div>
+
+        <div class="success-message" id="success-message">
+            {{SUCCESS_MESSAGE}}
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+        </div>
+
+        <div class="footer">
+            {{FOOTER_TEXT}}
+        </div>
+    </div>
+
+    <script>
+        // Common functions for all challenges
+        function showError() {
+            const errorMsg = document.getElementById('error-message');
+            errorMsg.style.display = 'block';
+            document.getElementById('success-message').style.display = 'none';
+
+            // Shake effect on input if it exists
+            const input = document.getElementById('answer');
+            if (input) {
+                input.style.animation = 'shake 0.5s';
+                setTimeout(() => {
+                    input.style.animation = '';
+                }, 500);
+            }
+        }
+
+        function showSuccess() {
+            document.getElementById('success-message').style.display = 'block';
+            document.getElementById('error-message').style.display = 'none';
+            const approveBtn = document.getElementById('approve-btn');
+            if (approveBtn) {
+                approveBtn.disabled = true;
+            }
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function approveCommand() {
+            fetch('/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(() => {
+                // Command approved
+            }).catch(console.error);
+        }
+
+        function denyCommand() {
+            fetch('/deny', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(() => {
+                // Command denied
+            }).catch(console.error);
+        }
+
+        // Challenge-specific JavaScript will be injected here
+        { { { CHALLENGE_SCRIPT } } }
+    </script>
+</body>
+
+</html>

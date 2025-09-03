@@ -1,0 +1,105 @@
+check_id: "base:find_pipe_to_shell"
+should_catch:
+  # Basic find pipe to shell commands
+  - "find . | bash"
+  - "find . | sh"
+  - "find . | zsh"
+  - "find . | fish"
+
+  # Find with different paths
+  - "find /tmp | bash"
+  - "find /home/user | sh"
+  - "find /var/log | zsh"
+  - "find /etc | fish"
+
+  # Find with options
+  - "find . -name '*.sh' | bash"
+  - "find . -type f | sh"
+  - "find . -executable | zsh"
+  - "find . -perm +111 | fish"
+
+  # Find with complex expressions
+  - "find . -name '*.py' -executable | bash"
+  - "find . -type f -name '*.sh' | sh"
+  - "find . -maxdepth 2 -name '*.exe' | zsh"
+  - "find . -size +1M -type f | fish"
+
+  # Find with quotes and spaces
+  - " find . | bash "
+  - "find . | 'bash'"
+  - 'find . | "bash"'
+  - "find . | /bin/bash"
+  - "find . | /usr/bin/sh"
+
+  # Find in complex commands (should still match due to Whole validation mode)
+  - "echo hello && find . | bash"
+  - "cd /tmp && find . | sh"
+  - "ls -la && find . | zsh"
+  - "pwd && find . | bash && echo done"
+  - "find . | bash && echo 'executed'"
+  - "echo 'before' && find . | sh && echo 'after'"
+
+  # Find with different shell variations
+  - "find . | /bin/sh"
+  - "find . | /usr/bin/bash"
+  - "find . | /bin/zsh"
+  - "find . | /usr/bin/fish"
+  - "find . | dash"
+  - "find . | ksh"
+
+  # Find with environment variables
+  - "find . | $SHELL"
+  - "find . | bash -c 'echo executed'"
+  - "find . | sh -c 'echo executed'"
+
+  # Find with different find patterns
+  - "find /usr/bin | bash"
+  - "find ~ | sh"
+  - "find . -name 'script*' | zsh"
+  - "find /var | fish"
+
+should_not_catch:
+  # Safe find commands (no pipe to shell)
+  - "find ."
+  - "find . -name '*.txt'"
+  - "find . -type f"
+  - "find . -executable"
+  - "find . | grep script"
+  - "find . | wc -l"
+  - "find . | cat"
+  - "find . | less"
+  - "find . | more"
+  - "find . | head -10"
+  - "find . | tail -5"
+  - "find . | sort"
+  - "find . | uniq"
+
+  # Commands that look similar but don't pipe to shell
+  - "echo 'find . | bash'"
+  - "echo 'find . | sh'"
+  - "cat file | bash"
+  - "grep pattern | sh"
+  - "ls | zsh"
+  - "history | bash"
+
+  # Safe commands with find in them
+  - "echo 'check find'"
+  - "echo 'my find'"
+  - "echo 'command find'"
+  - "echo 'bash find'"
+  - "echo 'shell find'"
+
+  # Commands with bash/sh but no find
+  - "bash -c 'echo hello'"
+  - "sh -c 'echo hello'"
+  - "zsh -c 'echo hello'"
+  - "bash script.sh"
+  - "sh script.sh"
+
+  # Other safe commands
+  - "echo hello"
+  - "ls -la"
+  - "pwd"
+  - "cd /tmp"
+  - "cat file.txt"
+  - "grep pattern file.txt"

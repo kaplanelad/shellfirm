@@ -1,0 +1,10 @@
+check_id: "fs:lvm_operations"
+should_catch:
+  - "lvremove /dev/mapper/vg-lv"
+  - "pvremove /dev/sda1"
+  - "vgremove vg0"
+  - "sudo lvremove -f /dev/vg0/lv0"
+should_not_catch:
+  - "lvdisplay"
+  - "ls -la"
+  - "printf test"

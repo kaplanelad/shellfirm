@@ -1,0 +1,5 @@
+check_id: "network:force_reset_firewall"
+should_catch:
+  - "ufw --force reset"
+should_not_catch:
+  - "ufw reset"

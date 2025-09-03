@@ -1,0 +1,7 @@
+check_id: "git:delete_all"
+should_catch:
+  - "git rm *"
+  - "git rm ."
+  - "git rm test"
+should_not_catch:
+  - "git rm"

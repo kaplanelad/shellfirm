@@ -1,0 +1,92 @@
+- from: git
+  test: '^git\s+reset(?:\s+\S+)*\s+--hard\b'
+  description: "Resets current HEAD and index. With flags (e.g., --hard) it discards local commits/changes, losing work."
+  severity: high
+  id: git:reset
+- from: git
+  test: git\s{1,}rm\s{1,}(\*|.)
+  description: "Removes files from the working tree and index. With globs, may delete many files at once."
+  severity: high
+  id: git:delete_all
+- from: git
+  test: git\s{1,}clean\s{1,}-fd
+  description: "Forcefully deletes all untracked files and directories. This cannot be undone and may remove generated or ignored assets."
+  severity: high
+  id: git:clean_force
+- from: git
+  test: '^git\s+(?:\S+\s+)*push(?:\s+\S+)*\s+(?:-f|--force)(?:\s+|$)'
+  description: "Force pushes rewrite remote history, discarding others’ commits. Use only when you intend to replace upstream."
+  severity: high
+  id: git:force_push
+  filters:
+    NotContains: "tag"
+- from: git
+  test: '^git\s+push(?:\s+\S+)*\s+(?:-f|--force)(?:\s+\S+)*\s+(?:--tags|tag\s+\S+|refs/tags/\S+)(?:\s+|$)'
+  description: "Force-pushes tags to remote. This rewrites tag history and is highly destructive."
+  severity: high
+  id: git:push_tags
+- from: git
+  test: '^git\s+branch\s+(?:-D\s+\S+|\S+\s+-D)\s*$'
+  description: "Force deletes a local branch, losing commits not merged elsewhere."
+  severity: medium
+  id: git:force_delete_branch
+- from: git
+  test: '^git\s+checkout\s+(?:-f(?:\s+\S+)?|\S+\s+-f)\s*$'
+  description: "Force checkout discards local changes in the working tree, potentially losing uncommitted work."
+  severity: medium
+  id: git:force_checkout
+- from: git
+  test: '^git\s+rebase\s+(?:-i\b|--onto\b|--continue\b|--abort\b)'
+  description: "Rewrites commit history by replaying commits on a new base. Can cause conflicts and changes SHAs; avoid on shared branches."
+  severity: medium
+  id: git:rebase
+- from: git
+  test: git\s{1,}filter-branch
+  description: "Mass‑rewrites history (e.g., to remove files). Misuse can irreversibly alter all commits and break clones."
+  severity: high
+  id: git:filter_branch
+- from: git
+  test: git\s{1,}gc\s{1,}--prune=now
+  description: "Immediately prunes unreachable objects, permanently removing dangling commits/blobs that might be needed for recovery."
+  severity: medium
+  id: git:gc_prune
+- from: git
+  test: '^git\s+update-ref\s+(?:-d\s+\S+|\S+\s+-d)\s*$'
+  description: "Deletes a Git reference (branch/tag pointer). Removing the wrong ref can hide commits."
+  severity: medium
+  id: git:delete_ref
+- from: git
+  test: git\s{1,}merge\s{1,}(--no-ff)
+  description: "Performs a non‑fast‑forward merge (creating a merge commit) or aborts a conflicted merge. Review targets carefully."
+  severity: low
+  id: git:merge_no_ff
+- from: git
+  test: '^git\s+cherry-pick\s+(?:--no-commit\b|--continue\b|--abort\b)'
+  description: "Applies the changes from specific commits onto the current branch. May cause conflicts or duplicate history."
+  severity: low
+  id: git:cherry_pick
+- from: git
+  test: git\s{1,}worktree\s{1,}(remove)
+  description: "Adds or removes a linked working tree. Removal with uncommitted changes can lose work in that tree."
+  severity: low
+  id: git:worktree_management
+- from: git
+  test: '^git\s+add\s+(\.|\.\.)\s*$'
+  description: "Stages all changes in the current or parent directory. May include unintended files (e.g., secrets, build artifacts)."
+  severity: low
+  id: git:add_all
+- from: git
+  test: '^git\s+commit(?:\s+\S+)*\s+(?:--amend\b|--no-verify\b)'
+  description: "Commits all tracked changes. Ensure no debugging files or secrets are included accidentally."
+  severity: low
+  id: git:commit_all
+- from: git
+  test: git\s{1,}stash\s{1,}(drop)
+  description: "Applies (pop) or permanently deletes (drop) stashed changes. Pop may cause conflicts; drop loses data."
+  severity: low
+  id: git:stash_pop_drop
+- from: git
+  test: git\s{1,}submodule\s{1,}(deinit)
+  description: "Updates or deinitializes submodules. Deinit removes working tree data and can break builds if required."
+  severity: low
+  id: git:submodule_update

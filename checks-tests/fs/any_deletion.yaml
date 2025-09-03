@@ -1,0 +1,15 @@
+check_id: "fs:any_deletion"
+should_catch:
+  - "rm ../README.md"
+  - "rm -f ../checks/fs.yaml"
+  - "rm ../checks/fs.yaml -f"
+  - "rm -v ../docs"
+  - "rm ../docs -v"
+  - "rm -i ../README.md"
+  - "rm -f ../Cargo.toml"
+  - "rm ../checks"
+  - "rm ./../README.md"
+should_not_catch:
+  - "echo rm ../README.md"
+  - "rm --help"
+  - "rmdir testdir"

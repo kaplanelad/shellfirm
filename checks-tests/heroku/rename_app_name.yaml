@@ -1,0 +1,5 @@
+check_id: "heroku:rename_app_name"
+should_catch:
+  - "heroku apps:rename --app old-name new-name"
+should_not_catch:
+  - "apps:rename"

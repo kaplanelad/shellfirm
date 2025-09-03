@@ -1,0 +1,74 @@
+check_id: "base:execute_all_history_commands"
+should_catch:
+  # Basic history pipe to shell commands
+  - "history | bash"
+  - "history | sh"
+  - "history | zsh"
+  - "history | fish"
+
+  # History with options
+  - "history -c | bash"
+  - "history -d 1 | sh"
+  - "history -r | zsh"
+
+  # History with grep/filtering
+  - "history | grep rm | bash"
+  - "history | grep -v safe | sh"
+  - "history | awk '{print $2}' | zsh"
+
+  # History with complex pipelines
+  - "history | tail -10 | bash"
+  - "history | head -5 | sh"
+  - "history | sort | uniq | zsh"
+
+  # History with quotes and spaces
+  - " history | bash "
+  - "history | 'bash'"
+  - 'history | "bash"'
+  - "history | /bin/bash"
+  - "history | /usr/bin/sh"
+
+  # History in complex commands (should still match due to Whole validation mode)
+  - "echo hello && history | bash"
+  - "cd /tmp && history | sh"
+  - "ls -la && history | zsh"
+  - "pwd && history | bash && echo done"
+  - "history | bash && echo 'executed'"
+  - "echo 'before' && history | sh && echo 'after'"
+
+  # History with different shell variations
+  - "history | /bin/sh"
+  - "history | /usr/bin/bash"
+  - "history | /bin/zsh"
+  - "history | /usr/bin/fish"
+  - "history | dash"
+  - "history | ksh"
+
+  # History with environment variables
+  - "history | $SHELL"
+  - "history | bash -c 'echo executed'"
+  - "history | sh -c 'echo executed'"
+
+should_not_catch:
+  # Safe history commands (no pipe to shell)
+  - "history"
+  - "history -c"
+  - "history -d 1"
+  - "history -r"
+  - "history | grep rm"
+  - "history | grep -v safe"
+  - "history | tail -10"
+  - "history | head -5"
+  - "history | sort"
+  - "history | uniq"
+  - "history | wc -l"
+  - "history | cat"
+  - "history | less"
+  - "history | more"
+
+  # Commands that look similar but don't pipe to shell
+  - "echo 'history | bash'"
+  - "echo 'history | sh'"
+  - "cat file | bash"
+  - "grep pattern | sh"
+  - "ls | zsh"
