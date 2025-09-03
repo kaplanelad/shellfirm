@@ -69,7 +69,7 @@ describe('Browser Challenge - Math Challenge', () => {
     // Verify the math problem is displayed
     const mathProblem = await page.textContent('#math-problem');
     expect(mathProblem).toBeTruthy();
-    expect(mathProblem).toMatch(/\d+ [+\-*] \d+ = \?/);
+    expect(mathProblem).toMatch(/\d+ \+ \d+ = \?/);
     
     // Verify input field exists
     const answerInput = await page.locator('#answer');
@@ -114,7 +114,7 @@ describe('Browser Challenge - Math Challenge', () => {
     await page.waitForSelector('#answer', { timeout: 10000 });
     
     // Get the correct answer from the page
-    const correctAnswer = await page.evaluate(() => window.correctAnswer);
+    const correctAnswer = await page.evaluate(() => (window as any).correctAnswer);
     expect(correctAnswer).toBeDefined();
     expect(typeof correctAnswer).toBe('number');
     
@@ -206,14 +206,14 @@ describe('Browser Challenge - Math Challenge', () => {
     console.log(`First problem: ${firstProblem}`);
     console.log(`Second problem: ${secondProblem}`);
     
-    // Verify both are valid math problems
-    expect(firstProblem).toMatch(/\d+ [+\-*] \d+ = \?/);
-    expect(secondProblem).toMatch(/\d+ [+\-*] \d+ = \?/);
+    // Verify both are valid math problems (only addition)
+    expect(firstProblem).toMatch(/\d+ \+ \d+ = \?/);
+    expect(secondProblem).toMatch(/\d+ \+ \d+ = \?/);
     
     console.log('✅ Math problem generation works correctly');
   }, 30000);
 
-  test('should handle all math operations (+, -, *)', async () => {
+  test('should only generate addition problems with numbers 0-10', async () => {
     // Reload the page for this test
     await page.reload();
     await page.waitForSelector('#math-problem', { timeout: 10000 });
@@ -222,15 +222,58 @@ describe('Browser Challenge - Math Challenge', () => {
     const mathProblem = await page.textContent('#math-problem');
     expect(mathProblem).toBeTruthy();
     
-    // Check if it contains one of the expected operations
-    const hasValidOperation = /[\+\-\*]/.test(mathProblem);
-    expect(hasValidOperation).toBe(true);
+    // Check if it contains only addition operation
+    const hasAdditionOperation = /\+/.test(mathProblem!);
+    expect(hasAdditionOperation).toBe(true);
     
-    // Verify the problem format
-    expect(mathProblem).toMatch(/\d+ [+\-*] \d+ = \?/);
+    // Verify the problem format (only addition)
+    expect(mathProblem).toMatch(/\d+ \+ \d+ = \?/);
+    
+    // Extract numbers to verify they are between 0-10
+    const match = mathProblem!.match(/(\d+) \+ (\d+) = \?/);
+    expect(match).toBeTruthy();
+    
+    if (match) {
+      const num1 = parseInt(match[1]);
+      const num2 = parseInt(match[2]);
+      
+      // Verify numbers are between 0-10
+      expect(num1).toBeGreaterThanOrEqual(0);
+      expect(num1).toBeLessThanOrEqual(10);
+      expect(num2).toBeGreaterThanOrEqual(0);
+      expect(num2).toBeLessThanOrEqual(10);
+    }
     
     console.log(`Math problem: ${mathProblem}`);
-    console.log('✅ Math operations are properly generated');
+    console.log('✅ Addition-only math problems with numbers 0-10 are properly generated');
+  }, 30000);
+
+  test('should generate correct answers for addition problems', async () => {
+    // Reload the page for this test
+    await page.reload();
+    await page.waitForSelector('#math-problem', { timeout: 10000 });
+    
+    // Get the math problem
+    const mathProblem = await page.textContent('#math-problem');
+    expect(mathProblem).toBeTruthy();
+    
+    // Extract numbers from the problem
+    const match = mathProblem!.match(/(\d+) \+ (\d+) = \?/);
+    expect(match).toBeTruthy();
+    
+    if (match) {
+      const num1 = parseInt(match[1]);
+      const num2 = parseInt(match[2]);
+      const expectedAnswer = num1 + num2;
+      
+      // Get the correct answer from the page
+      const correctAnswer = await page.evaluate(() => (window as any).correctAnswer);
+      expect(correctAnswer).toBe(expectedAnswer);
+      
+      console.log(`Problem: ${num1} + ${num2} = ${expectedAnswer}`);
+      console.log(`Page answer: ${correctAnswer}`);
+      console.log('✅ Correct answers are generated for addition problems');
+    }
   }, 30000);
 });
 
@@ -295,7 +338,7 @@ describe('Browser Challenge - Word Challenge', () => {
     // Verify the word is displayed
     const wordDisplay = await page.textContent('#word-display');
     expect(wordDisplay).toBeTruthy();
-    expect(wordDisplay.length).toBeGreaterThan(0);
+    expect(wordDisplay!.length).toBeGreaterThan(0);
     
     // Verify input field exists
     const answerInput = await page.locator('#answer');
@@ -338,7 +381,7 @@ describe('Browser Challenge - Word Challenge', () => {
     await page.waitForSelector('#answer', { timeout: 10000 });
     
     // Get the correct word from the page
-    const correctWord = await page.evaluate(() => window.targetWord);
+    const correctWord = await page.evaluate(() => (window as any).targetWord);
     expect(correctWord).toBeDefined();
     expect(typeof correctWord).toBe('string');
     
@@ -420,8 +463,8 @@ describe('Browser Challenge - Word Challenge', () => {
     console.log(`Second word: ${secondWord}`);
     
     // Both should be valid security words
-    expect(firstWord.length).toBeGreaterThan(0);
-    expect(secondWord.length).toBeGreaterThan(0);
+    expect(firstWord!.length).toBeGreaterThan(0);
+    expect(secondWord!.length).toBeGreaterThan(0);
     
     console.log('✅ Security word generation works correctly');
   }, 30000);

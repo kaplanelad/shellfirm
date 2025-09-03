@@ -490,10 +490,18 @@ export class BrowserChallenge {
         }
       }
 
+      // Make checkAnswer globally available
+      window.checkAnswer = checkAnswer;
+
       // Enter key support
-      document.getElementById('answer').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-          checkAnswer();
+      document.addEventListener('DOMContentLoaded', function() {
+        const answerInput = document.getElementById('answer');
+        if (answerInput) {
+          answerInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+              checkAnswer();
+            }
+          });
         }
       });
     `;
@@ -531,10 +539,18 @@ export class BrowserChallenge {
         }
       }
 
+      // Make checkAnswer globally available
+      window.checkAnswer = checkAnswer;
+
       // Enter key support
-      document.getElementById('answer').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
-          checkAnswer();
+      document.addEventListener('DOMContentLoaded', function() {
+        const answerInput = document.getElementById('answer');
+        if (answerInput) {
+          answerInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+              checkAnswer();
+            }
+          });
         }
       });
     `;
@@ -542,35 +558,16 @@ export class BrowserChallenge {
 
   /**
    * Generate a math problem for the math challenge
+   * Only supports addition (+) with numbers between 0-10
    */
   private generateMathProblem(): { problem: string; answer: number } {
-    const operations = ['+', '-', '*'];
-    const operation = operations[Math.floor(Math.random() * operations.length)];
-
-    let num1: number, num2: number, answer: number;
-
-    switch (operation) {
-      case '+':
-        num1 = Math.floor(Math.random() * 10); // 0-9
-        num2 = Math.floor(Math.random() * 10); // 0-9
-        answer = num1 + num2;
-        break;
-      case '-':
-        // Ensure num1 >= num2 to avoid negative results
-        num1 = Math.floor(Math.random() * 10); // 0-9
-        num2 = Math.floor(Math.random() * (num1 + 1)); // 0 to num1
-        answer = num1 - num2;
-        break;
-      case '*':
-        num1 = Math.floor(Math.random() * 10); // 0-9
-        num2 = Math.floor(Math.random() * 10); // 0-9
-        answer = num1 * num2;
-        break;
-      default:
-        num1 = 5;
-        num2 = 3;
-        answer = 8;
-    }
+    // Only use addition operation
+    const operation = '+';
+    
+    // Generate numbers between 0-10 (inclusive)
+    const num1 = Math.floor(Math.random() * 11); // 0-10
+    const num2 = Math.floor(Math.random() * 11); // 0-10
+    const answer = num1 + num2;
 
     return {
       problem: `${num1} ${operation} ${num2} = ?`,

@@ -257,12 +257,14 @@ pub fn validate_command_with_split(
             ValidationMode::Split => {
                 let commands = crate::command::parse_and_split_command(command);
                 for cmd in commands {
-                    let cmd_matches = run_check_on_command(&[check.clone()], &cmd, options);
+                    let cmd_matches =
+                        run_check_on_command(std::slice::from_ref(check), &cmd, options);
                     matches.extend(cmd_matches);
                 }
             }
             ValidationMode::Whole => {
-                let whole_matches = run_check_on_command(&[check.clone()], command, options);
+                let whole_matches =
+                    run_check_on_command(std::slice::from_ref(check), command, options);
                 matches.extend(whole_matches);
             }
         }
