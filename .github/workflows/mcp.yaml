@@ -81,6 +81,8 @@ jobs:
           npx rollup --version
           # Install Playwright browsers after dependency changes
           npx playwright install chromium --with-deps
+          # Verify Playwright browser installation
+          npx playwright --version
 
       - name: Install dependencies (Unix)
         if: runner.os != 'Windows'
@@ -100,12 +102,7 @@ jobs:
           npx rollup --version
           # Install Playwright browsers after dependency changes
           npx playwright install chromium --with-deps
-
-      - name: Install Playwright browsers
-        run: |
-          # Ensure Playwright browsers are installed after dependency changes
-          npx playwright install --with-deps
-          # Verify browser installation
+          # Verify Playwright browser installation
           npx playwright --version
 
       - name: Setup Windows environment for Playwright
@@ -117,15 +114,11 @@ jobs:
           if (-not (Test-Path $tempDir)) {
             New-Item -ItemType Directory -Path $tempDir -Force
           }
-          # Set environment variable for Playwright
-          $env:PLAYWRIGHT_BROWSERS_PATH = "0"
 
       - name: Run tests
         run: npm run test
         env:
           CI: true
-          # Playwright environment variables
-          PLAYWRIGHT_BROWSERS_PATH: 0
 
   security:
     name: Security Audit
