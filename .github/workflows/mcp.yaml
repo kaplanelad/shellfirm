@@ -51,7 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20, 22, "stable"]
+        node-version: [20, 22, "lts/*"]
     defaults:
       run:
         working-directory: ./mcp

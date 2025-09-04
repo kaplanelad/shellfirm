@@ -489,7 +489,7 @@ async function main() {
   program
     .name('mcp-server-shellfirm')
     .description('Shellfirm MCP Server - secure command validation via WASM')
-    .option('--challenge <type>', 'challenge type (confirm|math|word)', 'confirm')
+    .option('--challenge <type>', 'challenge type (confirm|math|word|block)', 'confirm')
     .option('--severity <levels>', 'comma-separated severity levels', 'critical,high,medium')
     .option('--propagate-env <vars>', 'comma-separated env variable names to inherit (e.g. PATH,HOME,SSH_AUTH_SOCK)', '');
 

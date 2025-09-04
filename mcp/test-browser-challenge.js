@@ -80,6 +80,30 @@ async function testConfirmChallenge() {
   return result;
 }
 
+async function testBlockChallenge() {
+  console.log('\n🚫 Testing Block Challenge...');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  const challengeData = {
+    command: 'rm -rf / && dd if=/dev/zero of=/dev/sda',
+    patterns: ['system destruction', 'disk wipe'],
+    severity: 'critical',
+    matches: [
+      { id: 'fs_recursive_delete_root', severity: 'critical', description: 'Recursive deletion of root filesystem (rm -rf /)' },
+      { id: 'disk_wipe_destructive', severity: 'critical', description: 'Destructive disk wipe (dd if=/dev/zero)' }
+    ]
+  };
+
+  // Print WASM validation result for the command
+  const wasmResult = await validateSplitCommandWithOptions(challengeData.command);
+  console.log('WASM Validation Result:', wasmResult);
+
+  const result = await BrowserChallenge.showChallenge('block', challengeData, 30000);
+
+  console.log('Block Challenge Result:', result);
+  return result;
+}
+
 
 
 async function runAllTests() {
@@ -98,6 +122,7 @@ async function runAllTests() {
     results.push(await testMathChallenge());
     results.push(await testWordChallenge());
     results.push(await testConfirmChallenge());
+    results.push(await testBlockChallenge());
     // 'enter' challenge removed
     // 'yes' challenge removed
 
@@ -106,7 +131,7 @@ async function runAllTests() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     results.forEach((result, index) => {
-      const types = ['Math', 'Word', 'Confirm'];
+      const types = ['Math', 'Word', 'Confirm', 'Block'];
       const status = result.approved ? '✅ APPROVED' : '❌ DENIED';
       console.log(`${types[index]} Challenge: ${status}`);
       if (result.error) {
@@ -134,6 +159,8 @@ if (challengeType === 'math') {
   testWordChallenge().catch(console.error);
 } else if (challengeType === 'confirm') {
   testConfirmChallenge().catch(console.error);
+} else if (challengeType === 'block') {
+  testBlockChallenge().catch(console.error);
 } else {
   // Run all tests by default
   runAllTests().catch(console.error);
