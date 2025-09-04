@@ -66,6 +66,14 @@ jobs:
           cache: "npm"
           cache-dependency-path: "./mcp/package.json"
 
+      - name: Setup environment for Playwright
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=${{ runner.temp }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TMP=${{ runner.temp }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PLAYWRIGHT_BROWSERS_PATH=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       # Install dependencies per OS
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
