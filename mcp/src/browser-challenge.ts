@@ -5,16 +5,14 @@
  * when dangerous commands are detected.
  */
 
-import { chromium, Browser } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as http from 'http';
-import { fileURLToPath } from 'url';
+import * as net from 'net';
 import Handlebars from 'handlebars';
+import { error as logError, info as logInfo, notice as logNotice } from './logger.js';
 
-// ES module compatibility
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CommonJS environment provides __dirname
 
 export interface ChallengeResult {
   approved: boolean;
@@ -30,27 +28,11 @@ export interface ChallengeData {
 }
 
 export class BrowserChallenge {
-  private browser: Browser | null = null;
   private server: http.Server | null = null;
   private challengeResult: ChallengeResult | null = null;
   private challengePort: number = 0;
-
-  /**
-   * Initialize the browser challenge system
-   */
-  async initialize(): Promise<void> {
-    try {
-      this.browser = await chromium.launch({
-        headless: process.env.CI === 'true', // Headless in CI, visible locally
-        args: [
-
-        ]
-      });
-    } catch (error) {
-      console.error('[Browser Challenge] Failed to initialize browser:', error);
-      throw new Error(`Browser initialization failed: ${error}`);
-    }
-  }
+  private resolveChallenge: ((result: ChallengeResult) => void) | null = null;
+  private sockets: Set<net.Socket> = new Set();
 
   /**
    * Show a challenge based on the challenge type
@@ -58,55 +40,38 @@ export class BrowserChallenge {
   async showChallenge(
     challengeType: string,
     challengeData: ChallengeData,
-    timeoutMs: number = 60000
+    timeoutMs: number = 60000,
+    options?: { openBrowser?: boolean }
   ): Promise<ChallengeResult> {
-    if (!this.browser) {
-      // default to non-headless unless overridden elsewhere
-      await this.initialize();
-    }
-
     try {
-      console.log(`[Browser Challenge] Showing ${challengeType} challenge for command: ${challengeData.command}`);
+      await logInfo('browser-challenge', { message: 'Showing challenge', challengeType, command: challengeData.command });
 
       // Start a local server to serve the challenge
       await this.startChallengeServer(challengeType, challengeData);
 
-      // Open the challenge page in a context that follows window size (responsive)
-      const context = await this.browser!.newContext({ viewport: null });
-      const page = await context.newPage();
-
-      // Set up message handler for challenge result
+      // Prepare promise resolver for server POST callbacks
       this.challengeResult = null;
-
-      let intervalId: NodeJS.Timeout | null = null;
       const challengePromise = new Promise<ChallengeResult>((resolve) => {
-        // Poll for server-written result, clear interval when resolved
-        intervalId = setInterval(() => {
-          if (this.challengeResult) {
-            if (intervalId) {
-              clearInterval(intervalId);
-              intervalId = null;
-            }
-            resolve(this.challengeResult);
+        this.resolveChallenge = (result: ChallengeResult) => {
+          if (!this.challengeResult) {
+            this.challengeResult = result;
           }
-        }, 100);
+          resolve(result);
+        };
       });
 
-      // Navigate to the challenge page
-      const challengeUrl = `http://localhost:${this.challengePort}`;
-      await page.goto(challengeUrl);
+      // Determine whether to open the system browser (tests may disable)
+      const challengeUrl = `http://127.0.0.1:${this.challengePort}`;
+      if (options?.openBrowser !== false) {
+        this.openInSystemBrowser(challengeUrl);
+      }
 
-      console.log(`[Browser Challenge] Challenge page opened at ${challengeUrl}`);
+      await logNotice('browser-challenge', { message: 'Challenge page opened', url: challengeUrl });
 
       // Set up timeout
       let timeoutId: NodeJS.Timeout | null = null;
       const timeoutPromise = new Promise<ChallengeResult>((resolve) => {
         timeoutId = setTimeout(() => {
-          // Stop polling before resolving timeout
-          if (intervalId) {
-            clearInterval(intervalId);
-            intervalId = null;
-          }
           resolve({
             approved: false,
             type: challengeType,
@@ -118,27 +83,21 @@ export class BrowserChallenge {
       // Wait for either completion or timeout
       const result = await Promise.race([challengePromise, timeoutPromise]);
 
-      // Ensure both timers are cleared after we have a result
-      if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-      }
+      // Ensure timers are cleared after we have a result
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
 
       // Clean up
-      await page.close();
-      await context.close();
       await this.stopChallengeServer();
 
-      console.log(`[Browser Challenge] Challenge completed. Result: ${result.approved ? 'APPROVED' : 'DENIED'}`);
+      await logInfo('browser-challenge', { message: 'Challenge completed', approved: result.approved });
 
       return result;
 
     } catch (error) {
-      console.error('[Browser Challenge] Error during challenge:', error);
+      await logError('browser-challenge', { message: 'Error during challenge', error: String(error) });
       await this.stopChallengeServer();
 
       return {
@@ -149,6 +108,36 @@ export class BrowserChallenge {
     }
   }
 
+  // Removed system browser executable lookup for simpler logic
+
+  /**
+   * Open a URL in the system default browser (macOS/Linux/Windows)
+   */
+  private openInSystemBrowser(url: string): void {
+    try {
+      const platform = process.platform;
+      if (platform === 'darwin') {
+        require('child_process').spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+      } else if (platform === 'win32') {
+        require('child_process').spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+      } else {
+        require('child_process').spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+      }
+    } catch (e) {
+      void logError('browser-challenge', { message: 'Failed to open system browser', error: String(e) });
+    }
+  }
+
+  /**
+   * Expose the current challenge URL (for tests only). Returns null if not active.
+   */
+  public getChallengeUrlForTests(): string | null {
+    if (!this.challengePort) {
+      return null;
+    }
+    return `http://127.0.0.1:${this.challengePort}`;
+  }
+
   /**
    * Start a local HTTP server to serve the challenge page
    */
@@ -156,10 +145,14 @@ export class BrowserChallenge {
     return new Promise((resolve, reject) => {
       // Find an available port
       this.server = http.createServer((req, res) => {
+        try {
+          void logInfo('browser-challenge', { message: 'HTTP request', method: req.method, url: req.url });
+        } catch { }
         // Handle CORS
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        res.setHeader('Connection', 'close');
 
         if (req.method === 'OPTIONS') {
           res.writeHead(200);
@@ -170,23 +163,51 @@ export class BrowserChallenge {
         if (req.url === '/' && req.method === 'GET') {
           // Serve the challenge page
           this.serveChallengeHTML(res, challengeType, challengeData);
-        } else if (req.url === '/approve' && req.method === 'POST') {
+        } else if ((req.url === '/approve' || req.url === '/approve/') && (req.method === 'POST' || req.method === 'GET')) {
           // Handle approval
-          this.challengeResult = { approved: true, type: challengeType };
-          res.writeHead(200, { 'Content-Type': 'application/json' });
+          const result: ChallengeResult = { approved: true, type: challengeType };
+          void logInfo('browser-challenge', { message: 'Received approve request' });
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Connection': 'close' });
           res.end(JSON.stringify({ status: 'approved' }));
-        } else if (req.url === '/deny' && req.method === 'POST') {
+          this.challengeResult = result;
+          const resolver = this.resolveChallenge;
+          this.resolveChallenge = null;
+          if (resolver) {
+            setImmediate(() => resolver(result));
+          }
+        } else if ((req.url === '/deny' || req.url === '/deny/') && (req.method === 'POST' || req.method === 'GET')) {
           // Handle denial
-          this.challengeResult = { approved: false, type: challengeType };
-          res.writeHead(200, { 'Content-Type': 'application/json' });
+          const result: ChallengeResult = { approved: false, type: challengeType };
+          void logInfo('browser-challenge', { message: 'Received deny request' });
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Connection': 'close' });
           res.end(JSON.stringify({ status: 'denied' }));
+          this.challengeResult = result;
+          const resolver = this.resolveChallenge;
+          this.resolveChallenge = null;
+          if (resolver) {
+            setImmediate(() => resolver(result));
+          }
+        } else if (req.url === '/favicon.ico') {
+          res.writeHead(204, { 'Connection': 'close' });
+          res.end();
         } else {
-          res.writeHead(404);
+          res.writeHead(404, { 'Connection': 'close' });
           res.end('Not found');
         }
       });
 
-      this.server.listen(0, 'localhost', () => {
+      // Tighten keep-alive and track sockets to ensure close() resolves
+      this.server.keepAliveTimeout = 0;
+      this.server.headersTimeout = 5000;
+      this.server.on('connection', (socket: net.Socket) => {
+        this.sockets.add(socket);
+        try { socket.setKeepAlive(false); } catch { }
+        socket.on('close', () => {
+          this.sockets.delete(socket);
+        });
+      });
+
+      this.server.listen(0, '127.0.0.1', () => {
         const address = this.server!.address();
         if (address && typeof address === 'object') {
           this.challengePort = address.port;
@@ -210,8 +231,8 @@ export class BrowserChallenge {
       const baseTemplatePath = path.join(__dirname, '..', 'templates', 'base-challenge.html');
 
       if (!fs.existsSync(baseTemplatePath)) {
-        console.error(`[Browser Challenge] Base template not found: ${baseTemplatePath}`);
-        res.writeHead(500);
+        void logError('browser-challenge', { message: 'Base template not found', baseTemplatePath });
+        res.writeHead(500, { 'Connection': 'close' });
         res.end('Base template not found');
         return;
       }
@@ -236,12 +257,12 @@ export class BrowserChallenge {
       // Render the template with the context
       const html = template(templateContext);
 
-      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.writeHead(200, { 'Content-Type': 'text/html', 'Connection': 'close' });
       res.end(html);
 
     } catch (error) {
-      console.error('[Browser Challenge] Error serving challenge HTML:', error);
-      res.writeHead(500);
+      void logError('browser-challenge', { message: 'Error serving challenge HTML', error: String(error) });
+      res.writeHead(500, { 'Connection': 'close' });
       res.end('Error loading challenge');
     }
   }
@@ -266,10 +287,10 @@ export class BrowserChallenge {
           CHALLENGE_SUBTITLE: 'A potentially dangerous command has been detected and requires verification before execution.',
           CHALLENGE_CONTENT: this.getMathChallengeContent(challengeData),
           CHALLENGE_BUTTONS: `
-            <button class="btn btn-approve" id="approve-btn" onclick="checkAnswer()">
+            <button class="btn btn-approve" id="approve-btn" type="button">
               ✓ Solve & Approve
             </button>
-            <button class="btn btn-deny" onclick="denyCommand()">
+            <button class="btn btn-deny" onclick="denyCommand()" type="button">
               ✕ Deny Command
             </button>
           `,
@@ -287,10 +308,10 @@ export class BrowserChallenge {
           CHALLENGE_SUBTITLE: 'A potentially dangerous command has been detected and requires verification before execution.',
           CHALLENGE_CONTENT: this.getWordChallengeContent(challengeData),
           CHALLENGE_BUTTONS: `
-            <button class="btn btn-approve" id="approve-btn" onclick="checkAnswer()">
+            <button class="btn btn-approve" id="approve-btn" type="button">
               ✓ Verify & Approve
             </button>
-            <button class="btn btn-deny" onclick="denyCommand()">
+            <button class="btn btn-deny" onclick="denyCommand()" type="button">
               ✕ Deny Command
             </button>
           `,
@@ -465,10 +486,13 @@ export class BrowserChallenge {
     return `
       let attempts = 0;
       const maxAttempts = 3;
+      let isSubmitting = false;
 
-      function checkAnswer() {
+      function checkAnswerInternal(incrementAttempt) {
+        if (isSubmitting) { return; }
+        isSubmitting = true;
         const userAnswer = parseInt(document.getElementById('answer').value);
-        attempts++;
+        if (incrementAttempt) { attempts++; }
 
         if (userAnswer === window.correctAnswer) {
           showSuccess();
@@ -488,18 +512,33 @@ export class BrowserChallenge {
           showError();
           document.getElementById('answer').value = '';
         }
+        // allow another submission after a short debounce
+        setTimeout(() => { isSubmitting = false; }, 150);
       }
 
       // Make checkAnswer globally available
-      window.checkAnswer = checkAnswer;
+      window.checkAnswer = function() { checkAnswerInternal(true); };
 
       // Enter key support
       document.addEventListener('DOMContentLoaded', function() {
+        if (window.__challengeEnterHandlersInstalled) { return; }
+        window.__challengeEnterHandlersInstalled = true;
         const answerInput = document.getElementById('answer');
+        const approveBtn = document.getElementById('approve-btn');
+        if (approveBtn) {
+          approveBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            checkAnswerInternal(true);
+          });
+        }
         if (answerInput) {
-          answerInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-              checkAnswer();
+          let enterGuard = false;
+          answerInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.repeat && !enterGuard) {
+              enterGuard = true;
+              e.preventDefault();
+              checkAnswerInternal(false);
+              setTimeout(() => { enterGuard = false; }, 300);
             }
           });
         }
@@ -514,10 +553,13 @@ export class BrowserChallenge {
     return `
       let attempts = 0;
       const maxAttempts = 3;
+      let isSubmitting = false;
 
-      function checkAnswer() {
+      function checkAnswerInternal(incrementAttempt) {
+        if (isSubmitting) { return; }
+        isSubmitting = true;
         const userAnswer = document.getElementById('answer').value;
-        attempts++;
+        if (incrementAttempt) { attempts++; }
 
         if (userAnswer === window.targetWord) {
           showSuccess();
@@ -537,18 +579,33 @@ export class BrowserChallenge {
           showError();
           document.getElementById('answer').value = '';
         }
+        // allow another submission after a short debounce
+        setTimeout(() => { isSubmitting = false; }, 150);
       }
 
       // Make checkAnswer globally available
-      window.checkAnswer = checkAnswer;
+      window.checkAnswer = function() { checkAnswerInternal(true); };
 
       // Enter key support
       document.addEventListener('DOMContentLoaded', function() {
+        if (window.__challengeEnterHandlersInstalled) { return; }
+        window.__challengeEnterHandlersInstalled = true;
         const answerInput = document.getElementById('answer');
+        const approveBtn = document.getElementById('approve-btn');
+        if (approveBtn) {
+          approveBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            checkAnswerInternal(true);
+          });
+        }
         if (answerInput) {
-          answerInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-              checkAnswer();
+          let enterGuard = false;
+          answerInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.repeat && !enterGuard) {
+              enterGuard = true;
+              e.preventDefault();
+              checkAnswerInternal(false);
+              setTimeout(() => { enterGuard = false; }, 300);
             }
           });
         }
@@ -563,7 +620,7 @@ export class BrowserChallenge {
   private generateMathProblem(): { problem: string; answer: number } {
     // Only use addition operation
     const operation = '+';
-    
+
     // Generate numbers between 0-10 (inclusive)
     const num1 = Math.floor(Math.random() * 11); // 0-10
     const num2 = Math.floor(Math.random() * 11); // 0-10
@@ -611,6 +668,14 @@ export class BrowserChallenge {
   private async stopChallengeServer(): Promise<void> {
     if (this.server) {
       return new Promise((resolve) => {
+        // Force-destroy any open sockets to avoid hanging on keep-alive
+        try {
+          for (const socket of this.sockets) {
+            try { socket.destroy(); } catch { }
+          }
+          this.sockets.clear();
+        } catch { }
+
         this.server!.close(() => {
           this.server = null;
           resolve();
@@ -626,13 +691,8 @@ export class BrowserChallenge {
     try {
       await this.stopChallengeServer();
 
-      if (this.browser) {
-        await this.browser.close();
-        this.browser = null;
-      }
-
     } catch (error) {
-      console.error('[Browser Challenge] Error during cleanup:', error);
+      void logError('browser-challenge', { message: 'Error during cleanup', error: String(error) });
     }
   }
 
@@ -642,12 +702,13 @@ export class BrowserChallenge {
   static async showChallenge(
     challengeType: string,
     challengeData: ChallengeData,
-    timeoutMs: number = 60000
+    timeoutMs: number = 60000,
+    options?: { openBrowser?: boolean }
   ): Promise<ChallengeResult> {
     const challenge = new BrowserChallenge();
 
     try {
-      const result = await challenge.showChallenge(challengeType, challengeData, timeoutMs);
+      const result = await challenge.showChallenge(challengeType, challengeData, timeoutMs, options);
       return result;
     } finally {
       await challenge.cleanup();

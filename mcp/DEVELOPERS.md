@@ -6,7 +6,7 @@ This guide shows how to build, run, and exercise the MCP server locally without 
 
 ```bash
 cd mcp
-npm ci
+npm install
 npm run build
 ```
 
@@ -22,7 +22,7 @@ In the Inspector UI:
 
 - Click "Start a server"
 - Command: `node`
-- Args (from mcp/ dir): `dist/index.js --challenge confirm --severity critical,high,medium`
+- Args (from mcp/ dir): `lib/index.js --challenge confirm --severity critical,high,medium`
 - Connect
 
 Once connected you can:
@@ -30,6 +30,6 @@ Once connected you can:
 - List tools (`secure_shell_execute`, `validate_shell_command`)
 - Call `validate_shell_command` (safety check only):
 
-* `command`: `rm -r mcp/example && echo "test" || ls && terraform apply -auto-approve`
+* `command`: `rm -r example && echo "test" || ls && terraform apply -auto-approve`
 * `working_directory`: `.`
 * `explanation`: "Delete the example folder"

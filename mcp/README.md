@@ -16,12 +16,12 @@ Shellfirm MCP adds a consequence‑aware approval step before any flagged comman
 - **Browser challenges**: Confirm, math, or word-entry challenges to reduce misclicks and automate “are you sure?” checks.
 - **Severity gates**: Enforce only `critical` and `high`, or include `medium,low` for stricter environments.
 - **Environment propagation control**: Run commands with or without inheriting `process.env` using the `--no-propagate-env` flag.
-- **Cross‑platform headless UI**: Powered by Playwright for Chromium/WebKit/Firefox in headless mode when desired.
+- **Cross‑platform UI**: Runs a browser challenge in headless or visible mode.
 - **Offline by default**: No external calls required during validation.
 
 ## Getting started
 
-Use the standard MCP configuration below with your client. This mirrors the multi‑client setup style from Playwright MCP ([source](https://raw.githubusercontent.com/microsoft/playwright-mcp/refs/heads/main/README.md)).
+Use the standard MCP configuration below with your client.
 
 Standard config (works in most MCP clients):
 
@@ -76,7 +76,7 @@ code --add-mcp '{"name":"shellfirm","command":"npx","args":["@shellfirm/mcp@late
 ## Configuration
 
 - **Challenge type** (default `confirm`):
-  - `--challenge confirm|math|word`
+  - `--challenge confirm|math|word|block`
 - **Severity filter**:
   - `--severity critical,high,medium,low`
 - **Environment propagation** (default propagate):
@@ -155,7 +155,7 @@ For a no‑LLM local workflow to run and call this MCP server directly (includin
 ## Development
 
 - Rules: defined in Rust in `shellfirm_core` and shipped to this server via WASM.
-- UI & Challenges: rendered using Playwright’s browser automation in headless/non‑headless modes.
+- UI & Challenges: rendered using a lightweight browser challenge (headless or visible).
 - Local testing: use your MCP‑compatible client (Cursor, Claude Desktop, etc.) to send commands.
 
 ## FAQ
@@ -165,14 +165,13 @@ For a no‑LLM local workflow to run and call this MCP server directly (includin
 - Is this offline?
   - Yes. Rule evaluation runs locally via WASM.
 - Which OSes are supported?
-  - macOS, Linux, and Windows. Headless browsers are supported on all platforms (via Playwright).
+  - macOS, Linux, and Windows. Headless browsers are supported on all platforms.
 - Can I customize rules?
   - Yes. Rules live in this repo (Rust), compiled to WASM, and can be extended.
 
 ## Related work and inspiration
 
 - Vibe MCP emphasizes unified AI rules and clean JSON designed for AI consumption. Shellfirm MCP shares the same spirit of AI‑friendly, structured outputs and MCP compliance ([README source](https://raw.githubusercontent.com/Jinjos/vibe-mcp/refs/heads/main/README.md)).
-- Playwright provides resilient, fast, cross‑browser automation and headless execution used for the challenge UI ([README source](https://raw.githubusercontent.com/microsoft/playwright/refs/heads/main/README.md)).
 
 ## Roadmap
 

@@ -28,11 +28,12 @@ import { CommandInterceptor } from './command-interceptor.js';
 import type { ChallengeType } from './types.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+// Note: When compiling to CommonJS, Node provides __filename and __dirname globals.
+import { program } from 'commander';
+import { SetLevelRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { setServer as setLoggerServer, log as mcpLog, toErrorObject } from './logger.js';
 
-// ES module compatibility
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// CommonJS environment already provides __filename and __dirname
 
 /**
  * Read package.json to get name and version
@@ -59,7 +60,7 @@ function getPackageInfo(): { name: string; version: string } {
         version: packageJson.version
       };
     } catch (fallbackError) {
-      console.error('[Shellfirm MCP] Warning: Could not read package.json, using fallback values:', error, fallbackError);
+      void mcpLog('warning', 'startup', { message: 'Could not read package.json, using fallback values', error: String(error), fallbackError: String(fallbackError) });
       // Fallback values if package.json cannot be read
       return {
         name: 'shellfirm',
@@ -98,15 +99,31 @@ class ShellfirmMcpServer {
       {
         capabilities: {
           tools: {},
+          // Advertise MCP logging capability so clients can set levels and receive logs
+          logging: {},
         },
       }
     );
 
+    setLoggerServer(this.server);
     this.setupToolHandlers();
     this.setupErrorHandling();
   }
 
+  /**
+   * Send MCP logging notification to client (RFC 5424 levels) and mirror locally.
+   * Falls back gracefully if transport or capability is unavailable.
+   */
+  // logging moved to shared logger.ts
+
   private setupToolHandlers(): void {
+    // Allow clients to adjust logging level per MCP spec (SDK already wires it when capability present).
+    this.server.setRequestHandler(SetLevelRequestSchema, async (_request) => {
+      // The SDK stores the level per session and filters notifications.
+      // We acknowledge with empty result per spec.
+      return {} as Record<string, never>;
+    });
+
     // List available tools - SIMPLIFIED for core functionality
     this.server.setRequestHandler(ListToolsRequestSchema, async () => {
       return {
@@ -165,8 +182,7 @@ class ShellfirmMcpServer {
       // Route to appropriate handler based on tool name
       if (name === 'secure_shell_execute') {
         // Primary secure execution tool
-        console.error(`[Shellfirm MCP] 🎯 INTERCEPTED: ${name} called - enforcing mandatory security`);
-        console.error(`[Shellfirm MCP] 🔒 This tool name has been intercepted and redirected to secure execution`);
+        void mcpLog('notice', 'tools', { message: 'Intercepted secure_shell_execute - enforcing mandatory security' });
         return await this.handleSecureExecution(args as Record<string, unknown> & {
           command: string;
           working_directory?: string;
@@ -181,8 +197,7 @@ class ShellfirmMcpServer {
       }
 
       // 🚨 BLOCK ALL UNKNOWN TOOLS - Prevent any bypass attempts
-      console.error(`[Shellfirm MCP] 🚨 SECURITY VIOLATION: Unknown tool "${name}" attempted`);
-      console.error(`[Shellfirm MCP] 🛡️ All terminal commands MUST use 'run_terminal_cmd' with mandatory Shellfirm MCP protection`);
+      void mcpLog('warning', 'tools', { message: 'Unknown tool attempted', name });
 
       throw new Error(`🚨 SECURITY VIOLATION: Tool "${name}" is not allowed. 
 
@@ -238,11 +253,9 @@ ALL terminal command execution is now routed through mandatory security validati
       };
 
       if (result.allowed) {
-        console.error('[Shellfirm MCP] ✅ Command executed successfully');
+        void mcpLog('info', 'execution', { message: 'Command executed successfully' });
       } else {
-        console.error('[Shellfirm MCP] ❌ Command blocked by security policy');
-        console.error('[Shellfirm MCP] 💡 To execute this command, you must manually approve it');
-        console.error('[Shellfirm MCP] 💡 Consider running it directly in your terminal if you trust it');
+        void mcpLog('warning', 'execution', { message: 'Command blocked by security policy', hint: 'Manual approval required' });
       }
 
       return {
@@ -254,8 +267,7 @@ ALL terminal command execution is now routed through mandatory security validati
         ],
       };
     } catch (error: unknown) {
-      console.error('[Shellfirm MCP] ❌ Critical error in secure command execution:', error);
-      console.error('[Shellfirm MCP] 🛡️ Blocking command for security due to system error');
+      void mcpLog('critical', 'execution', { message: 'Critical error in secure command execution', error: toErrorObject(error) });
 
       // Ensure we never crash the MCP server
       const safeErrorMessage = error instanceof Error ? error.message : 'Unknown security system error';
@@ -280,7 +292,7 @@ ALL terminal command execution is now routed through mandatory security validati
         };
       } catch (jsonError) {
         // Last resort - return minimal safe response
-        console.error('[Shellfirm MCP] ❌ JSON serialization failed:', jsonError);
+        void mcpLog('error', 'execution', { message: 'JSON serialization failed', error: toErrorObject(jsonError) });
         return {
           content: [
             {
@@ -304,7 +316,7 @@ ALL terminal command execution is now routed through mandatory security validati
 
       // Clean the command for validation as well
       const cleanCommand = command.trim();
-      console.error(`[Shellfirm MCP] 🔍 Validating command with WASM engine: ${cleanCommand}`);
+      void mcpLog('debug', 'validation', { message: 'Validating command with WASM engine', command: cleanCommand });
 
       // Use WASM-based validation with proper severity filtering
       const validationOptions = {
@@ -321,7 +333,7 @@ ALL terminal command execution is now routed through mandatory security validati
           message: 'Command is safe to execute',
         };
 
-        console.error('[Shellfirm MCP] Command is safe');
+        void mcpLog('info', 'validation', { message: 'Command is safe' });
 
         return {
           content: [
@@ -334,11 +346,11 @@ ALL terminal command execution is now routed through mandatory security validati
       }
 
       const patterns = validationResult.matches.map(check => check.description).join(', ');
-      console.error(`[Shellfirm MCP] Risky patterns detected: ${patterns}`);
+      void mcpLog('notice', 'validation', { message: 'Risky patterns detected', patterns });
 
       // Command denied completely
       if (validationResult.should_deny) {
-        console.error('[Shellfirm MCP] Command is denied by security policy');
+        void mcpLog('warning', 'validation', { message: 'Command denied by security policy' });
         const response: ValidateCommandResponse = {
           safe: false,
           message: 'Shellfirm MCP: Command denied by security policy',
@@ -356,9 +368,7 @@ ALL terminal command execution is now routed through mandatory security validati
       }
 
       // Show captcha challenge
-      console.error('[Shellfirm MCP] 🚨 Command blocked - security policy enforced');
-      console.error('[Shellfirm MCP] 💡 To execute this command, you must manually approve it');
-      console.error('[Shellfirm MCP] 💡 Consider running it directly in your terminal if you trust it');
+      void mcpLog('warning', 'validation', { message: 'Command blocked - security policy enforced', hint: 'Manual approval required' });
 
       // Command is blocked for security - no captcha needed
       const response: ValidateCommandResponse = {
@@ -376,7 +386,7 @@ ALL terminal command execution is now routed through mandatory security validati
         ],
       };
     } catch (error) {
-      console.error('[Shellfirm MCP] Error validating command:', error);
+      void mcpLog('error', 'validation', { message: 'Error validating command', error: toErrorObject(error) });
       const response: ValidateCommandResponse = {
         safe: false,
         message: `Shellfirm MCP: Error validating command: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -397,30 +407,30 @@ ALL terminal command execution is now routed through mandatory security validati
 
   private setupErrorHandling(): void {
     this.server.onerror = (error) => {
-      console.error('[Shellfirm MCP] ❌ Server error:', error);
+      void mcpLog('error', 'server', { error: toErrorObject(error), message: 'Server error' });
       // Don't crash - just log the error
     };
 
     // Global error handlers to prevent crashes
     process.on('uncaughtException', (error) => {
-      console.error('[Shellfirm MCP] 🚨 Uncaught exception:', error);
-      console.error('[Shellfirm MCP] 🛡️ Server continuing to run for security');
+      void mcpLog('alert', 'process', { error: toErrorObject(error), message: 'Uncaught exception' });
+      try { process.stderr.write('[Shellfirm MCP] 🛡️ Server continuing to run for security\n'); } catch {}
       // Don't exit - keep server running for security
     });
 
-    process.on('unhandledRejection', (reason, promise) => {
-      console.error('[Shellfirm MCP] 🚨 Unhandled rejection at:', promise, 'reason:', reason);
-      console.error('[Shellfirm MCP] 🛡️ Server continuing to run for security');
+    process.on('unhandledRejection', (reason, _promise) => {
+      void mcpLog('critical', 'process', { reason: toErrorObject(reason), message: 'Unhandled promise rejection' });
+      try { process.stderr.write('[Shellfirm MCP] 🛡️ Server continuing to run for security\n'); } catch {}
       // Don't exit - keep server running for security
     });
 
     process.on('SIGINT', async () => {
-      console.error('[Shellfirm MCP] 🔄 Shutting down server...');
+      await mcpLog('notice', 'lifecycle', { message: 'Shutting down server (SIGINT)' });
       try {
         await this.server.close();
         process.exit(0);
       } catch (error) {
-        console.error('[Shellfirm MCP] ❌ Error during shutdown:', error);
+        await mcpLog('error', 'lifecycle', { error: toErrorObject(error), message: 'Error during shutdown' });
         process.exit(1);
       }
     });
@@ -436,10 +446,10 @@ ALL terminal command execution is now routed through mandatory security validati
 
       // Log pattern information
       const patterns = await getAllPatterns();
-      console.error(`[Shellfirm MCP] 📋 Loaded ${patterns.length} security patterns`);
+      await mcpLog('info', 'wasm', { message: 'WASM initialized', patternsLoaded: patterns.length });
 
     } catch (error) {
-      console.error('[Shellfirm MCP] ❌ Failed to initialize WASM module:', error);
+      await mcpLog('error', 'wasm', { error: toErrorObject(error), message: 'Failed to initialize WASM module' });
       throw new Error(`WASM initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -449,7 +459,7 @@ ALL terminal command execution is now routed through mandatory security validati
    */
   private async ensureWasmInitialized(): Promise<void> {
     if (!this.wasmInitialized) {
-      console.error('[Shellfirm MCP] WASM not initialized, initializing now...');
+      await mcpLog('notice', 'wasm', { message: 'WASM not initialized, initializing now' });
       await this.initializeWasm();
     }
   }
@@ -457,7 +467,7 @@ ALL terminal command execution is now routed through mandatory security validati
   async run(): Promise<void> {
     try {
       // Initialize WASM first
-      console.error('[Shellfirm MCP] 🚀 Starting Shellfirm MCP Server...');
+      await mcpLog('info', 'lifecycle', { message: 'Starting Shellfirm MCP Server' });
       await this.initializeWasm();
 
       // Start MCP server
@@ -465,7 +475,7 @@ ALL terminal command execution is now routed through mandatory security validati
       await this.server.connect(transport);
 
     } catch (error) {
-      console.error('[Shellfirm MCP] 💥 Server startup failed:', error);
+      await mcpLog('emergency', 'lifecycle', { error: toErrorObject(error), message: 'Server startup failed' });
       process.exit(1);
     }
   }
@@ -473,49 +483,53 @@ ALL terminal command execution is now routed through mandatory security validati
 
 // Start the WASM-powered MCP server
 async function main() {
-  console.error('🚀 Shellfirm MCP Server');
+  try { process.stderr.write('🚀 Shellfirm MCP Server\n'); } catch {}
 
-  // Parse command line arguments
-  const args = process.argv.slice(2);
-  let challengeType: ChallengeType = 'confirm'; // default
-  let severities: string[] = ['critical', 'high', 'medium'];
-  let propagateProcessEnv = true; // default
+  // Parse command line arguments with commander
+  program
+    .name('mcp-server-shellfirm')
+    .description('Shellfirm MCP Server - secure command validation via WASM')
+    .option('--challenge <type>', 'challenge type (confirm|math|word)', 'confirm')
+    .option('--severity <levels>', 'comma-separated severity levels', 'critical,high,medium')
+    .option('--no-propagate-env', 'do not propagate process.env to executed commands');
 
-  // --challenge <type>
-  const chalIdx = args.indexOf('--challenge');
-  if (chalIdx !== -1 && args[chalIdx + 1]) {
-    challengeType = (args[chalIdx + 1] as ChallengeType);
-  }
-  // "yes" challenge is no longer supported via flag - fall back to confirm
-  // Guard: if an unsupported value is provided, fall back to confirm
+  program.parse(process.argv);
+
+  const opts = program.opts() as {
+    challenge?: string;
+    severity?: string;
+    propagateEnv?: boolean; // commander maps --no-propagate-env to false
+  };
+
   const allowed: ChallengeType[] = ['confirm', 'math', 'word'];
+  let challengeType: ChallengeType = (opts.challenge as ChallengeType) ?? 'confirm';
   if (!allowed.includes(challengeType)) {
-    console.error(`[Shellfirm MCP] Unsupported challenge type "${String(challengeType)}". Falling back to 'confirm'.`);
+    void mcpLog('warning', 'startup', { message: 'Unsupported challenge type - fallback to confirm', given: String(challengeType) });
     challengeType = 'confirm';
   }
-  // --severity a,b,c
-  const sevIdx = args.indexOf('--severity');
-  if (sevIdx !== -1 && args[sevIdx + 1]) {
-    severities = args[sevIdx + 1]
-      .split(',')
-      .map(s => s.trim().toLowerCase())
-      .filter(Boolean);
+
+  let severities: string[] = (opts.severity ?? 'critical,high,medium')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (severities.length === 0) {
+    severities = ['critical', 'high', 'medium'];
   }
 
-  // --no-propagate-env (boolean flag to disable env propagation)
-  if (args.includes('--no-propagate-env')) {
-    propagateProcessEnv = false;
-  }
+  const propagateProcessEnv = opts.propagateEnv !== false;
 
-  console.error(`🎯 Challenge type: ${challengeType}`);
-  console.error(`🔧 Severity levels: ${severities.join(', ')}`);
-  console.error(`🌍 Propagate process.env: ${propagateProcessEnv}`);
+  // Keep initial stderr banners, functional logs go through MCP
+  try { process.stderr.write(`🎯 Challenge type: ${challengeType}\n`); } catch {}
+  try { process.stderr.write(`🔧 Severity levels: ${severities.join(', ')}\n`); } catch {}
+  try { process.stderr.write(`🌍 Propagate process.env: ${propagateProcessEnv}\n`); } catch {}
 
   const server = new ShellfirmMcpServer(challengeType, severities, propagateProcessEnv);
   await server.run();
 }
 
 main().catch((error: unknown) => {
-  console.error('Failed to start server:', error);
+  try { process.stderr.write(`Failed to start server: ${error instanceof Error ? error.message : String(error)}\n`); } catch {}
   process.exit(1);
 });
+
+// error normalization utilities moved to logger.ts

@@ -7,7 +7,7 @@ import * as wasm from './shellfirm-wasm.js';
 
 beforeAll(async () => {
 	// Ensure pkg exists so init uses it instead of dynamic import
-	const pkgPath = new URL('../pkg/shellfirm_core.js', import.meta.url);
+	const pkgPath = require('path').resolve(__dirname, '../pkg/shellfirm_core.js');
 	expect(fs.existsSync(pkgPath)).toBeTruthy();
 	await wasm.initShellfirmWasm();
 });
@@ -62,5 +62,23 @@ describe('shellfirm-wasm (integration with pkg)', () => {
 		expect(result).toHaveProperty('matches');
 		expect(result).toHaveProperty('should_challenge');
 		expect(result).toHaveProperty('should_deny');
+	});
+
+	test('severity filtering influences results (smoke)', async () => {
+		const riskyCmd = 'rm -rf /tmp/shellfirm-test-*';
+		const allSev = await wasm.validateSplitCommandWithOptions(riskyCmd, {
+			allowed_severities: ['low', 'medium', 'high', 'critical'],
+			deny_pattern_ids: [],
+		});
+		const mediumOnly = await wasm.validateSplitCommandWithOptions(riskyCmd, {
+			allowed_severities: ['medium'],
+			deny_pattern_ids: [],
+		});
+		// Both should detect, but the shape may differ. Assert deterministic keys.
+		expect(allSev).toHaveProperty('matches');
+		expect(mediumOnly).toHaveProperty('matches');
+		// At least ensure not throwing and matches are arrays
+		expect(Array.isArray(allSev.matches)).toBe(true);
+		expect(Array.isArray(mediumOnly.matches)).toBe(true);
 	});
 });

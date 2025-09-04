@@ -7,11 +7,8 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { fileURLToPath } from 'url';
-
-// ES module compatibility
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { error as logError } from './logger.js';
+// CommonJS environment provides __dirname
 
 // WASM module interfaces
 export interface WasmValidationOptions {
@@ -75,20 +72,19 @@ export async function initShellfirmWasm(): Promise<void> {
   }
 
   try {
-    // Try to load from the pkg directory (relative to dist folder)
+    // Try to load from the pkg directory (relative to compiled lib folder)
     const pkgPath = path.resolve(__dirname, '..', 'pkg', 'shellfirm_core.js');
 
     if (fs.existsSync(pkgPath)) {
-      // Convert to file:// URL for dynamic import
-      const pkgUrl = `file://${pkgPath}`;
-      wasmModule = await import(pkgUrl) as WasmModule;
+      // In CommonJS, prefer require with a filesystem path (no file:// URL)
+      // @ts-ignore - require is available in CommonJS builds
+      wasmModule = require(pkgPath) as WasmModule;
     } else {
-      console.error('[Shellfirm WASM] Pkg directory not found, trying node_modules...');
-      // Fallback: try from node_modules if installed as package
-      // Use Function constructor to completely avoid TypeScript compile-time resolution
-      const dynamicImport = new Function('moduleName', 'return import(moduleName)');
-      wasmModule = await dynamicImport('shellfirm_core') as WasmModule;
-      console.error('[Shellfirm WASM] ✅ Initialized from node_modules');
+      await logError('wasm', { message: 'Pkg directory not found, trying node_modules' });
+      // Fallback: try from node_modules if installed as a dependency
+      // @ts-ignore - require is available in CommonJS builds
+      wasmModule = require('shellfirm_core') as WasmModule;
+      await logError('wasm', { message: 'Initialized from node_modules', level: 'info' });
     }
 
     // Initialize the WASM module
@@ -97,7 +93,7 @@ export async function initShellfirmWasm(): Promise<void> {
     }
 
   } catch (error) {
-    console.error('[Shellfirm WASM] Failed to load module:', error);
+    await logError('wasm', { message: 'Failed to load module', error: String(error) });
     throw new Error(`Failed to initialize Shellfirm WASM module: ${error}`);
   }
 }
@@ -145,7 +141,7 @@ export async function validateCommand(
       should_deny,
     };
   } catch (error) {
-    console.error('[Shellfirm WASM] Validation error:', error);
+    await logError('wasm', { message: 'Validation error', error: String(error) });
     throw new Error(`Command validation failed: ${error}`);
   }
 }
@@ -176,7 +172,7 @@ export async function validateCommandSimple(command: string): Promise<Validation
       should_deny,
     };
   } catch (error) {
-    console.error('[Shellfirm WASM] Simple validation error:', error);
+    await logError('wasm', { message: 'Simple validation error', error: String(error) });
     throw new Error(`Command validation failed: ${error}`);
   }
 }
@@ -209,7 +205,7 @@ export async function validateSplitCommand(command: string): Promise<ValidationR
       should_deny,
     };
   } catch (error) {
-    console.error('[Shellfirm WASM] Split command validation error:', error);
+    await logError('wasm', { message: 'Split command validation error', error: String(error) });
     throw new Error(`Command validation failed: ${error}`);
   }
 }
@@ -261,7 +257,7 @@ export async function validateSplitCommandWithOptions(
       should_deny,
     };
   } catch (error) {
-    console.error('[Shellfirm WASM] Split command validation with options error:', error);
+    await logError('wasm', { message: 'Split command validation with options error', error: String(error) });
     throw new Error(`Command validation failed: ${error}`);
   } finally {
     // Clean up WASM objects safely
@@ -295,7 +291,7 @@ export async function getAllPatterns(): Promise<Check[]> {
     const patternsJson = wasmModule.get_all_patterns_wasm();
     return JSON.parse(patternsJson);
   } catch (error) {
-    console.error('[Shellfirm WASM] Get patterns error:', error);
+    await logError('wasm', { message: 'Get patterns error', error: String(error) });
     throw new Error(`Failed to get patterns: ${error}`);
   }
 }
@@ -314,7 +310,7 @@ export async function getPatternGroups(): Promise<string[]> {
     const groupsJson = wasmModule.get_pattern_groups_wasm();
     return JSON.parse(groupsJson);
   } catch (error) {
-    console.error('[Shellfirm WASM] Get groups error:', error);
+    await logError('wasm', { message: 'Get groups error', error: String(error) });
     throw new Error(`Failed to get pattern groups: ${error}`);
   }
 }
@@ -333,7 +329,7 @@ export async function getPatternsForGroup(group: string): Promise<Check[]> {
     const patternsJson = wasmModule.get_patterns_for_group_wasm(group);
     return JSON.parse(patternsJson);
   } catch (error) {
-    console.error('[Shellfirm WASM] Get group patterns error:', error);
+    await logError('wasm', { message: 'Get group patterns error', error: String(error) });
     throw new Error(`Failed to get patterns for group ${group}: ${error}`);
   }
 }

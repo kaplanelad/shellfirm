@@ -122,14 +122,19 @@ mod test_command_cli_command {
             .get_settings_from_file()
             .expect("Failed to get settings from file");
 
-        assert_debug_snapshot!(execute(
-            "rm -rf /",
-            &settings,
-            &settings
-                .get_active_checks()
-                .expect("Failed to get active checks"),
-            true
-        ));
+        // Redact the verbose regex content in the `test` field from the snapshot output
+        insta::with_settings!({
+            filters => vec![(r#"test: \\".*?\\""#, "test: \"<redacted>\"")]
+        }, {
+            assert_debug_snapshot!(execute(
+                "rm -rf /",
+                &settings,
+                &settings
+                    .get_active_checks()
+                    .expect("Failed to get active checks"),
+                true
+            ));
+        });
     }
 
     #[test]

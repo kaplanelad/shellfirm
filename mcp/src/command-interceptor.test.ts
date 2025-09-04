@@ -1,4 +1,25 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// Prevent executing real commands in tests/CI by mocking child_process.exec
+// IMPORTANT: this must be defined BEFORE importing the module under test
+vi.mock('child_process', () => {
+  return {
+    exec: vi.fn((command: string, options?: unknown, callback?: unknown) => {
+      const cb = typeof options === 'function' ? options : callback;
+      if (typeof cb === 'function') {
+        cb(null, 'MOCK_STDOUT', '');
+      }
+      return {} as unknown as import('child_process').ChildProcess;
+    })
+  };
+});
+
+// Ensure promisify returns a resolving function to avoid relying on exec's internals
+vi.mock('util', () => ({
+  promisify: vi.fn(() => {
+    return (_command: string, _options?: unknown) => Promise.resolve({ stdout: 'MOCK_STDOUT', stderr: '' });
+  })
+}));
 import { CommandInterceptor } from './command-interceptor.js';
 import { BrowserChallenge } from './browser-challenge.js';
 import { validateSplitCommandWithOptions } from './shellfirm-wasm.js';

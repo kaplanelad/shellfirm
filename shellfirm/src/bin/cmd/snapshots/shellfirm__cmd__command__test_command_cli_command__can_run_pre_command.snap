@@ -7,7 +7,7 @@ Ok(
     CmdExit {
         code: 0,
         message: Some(
-            "---\n- id: \"fs:recursively_delete\"\n  test: \"^(?:rm\\\\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\\\\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\\\\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*\\\\s*(\\\\*|\\\\.|\\\\.\\\\.|/|\\\\.\\\\./[^\\\\s]+|[^\\\\s]*/[^\\\\s]*)\\\\s*$|rm\\\\s+(\\\\*|\\\\.|\\\\.\\\\.|/|\\\\.\\\\./[^\\\\s]+|[^\\\\s]*/[^\\\\s]*)\\\\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\\\\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\\\\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*)\\\\s*$\"\n  description: \"Recursive rm targeting wildcard, top‑level paths (., .., /, *), or specific directory paths. This can wipe entire directories or the filesystem root.\"\n  from: fs\n  severity: high\n  challenge: math\n  filters: {}\n  validation_mode: Split\n",
+            "---\n- id: \"fs:recursively_delete\"\n  test: "<redacted>"\n  description: \"Recursive rm targeting wildcard, top‑level paths (., .., /, *), or specific directory paths. This can wipe entire directories or the filesystem root.\"\n  from: fs\n  severity: high\n  challenge: math\n  filters:\n    IsExists: \"1\"\n  validation_mode: Split\n",
         ),
     },
 )

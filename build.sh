@@ -123,7 +123,7 @@ fi
 print_info "Building TypeScript project..."
 if npm run build; then
     print_success "MCP TypeScript built successfully"
-    print_info "Output location: mcp/dist/"
+    print_info "Output location: mcp/lib/"
 else
     echo -e "${RED}✗ MCP build failed${NC}"
     exit 1
@@ -156,7 +156,7 @@ else
 fi
 
 # Verify MCP build
-if [ -f "dist/index.js" ]; then
+if [ -f "lib/index.js" ]; then
     print_success "MCP server binary verified"
 else
     echo -e "${RED}✗ MCP server binary not found${NC}"
@@ -171,7 +171,7 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "\n${BLUE}📦 Built Components:${NC}"
 echo -e "${GREEN}✅ Shellfirm CLI${NC}      → target/release/shellfirm"
 echo -e "${GREEN}✅ shellfirm_core WASM${NC} → shellfirm_core/pkg/"
-echo -e "${GREEN}✅ MCP Server${NC}          → mcp/dist/index.js"
+echo -e "${GREEN}✅ MCP Server${NC}          → mcp/lib/index.js"
 
 echo -e "\n${BLUE}🚀 Ready to Use:${NC}"
 echo ""
@@ -179,12 +179,12 @@ echo -e "${YELLOW}📋 CLI Usage:${NC}"
 echo "   ./target/release/shellfirm --help"
 echo ""
 echo -e "${YELLOW}🌐 MCP Server:${NC}"
-echo "   cd mcp && node dist/index.js"
+echo "   cd mcp && node lib/index.js"
 echo ""
 echo -e "${YELLOW}⚙️  MCP Configuration:${NC}"
 echo '   "shellfirm": {'
 echo '     "command": "node",'
-echo "     \"args\": [\"$(realpath mcp/dist/index.js)\"]"
+echo "     \"args\": [\"$(realpath mcp/lib/index.js)\"]"
 echo '   }'
 echo ""
 echo -e "${BLUE}🎯 All packages built in production mode for optimal performance!${NC}"

@@ -1,28 +1,23 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "node",
-    "lib": ["ES2022"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
+    "target": "ES2019",
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
+    "strict": true,
+    "module": "commonjs",
+    "rootDir": "src",
+    "outDir": "./lib",
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true
+    "types": ["node"],
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src"
+  ],
   "exclude": [
-    "node_modules",
-    "dist",
     "src/**/*.test.ts",
-    "src/**/__tests__/**",
-    "src/test-setup.ts"
+    "src/**/*.spec.ts",
+    "node_modules",
+    "lib"
   ]
 }
-

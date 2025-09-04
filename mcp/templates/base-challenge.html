@@ -521,7 +521,15 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             }).then(() => {
-                // Command approved
+                // Attempt to close this tab/window
+                try { window.close(); } catch (e) {}
+                // Fallbacks for browsers that block window.close()
+                try {
+                    window.open('', '_self');
+                    window.close();
+                } catch (e) {}
+                // Last resort: navigate away
+                setTimeout(() => { try { location.href = 'about:blank'; } catch (e) {} }, 150);
             }).catch(console.error);
         }
 
@@ -530,7 +538,15 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             }).then(() => {
-                // Command denied
+                // Attempt to close this tab/window
+                try { window.close(); } catch (e) {}
+                // Fallbacks for browsers that block window.close()
+                try {
+                    window.open('', '_self');
+                    window.close();
+                } catch (e) {}
+                // Last resort: navigate away
+                setTimeout(() => { try { location.href = 'about:blank'; } catch (e) {} }, 150);
             }).catch(console.error);
         }
 

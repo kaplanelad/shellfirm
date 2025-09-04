@@ -1,8 +1,10 @@
 - from: fs
-  test: '^(?:rm\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*\s*(\*|\.|\.\.|/|\.\./[^\s]+|[^\s]*/[^\s]*)\s*$|rm\s+(\*|\.|\.\.|/|\.\./[^\s]+|[^\s]*/[^\s]*)\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*)\s*$'
+  test: '^(?:rm\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*\s*(\*|\.|\.\.|/|\.\./[^\s]+|(?:[^\s]*/[^\s]*|[^\s]+))\s*$|rm\s+(\*|\.|\.\.|/|\.\./[^\s]+|(?:[^\s]*/[^\s]*|[^\s]+))\s+(?:(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+)\s+)*(?:-(?:[A-Za-z-]*[Rr][A-Za-z-]*)|--recursive)(?:\s+(?:-(?:[A-Za-z-]+)|--[A-Za-z-]+))*)\s*$'
   description: "Recursive rm targeting wildcard, top‑level paths (., .., /, *), or specific directory paths. This can wipe entire directories or the filesystem root."
   severity: high
   id: fs:recursively_delete
+  filters:
+    IsExists: "1"
 - from: fs
   test: '^rm(?:\s+-[A-QS-Za-qs-z]+)*\s+([^\s-][^\s]*)(?:\s+-[A-QS-Za-qs-z]+)*\s*$'
   description: "Deletes the specified path. Ensure the target is correct; typos or glob expansion may remove unintended files."

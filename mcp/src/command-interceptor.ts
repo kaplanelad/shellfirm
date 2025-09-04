@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { validateSplitCommandWithOptions } from './shellfirm-wasm.js';
 import { BrowserChallenge, type ChallengeData } from './browser-challenge.js';
 import type { ChallengeType } from './types.js';
+import { log as mcpLog, toErrorObject } from './logger.js';
 
 const execAsync = promisify(exec);
 
@@ -27,7 +28,7 @@ export class CommandInterceptor {
 		error?: string;
 		message: string;
 	}> {
-		console.error(`[Shellfirm Interceptor] Intercepting command: ${command}`);
+		void mcpLog('debug', 'interceptor', { message: 'Intercepting command', command });
 
 		try {
 			// Use WASM-based validation with options for proper severity filtering
@@ -37,7 +38,8 @@ export class CommandInterceptor {
 			};
 
 			const validationResult = await validateSplitCommandWithOptions(command, validationOptions);
-			console.error('[Shellfirm Interceptor] WASM validation result:', {
+			void mcpLog('debug', 'interceptor', {
+				message: 'WASM validation result',
 				should_challenge: validationResult.should_challenge,
 				should_deny: validationResult.should_deny,
 				matches: validationResult.matches.map(match => match.id)
@@ -45,13 +47,13 @@ export class CommandInterceptor {
 
 			if (!validationResult.should_challenge) {
 				// Safe command - execute directly
-				console.error('[Shellfirm Interceptor] Command is safe, executing...');
+				void mcpLog('info', 'interceptor', { message: 'Command is safe, executing' });
 				return await this.executeCommand(command, workingDirectory, environment, propagateProcessEnv);
 			}
 
 			// Command denied completely
 			if (validationResult.should_deny) {
-				console.error('[Shellfirm Interceptor] Command is denied by security policy');
+				void mcpLog('warning', 'interceptor', { message: 'Command denied by security policy' });
 				const descriptions = validationResult.matches.map(check => check.description).join(', ');
 				return {
 					allowed: false,
@@ -62,11 +64,11 @@ export class CommandInterceptor {
 
 			// Risky command - require browser-based challenge verification
 			const descriptions = validationResult.matches.map(check => check.description).join(', ');
-			console.error(`[Shellfirm Interceptor] Risky command detected: ${descriptions}`);
+			void mcpLog('notice', 'interceptor', { message: 'Risky command detected', patterns: descriptions });
 
 			// Check if this is a Block challenge - if so, block immediately
 			if (challengeType === 'block') {
-				console.error('[Shellfirm Interceptor] 🚫 Command blocked by security policy (Block challenge type)');
+				void mcpLog('warning', 'interceptor', { message: 'Command blocked by security policy (Block challenge type)' });
 				return {
 					allowed: false,
 					message: `Shellfirm MCP: Command blocked by security policy. This command cannot be executed. Reasons: ${descriptions}`,
@@ -74,7 +76,7 @@ export class CommandInterceptor {
 				};
 			}
 
-			console.error('[Shellfirm Interceptor] 🛡️ Opening browser challenge for user verification...');
+			void mcpLog('notice', 'interceptor', { message: 'Opening browser challenge for user verification' });
 
 			// Prepare challenge data
 			const challengeData: ChallengeData = {
@@ -97,11 +99,11 @@ export class CommandInterceptor {
 				);
 
 				if (challengeResult.approved) {
-					console.error('[Shellfirm Interceptor] ✅ User approved command through browser challenge');
+					void mcpLog('info', 'interceptor', { message: 'User approved command through browser challenge' });
 					// User approved - execute the command
 					return await this.executeCommand(command, workingDirectory, environment, propagateProcessEnv);
 				} else {
-					console.error('[Shellfirm Interceptor] ❌ User denied command or challenge failed');
+					void mcpLog('warning', 'interceptor', { message: 'User denied command or challenge failed' });
 					return {
 						allowed: false,
 						message: `Shellfirm MCP: Command denied by user. ${challengeResult.error || 'User chose not to approve the command.'}`,
@@ -110,7 +112,7 @@ export class CommandInterceptor {
 				}
 
 			} catch (challengeError) {
-				console.error('[Shellfirm Interceptor] ❌ Browser challenge system error:', challengeError);
+				void mcpLog('error', 'interceptor', { message: 'Browser challenge system error', error: toErrorObject(challengeError) });
 				return {
 					allowed: false,
 					message: `Shellfirm MCP: Challenge system error. Command blocked for security. Error: ${challengeError instanceof Error ? challengeError.message : 'Unknown error'}`,
@@ -119,7 +121,7 @@ export class CommandInterceptor {
 			}
 
 		} catch (error) {
-			console.error('[Shellfirm Interceptor] Error in command interception:', error);
+			void mcpLog('error', 'interceptor', { message: 'Error in command interception', error: toErrorObject(error) });
 			return {
 				allowed: false,
 				message: `Command blocked due to error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -190,7 +192,7 @@ export class CommandInterceptor {
 
 		} catch (execError) {
 			const errorMessage = execError instanceof Error ? execError.message : 'Unknown execution error';
-			console.error('[Shellfirm Interceptor] Command execution failed:', errorMessage);
+			void mcpLog('error', 'interceptor', { message: 'Command execution failed', error: errorMessage });
 
 			return {
 				allowed: true, // Command was allowed but failed execution

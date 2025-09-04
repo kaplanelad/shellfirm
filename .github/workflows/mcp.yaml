@@ -51,7 +51,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20, 21]
+        node-version: [20, 22, "stable"]
     defaults:
       run:
         working-directory: ./mcp
@@ -66,51 +66,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: "./mcp/package.json"
 
-      - name: Setup environment for Playwright
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tempDir = Join-Path $env:USERPROFILE "AppData\Local\Temp"
-          "TEMP=$tempDir" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "TMP=$tempDir" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "PLAYWRIGHT_BROWSERS_PATH=0" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      # Install dependencies per OS
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
-          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
-          npm install --force
-          npm install @rollup/rollup-win32-x64-msvc --save-optional
-          npx rollup --version
-          npx playwright install chromium
-
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          rm -f package-lock.json
-          rm -rf node_modules
-          npm install --force
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            npm install @rollup/rollup-linux-x64-gnu --save-optional
-          elif [ "$RUNNER_OS" = "macOS" ]; then
-            npm install @rollup/rollup-darwin-x64 --save-optional
-          fi
-          npx rollup --version
-          npx playwright install chromium --with-deps
-
-      # Separate run steps for Windows vs Unix
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          npm run test
-        env:
-          CI: true
-
-      - name: Run tests (Unix/Mac)
+      - name: Run tests
         if: runner.os != 'Windows'
         run: npm run test
         env:

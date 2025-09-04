@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Test script for the browser challenge system
- * 
- * This script demonstrates the browser-based challenge functionality
- * by testing different challenge types with dangerous commands.
+ * Test script for the browser challenge system (CommonJS)
  */
 
-import { BrowserChallenge } from './dist/browser-challenge.js';
-import { validateSplitCommandWithOptions } from './dist/shellfirm-wasm.js';
+const { BrowserChallenge } = require('./lib/browser-challenge.js');
+const { validateSplitCommandWithOptions } = require('./lib/shellfirm-wasm.js');
 
 async function testMathChallenge() {
   console.log('\n🧮 Testing Math Challenge...');

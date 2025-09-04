@@ -2,19 +2,15 @@
   "name": "@shellfirm/mcp",
   "version": "0.1.0",
   "description": "MCP server for shellfirm - provides interactive command validation with captcha",
-  "main": "dist/index.js",
-  "type": "module",
+  "main": "lib/index.js",
+  "type": "commonjs",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js",
-    "lint": "eslint src/**/*.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:vitest:ui": "vitest --ui",
-    "test:vitest:run": "vitest run",
-    "clean": "rm -rf dist",
-    "install:rollup": "npm install @rollup/rollup-win32-x64-msvc @rollup/rollup-linux-x64-gnu @rollup/rollup-darwin-x64 --save-optional"
+    "start": "node lib/index.js",
+    "lint": "eslint --max-warnings 0 \"src/**/*.{ts,js}\"",
+    "test": "cross-env CI=true npm run build && vitest run",
+    "test:challenge-browser": "npm run build && node test-browser-challenge.js"
   },
   "keywords": [
     "mcp",
@@ -26,6 +22,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.3",
+    "commander": "^14.0.0",
     "handlebars": "^4.7.8"
   },
   "devDependencies": {
@@ -33,12 +30,16 @@
     "@typescript-eslint/eslint-plugin": "^8.40.0",
     "@typescript-eslint/parser": "^8.40.0",
     "@vitest/ui": "^3.2.4",
+    "cross-env": "^10.0.0",
     "eslint": "^9.33.0",
-    "playwright": "^1.47.0",
+    "eslint-plugin-vitest": "^0.5.4",
     "typescript": "^5.7.3",
     "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "bin": {
+    "mcp-server-shellfirm": "cli.js"
   }
 }
