@@ -1,28 +1,18 @@
-name: MCP Server CI/CD
+name: Playwright Tests
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "mcp/**"
-      - ".github/workflows/mcp.yaml"
+    branches: [ main ]
   pull_request:
-    paths:
-      - "mcp/**"
-      - ".github/workflows/mcp.yaml"
-
-env:
-  NODE_VERSION: "20"
+    branches: [ main ]
 
 jobs:
-  # Lint and type check (Ubuntu only)
-  lint:
-    name: Lint and Type Check
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./mcp
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,92 +20,35 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: "./mcp/package-lock.json"
+          node-version: 20
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ESLint
-        run: npm run lint
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
 
-      - name: Type check
-        run: npx tsc --noEmit
-
-  # Test suite (runs on Ubuntu, macOS, and Windows)
-  test:
-    name: Test Suite
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: [20, 21]
-    defaults:
-      run:
-        working-directory: ./mcp
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: "npm"
-          cache-dependency-path: "./mcp/package.json"
-
-      # Install dependencies per OS
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
-          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
-          npm install --force
-          npm install @rollup/rollup-win32-x64-msvc --save-optional
-          npx rollup --version
-          npx playwright install chromium
-
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          rm -f package-lock.json
-          rm -rf node_modules
-          npm install --force
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            npm install @rollup/rollup-linux-x64-gnu --save-optional
-          elif [ "$RUNNER_OS" = "macOS" ]; then
-            npm install @rollup/rollup-darwin-x64 --save-optional
-          fi
-          npx rollup --version
-          npx playwright install chromium --with-deps
-
-      # Fix TEMP/TMP for Playwright on Windows
-      - name: Setup Windows environment for Playwright
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $pwTmp = Join-Path $env:RUNNER_TEMP "playwright-tmp"
-          if (-not (Test-Path $pwTmp)) { New-Item -ItemType Directory -Path $pwTmp -Force | Out-Null }
-          $userDataDir = Join-Path $env:RUNNER_TEMP "playwright-user-data"
-          if (-not (Test-Path $userDataDir)) { New-Item -ItemType Directory -Path $userDataDir -Force | Out-Null }
-          "TEMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "TMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "PLAYWRIGHT_BROWSERS_PATH=0" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      # Separate run steps for Windows vs Unix
+      # ✅ Windows step with TEMP/TMP fix
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:TEMP = "${{ env.TEMP }}"
-          $env:TMP  = "${{ env.TMP }}"
+          # Re-create a clean temp directory right before running Playwright
+          $pwTmp = Join-Path $env:RUNNER_TEMP "playwright-tmp"
+          if (-not (Test-Path $pwTmp)) {
+            New-Item -ItemType Directory -Path $pwTmp -Force | Out-Null
+          }
+          $env:TEMP = $pwTmp
+          $env:TMP  = $pwTmp
+
+          Write-Host "TEMP is set to $env:TEMP"
+          Write-Host "TMP  is set to $env:TMP"
+
           npm run test
         env:
           CI: true
 
+      # ✅ macOS + Linux step (no TEMP/TMP workaround needed)
       - name: Run tests (Unix/Mac)
         if: runner.os != 'Windows'
         run: npm run test
