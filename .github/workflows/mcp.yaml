@@ -70,8 +70,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          "TEMP=${{ runner.temp }}" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "TMP=${{ runner.temp }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $tempDir = Join-Path $env:USERPROFILE "AppData\Local\Temp"
+          "TEMP=$tempDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TMP=$tempDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           "PLAYWRIGHT_BROWSERS_PATH=0" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # Install dependencies per OS
