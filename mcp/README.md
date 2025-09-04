@@ -15,7 +15,7 @@ Shellfirm MCP adds a consequence‑aware approval step before any flagged comman
 - **Deep, local command analysis**: Validates commands against Shellfirm’s Rust rules compiled to WASM.
 - **Browser challenges**: Confirm, math, or word-entry challenges to reduce misclicks and automate “are you sure?” checks.
 - **Severity gates**: Enforce only `critical` and `high`, or include `medium,low` for stricter environments.
-- **Environment propagation control**: Run commands with or without inheriting `process.env` using the `--no-propagate-env` flag.
+- **Environment propagation control**: Allowlist specific env vars to inherit using `--propagate-env PATH,HOME,SSH_AUTH_SOCK`.
 - **Cross‑platform UI**: Runs a browser challenge in headless or visible mode.
 - **Offline by default**: No external calls required during validation.
 
@@ -79,8 +79,8 @@ code --add-mcp '{"name":"shellfirm","command":"npx","args":["@shellfirm/mcp@late
   - `--challenge confirm|math|word|block`
 - **Severity filter**:
   - `--severity critical,high,medium,low`
-- **Environment propagation** (default propagate):
-- `--no-propagate-env` to run commands without inheriting the current process environment
+- **Environment propagation** (default none):
+- `--propagate-env VAR1,VAR2` to inherit only specific variables from the current environment
 
 Examples:
 
@@ -124,14 +124,14 @@ Restrict to critical + high only:
 }
 ```
 
-Disable environment propagation (do not inherit current `process.env` for executed commands):
+Propagate only specific environment variables (e.g., `PATH` and `SSH_AUTH_SOCK`):
 
 ```json
 {
   "mcpServers": {
     "shellfirm": {
       "command": "npx",
-      "args": ["@shellfirm/mcp@latest", "--no-propagate-env"]
+      "args": ["@shellfirm/mcp@latest", "--propagate-env", "PATH,SSH_AUTH_SOCK"]
     }
   }
 }

@@ -21,7 +21,7 @@ export class CommandInterceptor {
 		challengeType: ChallengeType = 'confirm',
 		allowedSeverities?: string[],
 		environment?: Record<string, string>,
-		propagateProcessEnv: boolean = true
+		propagateEnvVarNames: string[] = []
 	): Promise<{
 		allowed: boolean;
 		output?: string;
@@ -48,7 +48,7 @@ export class CommandInterceptor {
 			if (!validationResult.should_challenge) {
 				// Safe command - execute directly
 				void mcpLog('info', 'interceptor', { message: 'Command is safe, executing' });
-				return await this.executeCommand(command, workingDirectory, environment, propagateProcessEnv);
+				return await this.executeCommand(command, workingDirectory, environment, propagateEnvVarNames);
 			}
 
 			// Command denied completely
@@ -101,7 +101,7 @@ export class CommandInterceptor {
 				if (challengeResult.approved) {
 					void mcpLog('info', 'interceptor', { message: 'User approved command through browser challenge' });
 					// User approved - execute the command
-					return await this.executeCommand(command, workingDirectory, environment, propagateProcessEnv);
+					return await this.executeCommand(command, workingDirectory, environment, propagateEnvVarNames);
 				} else {
 					void mcpLog('warning', 'interceptor', { message: 'User denied command or challenge failed' });
 					return {
@@ -154,7 +154,7 @@ export class CommandInterceptor {
 		command: string,
 		workingDirectory?: string,
 		environment?: Record<string, string>,
-		propagateProcessEnv: boolean = true
+		propagateEnvVarNames: string[] = []
 	): Promise<{
 		allowed: boolean;
 		output?: string;
@@ -166,15 +166,16 @@ export class CommandInterceptor {
 			if (workingDirectory) {
 				options.cwd = workingDirectory;
 			}
-			// Configure environment propagation behavior
-			if (propagateProcessEnv) {
-				// Merge clean process.env with provided environment (if any)
-				const cleanProcessEnv = Object.fromEntries(
-					Object.entries(process.env).filter(([_, value]) => value !== undefined)
+			// Configure environment propagation behavior based on explicit allowlist
+			if (propagateEnvVarNames && propagateEnvVarNames.length > 0) {
+				const allowedFromProcessEnv = Object.fromEntries(
+					propagateEnvVarNames
+						.map((name) => [name, process.env[name]])
+						.filter(([, value]) => value !== undefined)
 				) as Record<string, string>;
-				options.env = { ...cleanProcessEnv, ...(environment || {}) };
+				options.env = { ...allowedFromProcessEnv, ...(environment || {}) };
 			} else {
-				// Do not propagate current process env; use only provided env (or empty)
+				// No propagation unless explicitly requested
 				options.env = { ...(environment || {}) };
 			}
 

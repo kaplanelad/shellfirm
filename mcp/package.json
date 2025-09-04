@@ -9,7 +9,7 @@
     "dev": "tsc --watch",
     "start": "node lib/index.js",
     "lint": "eslint --max-warnings 0 \"src/**/*.{ts,js}\"",
-    "test": "cross-env CI=true npm run build && vitest run",
+    "test": "npm run build && vitest run",
     "test:challenge-browser": "npm run build && node test-browser-challenge.js"
   },
   "keywords": [
@@ -30,7 +30,6 @@
     "@typescript-eslint/eslint-plugin": "^8.40.0",
     "@typescript-eslint/parser": "^8.40.0",
     "@vitest/ui": "^3.2.4",
-    "cross-env": "^10.0.0",
     "eslint": "^9.33.0",
     "eslint-plugin-vitest": "^0.5.4",
     "typescript": "^5.7.3",

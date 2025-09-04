@@ -2,7 +2,7 @@ declare module 'commander' {
   export interface ProgramOptions {
     challenge?: string;
     severity?: string;
-    propagateEnv?: boolean;
+    propagateEnv?: string;
   }
 
   export interface Program {

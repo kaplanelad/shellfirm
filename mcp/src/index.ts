@@ -81,12 +81,12 @@ class ShellfirmMcpServer {
   private challengeType: ChallengeType;
   private wasmInitialized: boolean = false;
   private allowedSeverities: Set<string>;
-  private propagateProcessEnv: boolean;
+  private propagateEnvVarNames: string[];
 
-  constructor(challengeType: ChallengeType = 'confirm', allowedSeverities: string[] = ['critical', 'high', 'medium'], propagateProcessEnv: boolean = true) {
+  constructor(challengeType: ChallengeType = 'confirm', allowedSeverities: string[] = ['critical', 'high', 'medium'], propagateEnvVarNames: string[] = []) {
     this.challengeType = challengeType;
     this.allowedSeverities = new Set(allowedSeverities.map(s => s.toLowerCase()));
-    this.propagateProcessEnv = propagateProcessEnv;
+    this.propagateEnvVarNames = propagateEnvVarNames;
 
     // Get package info from package.json
     const packageInfo = getPackageInfo();
@@ -239,7 +239,7 @@ ALL terminal command execution is now routed through mandatory security validati
         this.challengeType,
         allowedSeverities,
         environment,
-        this.propagateProcessEnv
+        this.propagateEnvVarNames
       );
 
       const response = {
@@ -491,14 +491,14 @@ async function main() {
     .description('Shellfirm MCP Server - secure command validation via WASM')
     .option('--challenge <type>', 'challenge type (confirm|math|word)', 'confirm')
     .option('--severity <levels>', 'comma-separated severity levels', 'critical,high,medium')
-    .option('--no-propagate-env', 'do not propagate process.env to executed commands');
+    .option('--propagate-env <vars>', 'comma-separated env variable names to inherit (e.g. PATH,HOME,SSH_AUTH_SOCK)', '');
 
   program.parse(process.argv);
 
   const opts = program.opts() as {
     challenge?: string;
     severity?: string;
-    propagateEnv?: boolean; // commander maps --no-propagate-env to false
+    propagateEnv?: string; // comma-separated list of env var names
   };
 
   const allowed: ChallengeType[] = ['confirm', 'math', 'word'];
@@ -516,14 +516,17 @@ async function main() {
     severities = ['critical', 'high', 'medium'];
   }
 
-  const propagateProcessEnv = opts.propagateEnv !== false;
+  const propagateEnvVarNames = (opts.propagateEnv ?? '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
   // Keep initial stderr banners, functional logs go through MCP
   try { process.stderr.write(`🎯 Challenge type: ${challengeType}\n`); } catch {}
   try { process.stderr.write(`🔧 Severity levels: ${severities.join(', ')}\n`); } catch {}
-  try { process.stderr.write(`🌍 Propagate process.env: ${propagateProcessEnv}\n`); } catch {}
+  try { process.stderr.write(`🌍 Propagate env vars: ${propagateEnvVarNames.length > 0 ? propagateEnvVarNames.join(', ') : 'none'}\n`); } catch {}
 
-  const server = new ShellfirmMcpServer(challengeType, severities, propagateProcessEnv);
+  const server = new ShellfirmMcpServer(challengeType, severities, propagateEnvVarNames);
   await server.run();
 }
 
