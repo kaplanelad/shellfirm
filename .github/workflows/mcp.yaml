@@ -16,7 +16,7 @@ env:
   NODE_VERSION: "20"
 
 jobs:
-  # Lint and type check
+  # Lint and type check (Ubuntu only)
   lint:
     name: Lint and Type Check
     runs-on: ubuntu-latest
@@ -43,7 +43,7 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-  # Test suite
+  # Test suite (runs on Ubuntu, macOS, and Windows)
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
@@ -64,22 +64,65 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
-          cache-dependency-path: "./mcp/package-lock.json"
+          cache-dependency-path: "./mcp/package.json"
 
-      - name: Clean install dependencies
+      # Install dependencies per OS
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          npm ci --force
+          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
+          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
+          npm install --force
+          npm install @rollup/rollup-win32-x64-msvc --save-optional
+          npx rollup --version
+          npx playwright install chromium
 
-      - name: Install Playwright Browsers
-        uses: microsoft/playwright-github-action@v1
-        with:
-          browsers: chromium
+      - name: Install dependencies (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          rm -f package-lock.json
+          rm -rf node_modules
+          npm install --force
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            npm install @rollup/rollup-linux-x64-gnu --save-optional
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            npm install @rollup/rollup-darwin-x64 --save-optional
+          fi
+          npx rollup --version
+          npx playwright install chromium --with-deps
 
-      - name: Run tests
+      # Fix TEMP/TMP for Playwright on Windows
+      - name: Setup Windows environment for Playwright
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pwTmp = Join-Path $env:RUNNER_TEMP "playwright-tmp"
+          if (-not (Test-Path $pwTmp)) { New-Item -ItemType Directory -Path $pwTmp -Force | Out-Null }
+          $userDataDir = Join-Path $env:RUNNER_TEMP "playwright-user-data"
+          if (-not (Test-Path $userDataDir)) { New-Item -ItemType Directory -Path $userDataDir -Force | Out-Null }
+          "TEMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "TMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PLAYWRIGHT_BROWSERS_PATH=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # Separate run steps for Windows vs Unix
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:TEMP = "${{ env.TEMP }}"
+          $env:TMP  = "${{ env.TMP }}"
+          npm run test
+        env:
+          CI: true
+
+      - name: Run tests (Unix/Mac)
+        if: runner.os != 'Windows'
         run: npm run test
         env:
           CI: true
 
+  # Security audit (Ubuntu only)
   security:
     name: Security Audit
     runs-on: ubuntu-latest
