@@ -64,59 +64,16 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
-          cache-dependency-path: "./mcp/package.json"
+          cache-dependency-path: "./mcp/package-lock.json"
 
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Clean install dependencies
         run: |
-          # Remove package-lock.json and node_modules to fix npm optional dependency bug
-          if (Test-Path "package-lock.json") { Remove-Item "package-lock.json" -Force }
-          if (Test-Path "node_modules") { Remove-Item "node_modules" -Recurse -Force }
-          # Install with --force to ensure optional dependencies are installed
-          npm install --force
-          # Explicitly install the missing Rollup binary for Windows
-          npm install @rollup/rollup-win32-x64-msvc --save-optional
-          # Verify Rollup installation
-          npx rollup --version
-          # Install Playwright browsers after dependency changes
-          npx playwright install chromium --with-deps
-          # Verify Playwright browser installation
-          npx playwright --version
+          npm ci --force
 
-      - name: Install dependencies (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          # Remove package-lock.json and node_modules to fix npm optional dependency bug
-          rm -f package-lock.json
-          rm -rf node_modules
-          # Install with --force to ensure optional dependencies are installed
-          npm install --force
-          # Explicitly install the missing Rollup binary for the current platform
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            npm install @rollup/rollup-linux-x64-gnu --save-optional
-          elif [ "$RUNNER_OS" = "macOS" ]; then
-            npm install @rollup/rollup-darwin-x64 --save-optional
-          fi
-          # Verify Rollup installation
-          npx rollup --version
-          # Install Playwright browsers after dependency changes
-          npx playwright install chromium --with-deps
-          # Verify Playwright browser installation
-          npx playwright --version
-
-      - name: Setup Windows environment for Playwright
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Use RUNNER_TEMP for Playwright and Node temp dirs to avoid AppData path issues
-          $pwTmp = Join-Path $env:RUNNER_TEMP "playwright-tmp"
-          if (-not (Test-Path $pwTmp)) {
-            New-Item -ItemType Directory -Path $pwTmp -Force | Out-Null
-          }
-          # Export TEMP and TMP for subsequent steps
-          "TEMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "TMP=$pwTmp" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install Playwright Browsers
+        uses: microsoft/playwright-github-action@v1
+        with:
+          browsers: chromium
 
       - name: Run tests
         run: npm run test
