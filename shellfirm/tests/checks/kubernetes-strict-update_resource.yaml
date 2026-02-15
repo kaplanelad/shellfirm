@@ -1,9 +1,0 @@
----
-- test: k set env
-  description: match command
-- test: kubectl   set   env
-  description: match command with spaces
-- test: k set
-  description: invalid command
-- test: kubectl set 
-  description: invalid command

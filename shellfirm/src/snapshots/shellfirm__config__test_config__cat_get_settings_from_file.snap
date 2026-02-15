@@ -1,16 +1,5 @@
 ---
 source: shellfirm/src/config.rs
-expression: config.get_settings_from_file()
+expression: config.get_settings_from_file().is_ok()
 ---
-Ok(
-    Settings {
-        challenge: Math,
-        includes: [
-            "base",
-            "fs",
-            "git",
-        ],
-        ignores_patterns_ids: [],
-        deny_patterns_ids: [],
-    },
-)
+true

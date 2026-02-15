@@ -1,7 +1,0 @@
----
-- test: rmdir TestFolder
-  description: match command by finding existing file
-- test: rmdir -pv TestFolder
-  description: match command with flags
-- test: rmdir    -pv    TestFolder
-  description: match command with spaces

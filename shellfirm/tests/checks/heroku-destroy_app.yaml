@@ -1,7 +1,0 @@
----
-- test: heroku apps:destroy
-  description: match command
-- test: heroku   apps:destroy
-  description: match command with spaces
-- test: herokuu apps:destroy
-  description: invalid command

@@ -5,6 +5,8 @@ expression: "run_deny(&config, &settings,\n    Some(vec![\"id-1\".to_string(), \
 Ok(
     CmdExit {
         code: 0,
-        message: None,
+        message: Some(
+            "Deny list updated (2 patterns).",
+        ),
     },
 )

@@ -1,8 +1,0 @@
-- test: "git gc --prune=now"
-  description: "match garbage collection with prune"
-  expected_detection_ids:
-    - git:gc_prune
-- test: "git gc --aggressive"
-  description: "match aggressive garbage collection"
-  expected_detection_ids:
-    - git:gc_prune

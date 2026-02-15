@@ -1,7 +1,0 @@
----
-- test: chmod -R
-  description: match command
-- test: chmod
-  description: chmod without any data
-- test: chmodd
-  description: chmod name is incurrent

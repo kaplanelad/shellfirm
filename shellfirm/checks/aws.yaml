@@ -1,0 +1,54 @@
+- from: aws
+  test: aws\s+s3\s+rb\s+s3://
+  description: "This will delete an entire S3 bucket and potentially all its contents."
+  id: aws:s3_remove_bucket
+  severity: High
+  alternative: "aws s3 ls s3://<bucket>"
+  alternative_info: "List bucket contents first to verify what would be deleted."
+- from: aws
+  test: aws\s+s3\s+rm\s+s3://.*--recursive
+  description: "Recursively deleting all objects in an S3 bucket."
+  id: aws:s3_recursive_delete
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--dryrun"
+- from: aws
+  test: aws\s+ec2\s+terminate-instances
+  description: "Terminating EC2 instances permanently destroys them and their local storage."
+  id: aws:ec2_terminate
+  severity: High
+  alternative: "aws ec2 stop-instances"
+  alternative_info: "Stop instead of terminate to preserve the instance for later restart."
+- from: aws
+  test: aws\s+rds\s+delete-db-instance
+  description: "Deleting an RDS instance will permanently destroy the database."
+  id: aws:rds_delete
+  severity: High
+  alternative: "aws rds delete-db-instance --skip-final-snapshot=false --final-db-snapshot-identifier <name>"
+  alternative_info: "Create a final snapshot before deletion so data can be recovered."
+- from: aws
+  test: aws\s+iam\s+delete-(user|role|policy|group)
+  description: "Deleting IAM resources can break access for services and users."
+  id: aws:iam_delete
+  severity: High
+- from: aws
+  test: aws\s+cloudformation\s+delete-stack
+  description: "Deleting a CloudFormation stack will destroy all resources it manages."
+  id: aws:cfn_delete_stack
+  severity: High
+- from: aws
+  test: aws\s+route53\s+delete-hosted-zone
+  description: "Deleting a Route53 hosted zone will remove all DNS records."
+  id: aws:route53_delete_zone
+  severity: High
+- from: aws
+  test: aws\s+eks\s+delete-cluster
+  description: "Deleting an EKS cluster will destroy the Kubernetes control plane."
+  id: aws:eks_delete_cluster
+  severity: High
+- from: aws
+  test: aws\s+lambda\s+delete-function
+  description: "Deleting a Lambda function removes it permanently."
+  id: aws:lambda_delete
+  severity: High

@@ -1,8 +1,0 @@
-- test: "git rebase main"
-  description: "match basic rebase"
-  expected_detection_ids:
-    - git:rebase
-- test: "git rebase"
-  description: "match rebase without branch"
-  expected_detection_ids:
-    - git:rebase

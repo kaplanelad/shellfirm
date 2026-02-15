@@ -1,7 +1,11 @@
+pub mod audit;
 pub mod checks;
 mod config;
+pub mod context;
 mod data;
 pub mod dialog;
-mod prompt;
+pub mod env;
+pub mod policy;
+pub mod prompt;
 pub use config::{Challenge, Config, Settings};
 pub use data::CmdExit;

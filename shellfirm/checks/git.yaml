@@ -2,55 +2,119 @@
   test: git\s{1,}reset
   description: "This command going to reset all your local changes."
   id: git:reset
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--soft"
+  alternative: "git stash"
+  alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
   test: git\s{1,}rm\s{1,}(\*|.)
   description: "This command going to delete all files."
   id: git:delete_all
+  severity: High
 - from: git
   test: git\s{1,}clean\s{1,}-fd
   description: "This command will remove all untracked files and directories."
   id: git:clean_force
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--dry-run"
+    - type: NotContains
+      value: "-n"
+  alternative: "git clean -fdn"
+  alternative_info: "Dry-run mode shows what would be deleted without actually removing anything."
 - from: git
   test: git\s{1,}push\s{1,}(-f|--force)
   description: "This command will force push and overwrite remote history."
   id: git:force_push
+  severity: High
+  alternative: "git push --force-with-lease"
+  alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
   test: git\s{1,}branch\s{1,}-D
   description: "This command will force delete a branch."
   id: git:force_delete_branch
+  severity: High
+  alternative: "git branch -d <branch>"
+  alternative_info: "Uses safe delete (-d) which refuses to delete a branch with unmerged changes."
 - from: git
   test: git\s{1,}checkout\s{1,}-f
   description: "This command will force checkout and discard local changes."
   id: git:force_checkout
+  severity: High
+  alternative: "git stash && git checkout <branch>"
+  alternative_info: "Stash your changes first so they can be recovered later."
 - from: git
   test: git\s{1,}rebase\s{1,}-i
   description: "This command will start an interactive rebase which can modify commit history."
   id: git:interactive_rebase
+  severity: Medium
 - from: git
   test: git\s{1,}filter-branch
   description: "This command will rewrite Git history and can be dangerous if used incorrectly."
   id: git:filter_branch
+  severity: High
+  alternative: "git-filter-repo"
+  alternative_info: "A faster, safer, and officially recommended alternative to filter-branch."
 - from: git
   test: git\s{1,}gc\s{1,}--prune=now
   description: "This command will permanently delete unreachable objects."
   id: git:gc_prune
+  severity: High
 - from: git
   test: git\s{1,}update-ref\s{1,}-d
   description: "This command will delete a Git reference."
   id: git:delete_ref
+  severity: High
 - from: git
   test: git\s{1,}merge\s{1,}(--no-ff|--abort)
   description: "This command will perform a non-fast-forward merge or abort an ongoing merge."
   id: git:merge_no_ff
+  severity: Medium
 - from: git
   test: git\s{1,}cherry-pick
   description: "This command will apply changes from existing commits to the current branch."
   id: git:cherry_pick
+  severity: Medium
 - from: git
   test: git\s{1,}bisect
   description: "This command will start a binary search to find a commit that introduced a bug."
   id: git:bisect
+  severity: Medium
 - from: git
   test: git\s{1,}worktree\s{1,}(add|remove)
   description: "This command will add or remove a Git worktree."
   id: git:worktree_management
+  severity: Medium
+- from: git
+  test: git\s{1,}add\s{1,}.
+  description: "Do you want to add all changes files to the staging area?"
+  id: git-strict:add_all
+  severity: Low
+- from: git
+  test: git\s{1,}commit\s{1,}(--all|-(.*a))
+  description: "Do you want to commit all changes file and commit them?"
+  id: git-strict:commit_all
+  severity: Low
+- from: git
+  test: git\s{1,}rebase
+  description: "This command will rewrite commit history by moving commits to a new base."
+  id: git-strict:rebase
+  severity: Medium
+- from: git
+  test: git\s{1,}stash\s{1,}(pop|drop)
+  description: "This command will apply or remove stashed changes."
+  id: git-strict:stash_pop_drop
+  severity: Low
+- from: git
+  test: git\s{1,}submodule\s{1,}(update|deinit)
+  description: "This command will update or deinitialize Git submodules."
+  id: git-strict:submodule_update
+  severity: Low
+- from: git
+  test: git\s{1,}tag\s{1,}-a
+  description: "This command will create an annotated tag."
+  id: git-strict:create_tag
+  severity: Low

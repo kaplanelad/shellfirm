@@ -1,0 +1,214 @@
+---
+# -- git:bisect --
+- test: "git bisect start"
+  description: "match bisect start"
+  expect_ids: ["git:bisect"]
+- test: "git bisect good"
+  description: "match bisect good"
+  expect_ids: ["git:bisect"]
+- test: "git bisect bad"
+  description: "match bisect bad"
+  expect_ids: ["git:bisect"]
+- test: "git bisect reset"
+  description: "match bisect reset"
+  expect_ids: ["git:bisect"]
+
+# -- git:cherry_pick --
+- test: "git cherry-pick abc123"
+  description: "match cherry-pick command"
+  expect_ids: ["git:cherry_pick"]
+- test: "git cherry-pick --no-commit"
+  description: "match cherry-pick without commit"
+  expect_ids: ["git:cherry_pick"]
+
+# -- git:clean_force --
+- test: "git clean -fd"
+  description: "match force clean command"
+  expect_ids: ["git:clean_force"]
+- test: "git clean -fdx"
+  description: "match force clean command with x option"
+  expect_ids: ["git:clean_force"]
+
+# -- git:delete_all --
+- test: "git  rm *"
+  description: "match command"
+  expect_ids: ["git:delete_all"]
+- test: "git rm ."
+  description: "match command"
+  expect_ids: ["git:delete_all"]
+- test: "gitt rm"
+  description: "invalid command"
+  expect_ids: []
+
+# -- git:delete_ref --
+- test: "git update-ref -d refs/heads/feature"
+  description: "match delete reference"
+  expect_ids: ["git:delete_ref"]
+- test: "git update-ref -d HEAD"
+  description: "match delete HEAD reference"
+  expect_ids: ["git:delete_ref"]
+
+# -- git:filter_branch --
+- test: "git filter-branch --env-filter"
+  description: "match filter-branch command"
+  expect_ids: ["git:filter_branch"]
+- test: "git filter-branch --force"
+  description: "match filter-branch with force"
+  expect_ids: ["git:filter_branch"]
+
+# -- git:force_checkout --
+- test: "git checkout -f main"
+  description: "match force checkout"
+  expect_ids: ["git:force_checkout"]
+- test: "git checkout -f"
+  description: "match force checkout current branch"
+  expect_ids: ["git:force_checkout"]
+
+# -- git:force_delete_branch --
+- test: "git branch -D feature"
+  description: "match force delete branch"
+  expect_ids: ["git:force_delete_branch"]
+- test: "git branch -D"
+  description: "match force delete current branch"
+  expect_ids: ["git:force_delete_branch"]
+
+# -- git:force_push --
+- test: "git push -f"
+  description: "match force push command"
+  expect_ids: ["git:force_push"]
+- test: "git push --force"
+  description: "match force push with long option"
+  expect_ids: ["git:force_push"]
+- test: "git push --force-with-lease"
+  description: "match force push with lease"
+  expect_ids: ["git:force_push"]
+
+# -- git:gc_prune --
+- test: "git gc --prune=now"
+  description: "match garbage collection with prune"
+  expect_ids: ["git:gc_prune"]
+- test: "git   gc   --prune=now"
+  description: "match garbage collection with prune and extra spaces"
+  expect_ids: ["git:gc_prune"]
+- test: "git gc --aggressive"
+  description: "match aggressive garbage collection"
+  expect_ids: []
+- test: "git gc --prune"
+  description: "should not match without =now"
+  expect_ids: []
+
+# -- git:interactive_rebase --
+- test: "git rebase -i HEAD~3"
+  description: "match interactive rebase"
+  expect_ids: ["git-strict:rebase", "git:interactive_rebase"]
+- test: "git rebase -i"
+  description: "match interactive rebase without range"
+  expect_ids: ["git-strict:rebase", "git:interactive_rebase"]
+
+# -- git:merge_no_ff --
+- test: "git merge --no-ff feature"
+  description: "match non-fast-forward merge"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git merge --abort"
+  description: "match merge abort"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git merge --no-ff"
+  description: "match non-fast-forward merge without branch"
+  expect_ids: ["git:merge_no_ff"]
+
+# -- git:reset --
+- test: "git reset"
+  description: "match command"
+  expect_ids: ["git:reset"]
+- test: "git    reset"
+  description: "match command"
+  expect_ids: ["git:reset"]
+- test: "gitt reset"
+  description: "invalid command"
+  expect_ids: []
+
+# -- git:worktree_management --
+- test: "git worktree add ../other"
+  description: "match add worktree"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree remove ../other"
+  description: "match remove worktree"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree add -f ../other"
+  description: "match force add worktree"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree remove -f ../other"
+  description: "match force remove worktree"
+  expect_ids: ["git:worktree_management"]
+
+# -- git-strict:add_all --
+- test: "git add ."
+  description: "match add all files"
+  expect_ids: ["git-strict:add_all"]
+- test: "git add -A"
+  description: "match add all files with -A"
+  expect_ids: ["git-strict:add_all"]
+- test: "git status"
+  description: "negative: status command should not match add pattern"
+  expect_ids: []
+
+# -- git-strict:commit_all --
+- test: "git commit --all"
+  description: "match commit all changes"
+  expect_ids: ["git-strict:commit_all"]
+- test: "git commit -a"
+  description: "match commit all with short option"
+  expect_ids: ["git-strict:commit_all"]
+- test: "git commit -am 'message'"
+  description: "match commit all with message"
+  expect_ids: ["git-strict:commit_all"]
+- test: "git commit -m 'test'"
+  description: "negative: commit with only -m (no -a) should not match"
+  expect_ids: []
+
+# -- git-strict:create_tag --
+- test: "git tag -a v1.0.0"
+  description: "match create annotated tag"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a"
+  description: "match create annotated tag without name"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag v1.0.0"
+  description: "negative: lightweight tag without -a should not match"
+  expect_ids: []
+
+# -- git-strict:rebase --
+- test: "git rebase main"
+  description: "match basic rebase"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase"
+  description: "match rebase without branch"
+  expect_ids: ["git-strict:rebase"]
+- test: "git pull --rebase main"
+  description: "negative: pull with --rebase flag is not a rebase command"
+  expect_ids: []
+
+# -- git-strict:stash_pop_drop --
+- test: "git stash pop"
+  description: "match stash pop"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash drop"
+  description: "match stash drop"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash list"
+  description: "negative: listing stash entries should not match"
+  expect_ids: []
+
+# -- git-strict:submodule_update --
+- test: "git submodule update"
+  description: "match submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule deinit"
+  description: "match submodule deinit"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init"
+  description: "match submodule update with init"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule status"
+  description: "negative: checking submodule status should not match"
+  expect_ids: []

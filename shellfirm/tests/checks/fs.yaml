@@ -1,0 +1,1141 @@
+---
+# -- fs:blockdev_disk_modify --
+- test: "blockdev --setro /dev/sda"
+  description: "match setting read-only mode"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev   --setro   /dev/sda"
+  description: "match setting read-only mode with spaces"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --setrw /dev/sda"
+  description: "match setting read-write mode"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev   --setrw  /dev/sda"
+  description: "match setting read-write mode with spaces"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --flushbufs /dev/sda"
+  description: "match flushing buffers"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --rereadpt /dev/sda"
+  description: "match rereading partition table"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev  --rereadpt  /dev/sda"
+  description: "match rereading partition table with spaces"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --report /dev/sda"
+  description: "match reporting device information"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --getro /dev/sda"
+  description: "match getting read-only status"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --getss /dev/sda"
+  description: "match getting sector size"
+  expect_ids: ["fs:blockdev_disk_modify"]
+- test: "blockdev --report"
+  description: "should not match reporting all devices without modification"
+  expect_ids: []
+- test: "blockdev --report /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+
+# -- fs:dd_advanced_disk_write --
+- test: "dd if=file of=/dev/sda seek=1"
+  description: "match writing at specific sector"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd  if=file  of=/dev/sda    seek=1"
+  description: "match writing at specific sector with spaces"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd  seek=1   of=/dev/sda    if=file"
+  description: "match writing at specific sector with spaces"
+  expect_ids: ["fs:dd_advanced_disk_write", "fs:dd_block_device"]
+- test: "dd conv=notrunc of=/dev/sdb if=file"
+  description: "match writing with conv before of targeting block device"
+  expect_ids: ["fs:dd_advanced_disk_write", "fs:dd_block_device"]
+- test: "dd seek=1 of=/tmp/output.txt if=file"
+  description: "should not match when of targets a regular file"
+  expect_ids: []
+- test: "dd if=file of=/dev/sda conv=notrunc"
+  description: "match writing without truncating"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=/dev/sda of=file skip=1"
+  description: "match reading from specific sector"
+  expect_ids: []
+- test: "dd if=file of=/dev/sda seek=2048 bs=512"
+  description: "match writing at specific sector with block size"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=file of=/dev/sda conv=notrunc,noerror"
+  description: "match writing with multiple conversion options"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=file of=/dev/sda seek=1 skip=1"
+  description: "match writing with both seek and skip"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=file of=/dev/sda bs=4M seek=1"
+  description: "match writing with large block size"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=file of=output.txt"
+  description: "should not match regular file operations"
+  expect_ids: []
+- test: "dd if=/dev/sda of=backup.img"
+  description: "should not match reading from disk"
+  expect_ids: []
+
+# -- fs:dd_block_device --
+- test: "dd if=image.img of=/dev/sda"
+  description: "match command writing to hard disk"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd  if=image.img    of=/dev/sda"
+  description: "match command writing to hard disk with spaces"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd      of=/dev/sda if=image.img"
+  description: "match command writing to hard disk with spaces"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sdb"
+  description: "match command writing to second hard disk"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/mmcblk0"
+  description: "match command writing to SD card"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda1"
+  description: "match command writing to partition"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda bs=4M"
+  description: "match command with block size parameter"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=/dev/sda of=backup.img"
+  description: "should not match reading from disk"
+  expect_ids: []
+- test: "dd if=file.txt of=output.txt"
+  description: "should not match regular file operations"
+  expect_ids: []
+- test: "dd   if=image.img   of=/dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd   of=/dev/sda   if=image.img"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:dd_block_device"]
+- test: "sudo dd if=image.img of=/dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:dd_block_device"]
+- test: "sudo dd of=/dev/sda if=image.img"
+  description: "match command with sudo"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda bs=4M count=1"
+  description: "match command with count parameter"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda bs=4M seek=1"
+  description: "match command with seek parameter"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda bs=4M conv=notrunc"
+  description: "match command with conv parameter"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda2"
+  description: "match command with different partition"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sdb"
+  description: "match command with different disk"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/mmcblk0p2"
+  description: "match command with different SD card partition"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda status=progress"
+  description: "match command with progress status"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda status=none"
+  description: "match command with no status"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=image.img of=/dev/sda status=noxfer"
+  description: "match command with no transfer status"
+  expect_ids: ["fs:dd_block_device"]
+
+# -- fs:delete_find_files --
+- test: "find . | -delete"
+  description: "match command"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find / | -delete"
+  description: "match command"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find   /    |   -delete"
+  description: "match command with spaves"
+  expect_ids: ["fs:delete_find_files"]
+- test: "findd / | -delete"
+  description: "invalid command"
+  expect_ids: []
+- test: "find   .   -delete"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find   /   -delete"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:delete_find_files"]
+- test: "sudo find . -delete"
+  description: "match command with sudo"
+  expect_ids: ["fs:delete_find_files"]
+- test: "sudo find / -delete"
+  description: "match command with sudo"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find . -type f -delete"
+  description: "match command with type option"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find / -name '*.txt' -delete"
+  description: "match command with name pattern"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find . -mtime +7 -delete"
+  description: "match command with time option"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find /home -delete"
+  description: "match command with home directory"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find /var -delete"
+  description: "match command with var directory"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find /usr -delete"
+  description: "match command with usr directory"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find . -type f -name '*.log' -delete"
+  description: "match command with multiple conditions"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find / -type d -empty -delete"
+  description: "match command with empty directory condition"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find . -type f -size +100M -delete"
+  description: "match command with size condition"
+  expect_ids: ["fs:delete_find_files"]
+
+# -- fs:encryption_operations --
+- test: "cryptsetup luksFormat /dev/sda1"
+  description: "match formatting LUKS partition"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup  luksFormat    /dev/sda1"
+  description: "match formatting LUKS partition with spaves"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup open /dev/sda1 my_encrypted"
+  description: "match opening encrypted device"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup close my_encrypted /dev/sda1"
+  description: "match closing encrypted device"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup luksAddKey /dev/sda1"
+  description: "match adding LUKS key"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup luksRemoveKey /dev/sda1"
+  description: "match removing LUKS key"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup luksDump /dev/sda1"
+  description: "match dumping LUKS header"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup resize my_encrypted /dev/sda1"
+  description: "match resizing encrypted device"
+  expect_ids: ["fs:encryption_operations"]
+- test: "cryptsetup -v status my_encrypted"
+  description: "should not match checking status"
+  expect_ids: []
+- test: "cryptsetup isLuks /dev/sda1"
+  description: "match checking if LUKS"
+  expect_ids: ["fs:encryption_operations"]
+
+# -- fs:fdisk_disk_modify --
+- test: "fdisk /dev/sda"
+  description: "match interactive partition editor"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk  /dev/sda"
+  description: "match interactive partition editor with spaces"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -l /dev/sda"
+  description: "match listing partitions"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk  /dev/sda -l"
+  description: "match listing partitions"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -w /dev/sda"
+  description: "match writing changes"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -u /dev/sda"
+  description: "match using sectors instead of cylinders"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -b 2048 /dev/sda"
+  description: "match specifying sector size"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -c /dev/sda"
+  description: "match disabling DOS compatibility mode"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -w always /dev/sda"
+  description: "match writing changes without confirmation"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -l"
+  description: "should not match listing all devices without modification"
+  expect_ids: []
+- test: "fdisk /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+- test: "fdisk   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk   -l   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "sudo fdisk /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "sudo fdisk -l /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -g /dev/sda"
+  description: "match command with gpt option"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -s /dev/sda"
+  description: "match command with size option"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -v /dev/sda"
+  description: "match command with version option"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk /dev/sdb"
+  description: "match command with second disk"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk /dev/mmcblk0"
+  description: "match command with SD card"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk /dev/sda1"
+  description: "match command with partition"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -w -u /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -b 2048 -c /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "fdisk -g -w /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify"]
+
+# -- fs:filesystem_backup --
+- test: "dump -0f /backup.dump /dev/sda1"
+  description: "match creating filesystem dump"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "dump  -0f  /backup.dump  /dev/sda1"
+  description: "match creating filesystem dump with spaces"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "restore -rf /backup.dump /dev/sda1"
+  description: "match restoring from dump"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "dump -0u /dev/sda1"
+  description: "match updating dump"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "dump -0f /backup.dump -b 1024 /dev/sda1"
+  description: "match dump with block size"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "restore -rf -b 1024 /backup.dump /dev/sda1"
+  description: "match restore with block size"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "dump -0f /backup.dump -z 9 /dev/sda1"
+  description: "match compressed dump"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "restore -rf -z /backup.dump /dev/sda1"
+  description: "match compressed restore"
+  expect_ids: ["fs:filesystem_backup"]
+- test: "dump -0f /backup.dump /tmp/test.img"
+  description: "should not match dumping regular file"
+  expect_ids: []
+- test: "restore -rf /backup.dump /tmp/test.img"
+  description: "should not match restoring to regular file"
+  expect_ids: []
+
+# -- fs:flush_file_content --
+- test: 'echo "test" > Cargo.toml'
+  description: "flush content"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'echo "test" > file.txt'
+  description: "regex matches; PathExists filter is bypassed in this test (all paths exist)"
+  expect_ids: ["fs:flush_file_content"]
+- test: "cat file.old.txt > Cargo.toml"
+  description: "flush content"
+  expect_ids: ["fs:flush_file_content"]
+- test: "cat file.old.txt > Cargo.toml"
+  description: "flush content"
+  expect_ids: ["fs:flush_file_content"]
+- test: "cat  file.old.txt    >    Cargo.toml"
+  description: "flush content with spaces"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'cat "test" >> file.txt'
+  description: "TODO: regex should differentiate >> (append) from > (overwrite); currently matches both"
+  expect_ids: ["fs:flush_file_content"]
+
+# -- fs:gdisk_disk_modify --
+- test: "gdisk /dev/sda"
+  description: "match interactive GPT partition editor"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk  /dev/sda"
+  description: "match interactive GPT partition editor with spaces"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -l /dev/sda"
+  description: "match listing GPT partitions"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w /dev/sda"
+  description: "match writing GPT changes"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -o /dev/sda"
+  description: "match creating new GPT partition table"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -r /dev/sda"
+  description: "match recovery and transformation"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk    -v /dev/sda"
+  description: "match verification"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -p /dev/sda"
+  description: "match printing partition table"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -l"
+  description: "should not match listing all devices without modification"
+  expect_ids: []
+- test: "gdisk /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+- test: "gdisk   -w   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "sudo gdisk /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "sudo   gdisk   /dev/sda"
+  description: "match command with sudo and extra spaces"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v /dev/sda"
+  description: "match command with multiple flags"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -v -w /dev/sda"
+  description: "match command with flags in different order"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk /dev/sda -w -v"
+  description: "match command with flags after device"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --load-backup=backup.gpt /dev/sda"
+  description: "match command with backup file"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --backup=backup.gpt /dev/sda"
+  description: "match command with backup parameter"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -c /dev/sda"
+  description: "match command with change partition type"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -d /dev/sda"
+  description: "match command with delete partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -n /dev/sda"
+  description: "match command with new partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk /dev/sdb"
+  description: "match command with second disk"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk /dev/mmcblk0"
+  description: "match command with SD card"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk /dev/sda1"
+  description: "match command with partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --backup=backup.gpt --load-backup=backup.gpt /dev/sda"
+  description: "match command with multiple backup parameters"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --new-table /dev/sda"
+  description: "match command with new table parameter"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --clear /dev/sda"
+  description: "match command with clear parameter"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v -d 1 /dev/sda"
+  description: "match command with delete partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v -n 1 /dev/sda"
+  description: "match command with new partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v -c 1 /dev/sda"
+  description: "match command with change partition"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --verbose /dev/sda"
+  description: "match command with verbose flag"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --debug /dev/sda"
+  description: "match command with debug flag"
+  expect_ids: ["fs:gdisk_disk_modify"]
+- test: "gdisk -w -v --help /dev/sda"
+  description: "match command with help flag"
+  expect_ids: ["fs:gdisk_disk_modify"]
+
+# -- fs:lvm_operations --
+- test: "lvremove /dev/vg0/lv1"
+  description: "match removing logical volume"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove /dev/sda1"
+  description: "match removing physical volume"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove vg0"
+  description: "match removing volume group"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove -f /dev/vg0/lv1"
+  description: "match force removing logical volume"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove -ff /dev/sda1"
+  description: "match force removing physical volume"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove -f vg0"
+  description: "match force removing volume group"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvcreate -L 10G vg0"
+  description: "should not match creating logical volume"
+  expect_ids: []
+- test: "pvcreate /dev/sda1"
+  description: "should not match creating physical volume"
+  expect_ids: []
+- test: "vgcreate vg0 /dev/sda1"
+  description: "should not match creating volume group"
+  expect_ids: []
+- test: "lvremove   /dev/vg0/lv1"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove   /dev/sda1"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove   vg0"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:lvm_operations"]
+- test: "sudo lvremove /dev/vg0/lv1"
+  description: "match command with sudo"
+  expect_ids: ["fs:lvm_operations"]
+- test: "sudo pvremove /dev/sda1"
+  description: "match command with sudo"
+  expect_ids: ["fs:lvm_operations"]
+- test: "sudo vgremove vg0"
+  description: "match command with sudo"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove --force /dev/vg0/lv1"
+  description: "match command with long force flag"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove --force --force /dev/sda1"
+  description: "match command with long force flags"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove --force vg0"
+  description: "match command with long force flag"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove /dev/mapper/vg0-lv1"
+  description: "match command with mapper path"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove /dev/sdb1"
+  description: "match command with different disk"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove vg1"
+  description: "match command with different volume group"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove -y /dev/vg0/lv1"
+  description: "match command with yes option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove -y /dev/sda1"
+  description: "match command with yes option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove -y vg0"
+  description: "match command with yes option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove /dev/vg0/lv2"
+  description: "match command with different logical volume"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove /dev/sdc1"
+  description: "match command with third disk"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove vg2"
+  description: "match command with second volume group"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove -v /dev/vg0/lv1"
+  description: "match command with verbose option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove -v /dev/sda1"
+  description: "match command with verbose option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove -v vg0"
+  description: "match command with verbose option"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove -f -y /dev/vg0/lv1"
+  description: "match command with multiple options"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove -ff -y /dev/sda1"
+  description: "match command with multiple options"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove -f -y vg0"
+  description: "match command with multiple options"
+  expect_ids: ["fs:lvm_operations"]
+- test: "lvremove /dev/vg0/lv1 /dev/vg0/lv2"
+  description: "match command with multiple volumes"
+  expect_ids: ["fs:lvm_operations"]
+- test: "pvremove /dev/sda1 /dev/sdb1"
+  description: "match command with multiple physical volumes"
+  expect_ids: ["fs:lvm_operations"]
+- test: "vgremove vg0 vg1"
+  description: "match command with multiple volume groups"
+  expect_ids: ["fs:lvm_operations"]
+
+# -- fs:mkfs_format --
+- test: "mkfs.ext4 /dev/sda1"
+  description: "match formatting a partition with ext4"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4      /dev/sda1"
+  description: "match formatting a partition with ext4 with spaces"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext3 /dev/sdb2"
+  description: "match formatting a partition with ext3"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs -t ext4 /dev/sda"
+  description: "match formatting entire disk with type parameter"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.fat /dev/mmcblk0p1"
+  description: "match formatting SD card partition with FAT"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.xfs /dev/sdc"
+  description: "match formatting disk with XFS"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.btrfs /dev/mmcblk0"
+  description: "match formatting entire SD card with btrfs"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs /tmp/test.img"
+  description: "should not match formatting a regular file"
+  expect_ids: []
+- test: "mkfs.ext4 /mnt/external"
+  description: "should not match formatting a mount point"
+  expect_ids: []
+- test: "mkfs.ext4"
+  description: "should not match without device parameter"
+  expect_ids: []
+- test: "mkfs.ext4   /dev/sda1"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs   -t   ext4   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:mkfs_format"]
+- test: "sudo mkfs.ext4 /dev/sda1"
+  description: "match command with sudo"
+  expect_ids: ["fs:mkfs_format"]
+- test: "sudo mkfs -t ext4 /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 -F /dev/sda1"
+  description: "match command with force flag"
+  expect_ids: []
+- test: "mkfs -t ext4 -F /dev/sda"
+  description: "match command with force flag"
+  expect_ids: []
+- test: "mkfs.ext4 -L mylabel /dev/sda1"
+  description: "match command with label"
+  expect_ids: []
+- test: "mkfs.ext4 /dev/sda2"
+  description: "match command with different partition"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/sdb"
+  description: "match command with different disk"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/mmcblk0p2"
+  description: "match command with different SD card partition"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ntfs /dev/sda1"
+  description: "match command with NTFS filesystem"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs -t ntfs /dev/sda"
+  description: "match command with NTFS filesystem type"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.exfat /dev/sda1"
+  description: "match command with exFAT filesystem"
+  expect_ids: []
+- test: "mkfs.ext4 -c /dev/sda1"
+  description: "match command with check option"
+  expect_ids: []
+- test: "mkfs.ext4 -n /dev/sda1"
+  description: "match command with dry run option"
+  expect_ids: []
+- test: "mkfs.ext4 -q /dev/sda1"
+  description: "match command with quiet option"
+  expect_ids: []
+- test: "mkfs.ext4 -F -L mylabel -c /dev/sda1"
+  description: "match command with multiple options"
+  expect_ids: []
+- test: "mkfs -t ext4 -F -L mylabel -c /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: []
+- test: "mkfs.ext4 /dev/sda3"
+  description: "match command with third partition"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/sdc1"
+  description: "match command with third disk"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/mmcblk0p3"
+  description: "match command with third SD card partition"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 -b 4096 /dev/sda1"
+  description: "match command with block size"
+  expect_ids: []
+- test: "mkfs.ext4 -i 4096 /dev/sda1"
+  description: "match command with inode size"
+  expect_ids: []
+- test: "mkfs.ext4 -m 5 /dev/sda1"
+  description: "match command with reserved blocks percentage"
+  expect_ids: []
+
+# -- fs:mount_operations --
+- test: "mount /dev/sda1 /mnt"
+  description: "match basic mount operation"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount  /dev/sda1    /mnt"
+  description: "match basic mount operation with spaces"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,rw /dev/sda1"
+  description: "match remounting with options"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o noatime /dev/sdb1 /data"
+  description: "match mounting with specific options"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o loop /dev/sda1 /mnt"
+  description: "match loopback mounting"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o defaults /dev/sda1 /mnt"
+  description: "match mounting with defaults"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -t ext4 /dev/sda1 /mnt"
+  description: "match mounting with filesystem type"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,ro /dev/sda1"
+  description: "match remounting as read-only"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -a"
+  description: "should not match mounting all from fstab"
+  expect_ids: []
+- test: "mount /tmp/test.img /mnt"
+  description: "should not match mounting regular file"
+  expect_ids: []
+- test: "mount   -o   remount,rw   /dev/sda1"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:mount_operations"]
+- test: "sudo mount /dev/sda1 /mnt"
+  description: "match command with sudo"
+  expect_ids: ["fs:mount_operations"]
+- test: "sudo   mount   -o   remount,rw   /dev/sda1"
+  description: "match command with sudo and extra spaces"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,rw -t ext4 /dev/sda1"
+  description: "match command with multiple flags"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -t ext4 -o remount,rw /dev/sda1"
+  description: "match command with flags in different order"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,rw,noatime /dev/sda1"
+  description: "match command with multiple mount options"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o noatime,remount,rw /dev/sda1"
+  description: "match command with mount options in different order"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,rw,exec /dev/sda1"
+  description: "match command with exec option"
+  expect_ids: ["fs:mount_operations"]
+- test: "mount -o remount,rw,noexec /dev/sda1"
+  description: "match command with noexec option"
+  expect_ids: ["fs:mount_operations"]
+
+# -- fs:move_to_dev_null --
+- test: "mv Cargo.toml /dev/null"
+  description: "match command"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv ./ /dev/null"
+  description: "match command"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv   ./    /dev/null"
+  description: "match command with spaces"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv ."
+  description: "match command"
+  expect_ids: []
+- test: "mv /dev/null"
+  description: "missing argument"
+  expect_ids: []
+- test: "mv   Cargo.toml   /dev/null"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "sudo mv Cargo.toml /dev/null"
+  description: "match command with sudo"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "sudo   mv   Cargo.toml   /dev/null"
+  description: "match command with sudo and extra spaces"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv file1 file2 /dev/null"
+  description: "match command with multiple files"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv file1 /dev/null file2"
+  description: "match command with files in different order"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv -f Cargo.toml /dev/null"
+  description: "match command with force flag"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv --force Cargo.toml /dev/null"
+  description: "match command with long force flag"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv ../file /dev/null"
+  description: "match command with parent directory"
+  expect_ids: ["fs:move_to_dev_null"]
+- test: "mv ~/file /dev/null"
+  description: "match command with home directory"
+  expect_ids: ["fs:move_to_dev_null"]
+
+# -- fs:parted_disk_modify --
+- test: "parted /dev/sda mklabel gpt"
+  description: "match creating new GPT partition table"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted    /dev/sda    mklabel gpt"
+  description: "match creating new GPT partition table with spaces"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sdb mkpart primary"
+  description: "match creating new partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda rm 1"
+  description: "match removing partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda print"
+  description: "match listing partitions"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda resizepart 1 100%"
+  description: "match resizing partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda toggle 1 boot"
+  description: "match toggling partition flags"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda"
+  description: "match interactive mode"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted -l"
+  description: "should not match listing all devices without modification"
+  expect_ids: []
+- test: "parted /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+- test: "parted   /dev/sda   mklabel   gpt"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "sudo parted /dev/sda mklabel gpt"
+  description: "match command with sudo"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "sudo   parted   /dev/sda   mklabel   gpt"
+  description: "match command with sudo and extra spaces"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mklabel gpt --script"
+  description: "match command with script mode"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted --script /dev/sda mklabel gpt"
+  description: "match command with script mode in different position"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary ext4 0% 100%"
+  description: "match command with full partition parameters"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary 0% 100% ext4"
+  description: "match command with parameters in different order"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/mmcblk0 mklabel gpt"
+  description: "match command with SD card device"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda1 mklabel gpt"
+  description: "match command with partition device"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda move 1 1000 2000"
+  description: "match command with move partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda name 1 boot"
+  description: "match command with name partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda set 1 lvm on"
+  description: "match command with set partition flag"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sdc mklabel gpt"
+  description: "match command with third disk"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/mmcblk0p1 mklabel gpt"
+  description: "match command with SD card partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda2 mklabel gpt"
+  description: "match command with second partition"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted -a optimal /dev/sda mklabel gpt"
+  description: "match command with alignment option"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted -s /dev/sda mklabel gpt"
+  description: "match command with silent mode"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted --version /dev/sda mklabel gpt"
+  description: "match command with version option"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mklabel gpt mkpart primary ext4 0% 100%"
+  description: "match command with multiple operations"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda rm 1 rm 2"
+  description: "match command with multiple remove operations"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary ext4 0% 50% mkpart primary ext4 50% 100%"
+  description: "match command with multiple create operations"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary ext4 0% 50%"
+  description: "match command with percentage parameters"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary ext4 0 1000"
+  description: "match command with size parameters"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "parted /dev/sda mkpart primary ext4 1000 2000"
+  description: "match command with start and end parameters"
+  expect_ids: ["fs:parted_disk_modify"]
+
+# -- fs:partprobe_disk_update --
+- test: "partprobe /dev/sda"
+  description: "match probing partition table changes"
+  expect_ids: ["fs:partprobe_disk_update"]
+- test: "partprobe -s /dev/sda"
+  description: "match showing summary of changes"
+  expect_ids: ["fs:partprobe_disk_update"]
+- test: "partprobe -d /dev/sda"
+  description: "match dry run mode"
+  expect_ids: ["fs:partprobe_disk_update"]
+- test: "partprobe -w /dev/sda"
+  description: "match waiting for completion"
+  expect_ids: ["fs:partprobe_disk_update"]
+- test: "partprobe -s"
+  description: "should not match probing all devices without modification"
+  expect_ids: []
+- test: "partprobe /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+
+# -- fs:recursively_chmod --
+- test: "chmod -R /"
+  description: "change root path permissions"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod --recursive /"
+  description: "change root path permissions"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R *"
+  description: "change root path permissions"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R .."
+  description: "change parent folder"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R ..."
+  description: "change parent folder"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod file.txt"
+  description: "change file permissions"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod   -R   /"
+  description: "match command with extra spaces"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod   --recursive   /"
+  description: "match command with extra spaces"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "sudo chmod -R /"
+  description: "match command with sudo"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "sudo chmod --recursive /"
+  description: "match command with sudo"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R --verbose /"
+  description: "match command with verbose flag"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R --changes /"
+  description: "match command with changes flag"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R --quiet /"
+  description: "match command with quiet flag"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R /home"
+  description: "match command with home directory"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R /var"
+  description: "match command with var directory"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R /usr"
+  description: "match command with usr directory"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R 777 /"
+  description: "match command with octal mode"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R a+rwx /"
+  description: "match command with symbolic mode"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R u=rwx,g=rx,o=rx /"
+  description: "match command with detailed symbolic mode"
+  expect_ids: ["fs-strict:change_permissions"]
+
+# -- fs:recursively_delete --
+- test: "rm -rf /"
+  description: "delete root path"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -r /"
+  description: "delete root path"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf *"
+  description: "delete all files in current folder"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -fr ."
+  description: "delete parent folder"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf .."
+  description: "delete parent folder"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf /ffff"
+  description: "regex matches; PathExists filter is bypassed in this test (all paths exist)"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rmm -rf /"
+  description: "folder not found"
+  expect_ids: []
+- test: "rm -Rf /"
+  description: "Handle capital R"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -FR /"
+  description: "fs-strict:any_deletion still matches (flag group is optional)"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm   -rf   /"
+  description: "match command with extra spaces"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm   -r   /"
+  description: "match command with extra spaces"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "sudo rm -rf /"
+  description: "match command with sudo"
+  expect_ids: ["fs:recursively_delete"]
+- test: "sudo rm -r /"
+  description: "match command with sudo"
+  expect_ids: ["fs:recursively_delete"]
+- test: "rm -rf --force /"
+  description: "match command with long force flag"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -r --force /"
+  description: "match command with long force flag"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rfv /"
+  description: "fs-strict:any_deletion matches (flag group is optional, captures remaining)"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -rf --verbose /"
+  description: "match command with long verbose flag"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf --preserve-root /"
+  description: "match command with preserve-root flag"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+# -- fs:sfdisk_disk_modify --
+- test: "sfdisk /dev/sda"
+  description: "match interactive partition editor"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -d /dev/sda > backup.txt"
+  description: "match dumping partition table (also matches flush_file_content via >)"
+  expect_ids:
+    ["fs:fdisk_disk_modify", "fs:flush_file_content", "fs:sfdisk_disk_modify"]
+- test: "sfdisk /dev/sda < backup.txt"
+  description: "match restoring partition table"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -l /dev/sda"
+  description: "match listing partitions"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -f /dev/sda"
+  description: "match forcing write"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -N 1 /dev/sda"
+  description: "match modifying specific partition"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk --delete /dev/sda"
+  description: "match deleting all partitions"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -l"
+  description: "should not match listing all devices without modification"
+  expect_ids: []
+- test: "sfdisk /tmp/test.img"
+  description: "should not match regular file"
+  expect_ids: []
+- test: "sfdisk   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk   -l   /dev/sda"
+  description: "match command with extra spaces"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sudo sfdisk /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sudo sfdisk -l /dev/sda"
+  description: "match command with sudo"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -g /dev/sda"
+  description: "match command with gpt option"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -s /dev/sda"
+  description: "match command with size option"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -v /dev/sda"
+  description: "match command with version option"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk /dev/sdb"
+  description: "match command with second disk"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk /dev/mmcblk0"
+  description: "match command with SD card"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk /dev/sda1"
+  description: "match command with partition"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk --delete --force /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -N 1 -f /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+- test: "sfdisk -d -f /dev/sda"
+  description: "match command with multiple options"
+  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+
+# -- fs-strict:any_deletion --
+- test: "rm Cargo.toml"
+  description: "match command by finding existing file"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm src"
+  description: "match command by finding folder"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -rf src"
+  description: "match command by finding folder with flags"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -r src"
+  description: "match command by finding folder with flags"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -fr src"
+  description: "match command by finding folder with flags"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -f src"
+  description: "match command by finding folder with flags"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rmm test.txt"
+  description: "invalid rm name"
+  expect_ids: []
+- test: "rm"
+  description: "without arguments"
+  expect_ids: []
+- test: "rm -R src"
+  description: "with capital r"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -Rf src"
+  description: "with capital r"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -fR src"
+  description: "with capital r"
+  expect_ids: ["fs-strict:any_deletion"]
+
+# -- fs-strict:change_permissions --
+- test: "chmod -R"
+  description: "match command"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod"
+  description: "chmod without any data"
+  expect_ids: []
+- test: "chmodd"
+  description: "chmod name is incurrent"
+  expect_ids: []
+
+# -- fs-strict:folder_deletion --
+- test: "rmdir TestFolder"
+  description: "match command by finding existing file"
+  expect_ids: ["fs-strict:folder_deletion"]
+- test: "rmdir -pv TestFolder"
+  description: "match command with flags"
+  expect_ids: ["fs-strict:folder_deletion"]
+- test: "rmdir    -pv    TestFolder"
+  description: "match command with spaces"
+  expect_ids: ["fs-strict:folder_deletion"]

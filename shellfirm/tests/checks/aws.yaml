@@ -1,0 +1,105 @@
+---
+# -- aws:cfn_delete_stack --
+- test: "aws cloudformation delete-stack --stack-name mystack"
+  description: "delete CloudFormation stack"
+  expect_ids: ["aws:cfn_delete_stack"]
+- test: "aws   cloudformation   delete-stack   --stack-name mystack"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:cfn_delete_stack"]
+- test: "awss cloudformation delete-stack --stack-name mystack"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:ec2_terminate --
+- test: "aws ec2 terminate-instances --instance-ids i-123"
+  description: "terminate EC2 instances"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws   ec2   terminate-instances   --instance-ids i-123"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "awss ec2 terminate-instances --instance-ids i-123"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:eks_delete_cluster --
+- test: "aws eks delete-cluster --name mycluster"
+  description: "delete EKS cluster"
+  expect_ids: ["aws:eks_delete_cluster"]
+- test: "aws   eks   delete-cluster   --name mycluster"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:eks_delete_cluster"]
+- test: "awss eks delete-cluster --name mycluster"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:iam_delete --
+- test: "aws iam delete-user --user-name testuser"
+  description: "delete IAM user"
+  expect_ids: ["aws:iam_delete"]
+- test: "aws iam delete-role --role-name myrole"
+  description: "delete IAM role"
+  expect_ids: ["aws:iam_delete"]
+- test: "aws iam delete-policy --policy-arn arn:test"
+  description: "delete IAM policy"
+  expect_ids: ["aws:iam_delete"]
+- test: "aws iam delete-group --group-name mygroup"
+  description: "delete IAM group"
+  expect_ids: ["aws:iam_delete"]
+- test: "awss iam delete-user --user-name testuser"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:lambda_delete --
+- test: "aws lambda delete-function --function-name myfunc"
+  description: "delete Lambda function"
+  expect_ids: ["aws:lambda_delete"]
+- test: "aws   lambda   delete-function   --function-name myfunc"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:lambda_delete"]
+- test: "awss lambda delete-function --function-name myfunc"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:rds_delete --
+- test: "aws rds delete-db-instance --db-instance-identifier mydb"
+  description: "delete RDS database instance"
+  expect_ids: ["aws:rds_delete"]
+- test: "aws   rds   delete-db-instance   --db-instance-identifier mydb"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:rds_delete"]
+- test: "awss rds delete-db-instance --db-instance-identifier mydb"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:route53_delete_zone --
+- test: "aws route53 delete-hosted-zone --id Z123"
+  description: "delete Route53 hosted zone"
+  expect_ids: ["aws:route53_delete_zone"]
+- test: "aws   route53   delete-hosted-zone   --id Z123"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:route53_delete_zone"]
+- test: "awss route53 delete-hosted-zone --id Z123"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:s3_recursive_delete --
+- test: "aws s3 rm s3://mybucket/path --recursive"
+  description: "recursively delete S3 objects"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "aws   s3   rm   s3://mybucket/path   --recursive"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "awss s3 rm s3://mybucket/path --recursive"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:s3_remove_bucket --
+- test: "aws s3 rb s3://mybucket"
+  description: "delete S3 bucket"
+  expect_ids: ["aws:s3_remove_bucket"]
+- test: "aws   s3   rb   s3://mybucket"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:s3_remove_bucket"]
+- test: "awss s3 rb s3://mybucket"
+  description: "invalid command"
+  expect_ids: []

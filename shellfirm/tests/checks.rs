@@ -1,76 +1,142 @@
-use std::{fs, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf};
 
-use insta::assert_debug_snapshot;
-use itertools::Itertools;
 use serde_derive::Deserialize;
-use shellfirm::checks::run_check_on_command;
+use shellfirm::checks::run_check_on_command_with_env;
 
+/// A single test case in the consolidated YAML files.
 #[derive(Debug, Deserialize, Clone)]
-struct TestSensitivePatterns {
+struct CheckTest {
+    /// The command string to test against all check patterns.
     pub test: String,
+    /// Human-readable description of what this test verifies.
     pub description: String,
+    /// Exact set of check IDs that should match.
+    /// Empty `[]` means the command must NOT match anything.
+    pub expect_ids: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-struct TestSensitivePatternsResult {
-    pub file_path: String,
-    pub test: String,
-    pub check_detection_ids: Vec<String>,
-    pub test_description: String,
+/// A mock environment where every path is reported as existing.
+/// This ensures check tests focus on regex matching, not filesystem state.
+struct AllPathsExistEnv;
+
+impl shellfirm::env::Environment for AllPathsExistEnv {
+    fn var(&self, _key: &str) -> Option<String> { None }
+    fn current_dir(&self) -> anyhow::Result<PathBuf> { Ok(PathBuf::from("/mock")) }
+    fn path_exists(&self, _path: &std::path::Path) -> bool { true }
+    fn home_dir(&self) -> Option<PathBuf> { Some(PathBuf::from("/home/user")) }
+    fn run_command(&self, _cmd: &str, _args: &[&str], _timeout_ms: u64) -> Option<String> { None }
+    fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<String> {
+        Err(anyhow::anyhow!("not implemented"))
+    }
+    fn find_file_upward(&self, _start: &std::path::Path, _filename: &str) -> Option<PathBuf> { None }
 }
 
+/// Run every test case from every consolidated YAML file in `tests/checks/`
+/// and assert that the matched check IDs exactly equal `expect_ids`.
+///
+/// Uses a mock environment where all paths exist so that `PathExists` filters
+/// always pass. This isolates regex-matching tests from filesystem state.
 #[test]
-fn test_checks() {
+fn test_all_checks() {
     let checks = shellfirm::checks::get_all().unwrap();
+    let env = AllPathsExistEnv;
 
-    let test_files_path = fs::read_dir("./tests/checks")
+    let test_files: Vec<PathBuf> = fs::read_dir("./tests/checks")
         .unwrap()
         .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .collect::<Vec<PathBuf>>();
+        .filter(|p| p.extension().map_or(false, |ext| ext == "yaml"))
+        .collect();
 
-    for file in test_files_path {
-        let file_name = file.file_name().unwrap().to_str().unwrap().to_string();
-        let mut test_file_results: Vec<TestSensitivePatternsResult> = Vec::new();
-        let tests: Vec<TestSensitivePatterns> =
-            serde_yaml::from_reader(std::fs::File::open(&file.display().to_string()).unwrap())
-                .unwrap();
+    assert!(
+        !test_files.is_empty(),
+        "No test YAML files found in tests/checks/"
+    );
 
-        for test in tests {
-            let run_result = run_check_on_command(&checks, &test.test);
+    let mut total_cases = 0;
+    let mut total_positive = 0;
+    let mut total_negative = 0;
 
-            test_file_results.push(TestSensitivePatternsResult {
-                file_path: file_name.clone(),
-                test: test.test,
-                check_detection_ids: run_result
-                    .iter()
-                    .map(|f| f.id.to_string())
-                    .sorted_by(|a, b| Ord::cmp(&b, &a))
-                    .collect::<Vec<_>>(),
-                test_description: test.description,
-            });
+    for file in &test_files {
+        let content = fs::read_to_string(file).unwrap();
+        let cases: Vec<CheckTest> = serde_yaml::from_str(&content).unwrap_or_else(|e| {
+            panic!("Failed to parse {}: {}", file.display(), e);
+        });
+
+        for case in &cases {
+            let matched = run_check_on_command_with_env(&checks, &case.test, &env);
+            let mut got_ids: Vec<String> = matched.iter().map(|c| c.id.clone()).collect();
+            got_ids.sort();
+
+            let mut want_ids = case.expect_ids.clone();
+            want_ids.sort();
+
+            assert_eq!(
+                got_ids, want_ids,
+                "\n  File: {}\n  Command: {:?}\n  Description: {}\n  Expected: {:?}\n  Got: {:?}\n",
+                file.display(),
+                case.test,
+                case.description,
+                want_ids,
+                got_ids,
+            );
+
+            total_cases += 1;
+            if case.expect_ids.is_empty() {
+                total_negative += 1;
+            } else {
+                total_positive += 1;
+            }
         }
-        assert_debug_snapshot!(file_name, test_file_results);
     }
+
+    eprintln!(
+        "  check tests: {} total ({} positive, {} negative) across {} files",
+        total_cases,
+        total_positive,
+        total_negative,
+        test_files.len()
+    );
 }
 
+/// Verify that every check ID returned by `get_all()` appears in at least
+/// one `expect_ids` list across all test files. This ensures 100% coverage.
 #[test]
-fn test_missing_patterns_coverage() {
+fn test_coverage_completeness() {
     let checks = shellfirm::checks::get_all().unwrap();
 
-    let test_files_path = fs::read_dir("./tests/checks")
-        .unwrap()
-        .filter_map(|entry| {
-            entry
-                .ok()
-                .map(|e| e.file_name().to_str().unwrap().to_string())
-        })
-        .collect::<Vec<String>>();
+    let all_check_ids: HashSet<String> = checks.iter().map(|c| c.id.clone()).collect();
 
-    let mut not_covered = vec![];
-    for check in checks {
-        if !test_files_path.contains(&format!("{}.yaml", &check.id.replace(':', "-"))) {
-            not_covered.push(check.id);
+    let mut covered_ids: HashSet<String> = HashSet::new();
+
+    let test_files: Vec<PathBuf> = fs::read_dir("./tests/checks")
+        .unwrap()
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|p| p.extension().map_or(false, |ext| ext == "yaml"))
+        .collect();
+
+    for file in &test_files {
+        let content = fs::read_to_string(file).unwrap();
+        let cases: Vec<CheckTest> = serde_yaml::from_str(&content).unwrap_or_else(|e| {
+            panic!("Failed to parse {}: {}", file.display(), e);
+        });
+
+        for case in cases {
+            for id in &case.expect_ids {
+                covered_ids.insert(id.clone());
+            }
         }
     }
-    assert_debug_snapshot!(not_covered);
+
+    let mut missing: Vec<&String> = all_check_ids.difference(&covered_ids).collect();
+    missing.sort();
+
+    assert!(
+        missing.is_empty(),
+        "Check IDs without any positive test case:\n  {}\n\nAdd test cases with these IDs in expect_ids to the appropriate test file in tests/checks/",
+        missing
+            .iter()
+            .map(|id| id.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
+    );
 }

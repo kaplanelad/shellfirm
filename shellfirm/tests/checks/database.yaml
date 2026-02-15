@@ -1,0 +1,104 @@
+---
+# -- database:delete_all_rows --
+- test: "DELETE FROM users;"
+  description: "DELETE without WHERE clause deletes all rows in the table"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE  FROM  orders;"
+  description: "extra spaces in DELETE FROM still matches"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM users WHERE id = 1"
+  description: "DELETE with WHERE clause should not match delete_all_rows"
+  expect_ids: []
+
+# -- database:drop_database --
+- test: "DROP DATABASE mydb"
+  description: "dropping a database permanently deletes all its data"
+  expect_ids: ["database:drop_database"]
+- test: "SELECT * FROM information_schema.schemata"
+  description: "querying schema info should not trigger drop database check"
+  expect_ids: []
+
+# -- database:drop_table --
+- test: "DROP TABLE users"
+  description: "dropping a table permanently deletes all its data"
+  expect_ids: ["database:drop_table"]
+- test: "SELECT * FROM users"
+  description: "selecting from a table should not trigger drop table check"
+  expect_ids: []
+
+# -- database:mongo_drop --
+- test: "mongosh --eval db.users.drop()"
+  description: "executing drop operations via MongoDB shell"
+  expect_ids: ["database:mongo_drop"]
+- test: "mongosh  --eval  db.orders.drop()"
+  description: "extra spaces in mongosh drop command still matches"
+  expect_ids: ["database:mongo_drop"]
+- test: "mongosh --eval db.users.find()"
+  description: "mongosh find operation should not trigger drop check"
+  expect_ids: []
+
+# -- database:mysql_drop --
+- test: "mysql -e DROP DATABASE test"
+  description: "executing DROP commands via mysql CLI"
+  expect_ids: ["database:drop_database", "database:mysql_drop"]
+- test: "mysql -e  DROP TABLE orders"
+  description: "mysql DROP TABLE with extra space still matches"
+  expect_ids: ["database:drop_table", "database:mysql_drop"]
+- test: "mysql -e SELECT * FROM users"
+  description: "mysql SELECT should not trigger drop check"
+  expect_ids: []
+
+# -- database:psql_drop --
+- test: "psql -c DROP TABLE users"
+  description: "executing DROP commands via psql CLI"
+  expect_ids: ["database:drop_table", "database:psql_drop"]
+- test: "psql -c  DROP DATABASE testdb"
+  description: "psql DROP DATABASE with extra space still matches"
+  expect_ids: ["database:drop_database", "database:psql_drop"]
+- test: "psql -c SELECT 1"
+  description: "psql SELECT should not trigger drop check"
+  expect_ids: []
+
+# -- database:redis_flushall --
+- test: "redis-cli FLUSHALL"
+  description: "FLUSHALL deletes all data across all Redis databases"
+  expect_ids: ["database:redis_flushall"]
+- test: "redis-cli  FLUSHALL"
+  description: "extra spaces in redis-cli FLUSHALL still matches"
+  expect_ids: ["database:redis_flushall"]
+- test: "redis-cli GET mykey"
+  description: "redis-cli GET should not trigger flushall check"
+  expect_ids: []
+
+# -- database:redis_flushdb --
+- test: "redis-cli FLUSHDB"
+  description: "FLUSHDB deletes all data in the current Redis database"
+  expect_ids: ["database:redis_flushdb"]
+- test: "redis-cli  FLUSHDB"
+  description: "extra spaces in redis-cli FLUSHDB still matches"
+  expect_ids: ["database:redis_flushdb"]
+- test: "redis-cli SET mykey value"
+  description: "redis-cli SET should not trigger flushdb check"
+  expect_ids: []
+
+# -- database:truncate_table --
+- test: "TRUNCATE TABLE users"
+  description: "truncating a table deletes all rows permanently"
+  expect_ids: ["database:truncate_table"]
+- test: "TRUNCATE  TABLE  orders"
+  description: "extra spaces in TRUNCATE TABLE still matches"
+  expect_ids: ["database:truncate_table"]
+- test: "SELECT COUNT(*) FROM users"
+  description: "SELECT COUNT should not trigger truncate check"
+  expect_ids: []
+
+# -- database:update_all_rows --
+- test: "UPDATE users SET active=false;"
+  description: "UPDATE without WHERE clause modifies all rows in the table"
+  expect_ids: ["database:update_all_rows"]
+- test: "UPDATE  orders  SET  status='cancelled';"
+  description: "extra spaces in UPDATE SET still matches without WHERE"
+  expect_ids: ["database:update_all_rows"]
+- test: "UPDATE users SET active=false WHERE id = 1;"
+  description: "UPDATE with WHERE clause should not match update_all_rows"
+  expect_ids: []

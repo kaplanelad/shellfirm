@@ -1,7 +1,0 @@
----
-- test: heroku clients:rotate
-  description: match command
-- test: heroku   clients:rotate
-  description: match command with spaces
-- test: herokuu clients:rotate
-  description: invalid command

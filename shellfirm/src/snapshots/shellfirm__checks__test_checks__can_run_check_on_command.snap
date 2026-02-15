@@ -9,7 +9,10 @@ expression: "run_check_on_command(&checks, \"test-1\")"
         description: "",
         from: "test-1",
         challenge: Math,
-        filters: {},
+        filters: [],
+        alternative: None,
+        alternative_info: None,
+        severity: Medium,
     },
     Check {
         id: "",
@@ -17,6 +20,9 @@ expression: "run_check_on_command(&checks, \"test-1\")"
         description: "",
         from: "test-2",
         challenge: Math,
-        filters: {},
+        filters: [],
+        alternative: None,
+        alternative_info: None,
+        severity: Medium,
     },
 ]

@@ -2,6 +2,7 @@
 //! configuration
 
 use std::{
+    collections::HashSet,
     env, fmt, fs,
     io::{Read, Write},
     path::PathBuf,
@@ -13,16 +14,29 @@ use log::debug;
 use serde_derive::{Deserialize, Serialize};
 use strum::EnumIter;
 
-use crate::{checks, dialog};
+use crate::{checks, checks::Severity, context::ContextConfig, dialog};
 
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
 pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
 
-pub const DEFAULT_INCLUDE_CHECKS: [&str; 3] = ["base", "fs", "git"];
+pub const DEFAULT_INCLUDE_CHECKS: [&str; 12] = [
+    "aws",
+    "azure",
+    "base",
+    "database",
+    "docker",
+    "fs",
+    "gcp",
+    "git",
+    "heroku",
+    "kubernetes",
+    "network",
+    "terraform",
+];
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, EnumIter)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -36,9 +50,9 @@ pub enum Challenge {
 /// describe configuration folder
 pub struct Config {
     /// Configuration folder path.
-    pub root_folder: String,
+    pub root_folder: PathBuf,
     /// config file.
-    pub setting_file_path: String,
+    pub setting_file_path: PathBuf,
 }
 
 /// Describe the configuration yaml
@@ -52,6 +66,17 @@ pub struct Settings {
     pub ignores_patterns_ids: Vec<String>,
     /// List of pattens id to prevent
     pub deny_patterns_ids: Vec<String>,
+    /// Context-aware protection configuration.
+    #[serde(default)]
+    pub context: ContextConfig,
+    /// Enable audit trail (log intercepted commands).
+    #[serde(default)]
+    pub audit_enabled: bool,
+    /// Minimum severity for a check to trigger a challenge.
+    /// When `None`, all severities trigger. When set, checks below this
+    /// threshold are skipped (but still logged to audit as `Skipped`).
+    #[serde(default)]
+    pub min_severity: Option<Severity>,
 }
 
 impl fmt::Display for Challenge {
@@ -81,6 +106,22 @@ impl Challenge {
             "enter" => Ok(Self::Enter),
             "yes" => Ok(Self::Yes),
             _ => bail!("given challenge name not found"),
+        }
+    }
+
+    /// Return the stricter of two challenges.
+    /// Order: Math < Enter < Yes
+    #[must_use]
+    pub fn stricter(self, other: Self) -> Self {
+        let rank = |c: Self| match c {
+            Self::Math => 0,
+            Self::Enter => 1,
+            Self::Yes => 2,
+        };
+        if rank(self) >= rank(other) {
+            self
+        } else {
+            other
         }
     }
 }
@@ -115,19 +156,28 @@ impl Config {
             },
         };
 
+        let setting_file_path = config_folder.join(DEFAULT_SETTING_FILE_NAME);
         let setting_config = Self {
-            root_folder: config_folder.display().to_string(),
-            setting_file_path: config_folder
-                .join(DEFAULT_SETTING_FILE_NAME)
-                .to_str()
-                .unwrap_or("")
-                .to_string(),
+            root_folder: config_folder,
+            setting_file_path,
         };
 
         setting_config.create_config_folder()?;
         setting_config.manage_setting_file()?;
-        debug!("configuration settings: {:?}", setting_config);
+        debug!("configuration settings: {setting_config:?}");
         Ok(setting_config)
+    }
+
+    /// Get the path to the audit log file.
+    #[must_use]
+    pub fn audit_log_path(&self) -> PathBuf {
+        self.root_folder.join("audit.log")
+    }
+
+    /// Get the path to the custom checks directory.
+    #[must_use]
+    pub fn custom_checks_dir(&self) -> PathBuf {
+        self.root_folder.join("checks")
     }
 
     /// Convert user settings yaml to struct.
@@ -148,24 +198,22 @@ impl Config {
     /// Will return `Err` file could not created or loaded
     pub fn manage_setting_file(&self) -> AnyResult<()> {
         if fs::metadata(&self.setting_file_path).is_err() {
-            debug!("setting file file not found: {}", &self.setting_file_path);
+            debug!("setting file file not found: {}", &self.setting_file_path.display());
             self.create_default_settings_file()?;
         }
-        debug!("setting file: {:?}", self.get_settings_from_file()?);
+        debug!("setting file: {:?}", &self.get_settings_from_file()?);
         Ok(())
     }
 
-    /// Update check groups
+    /// Update check groups to the given list (replaces existing groups).
     ///
     /// # Arguments
     ///
-    /// * `remove_checks` - if true the given `check_group` parameter will
-    ///   remove from configuration / if false will add.
-    /// * `check_groups` - list of check groups to act.
+    /// * `check_groups` - The full list of check groups to enable.
     ///
     /// # Errors
     ///
-    /// Will return `Err` group didn't added/removed
+    /// Will return `Err` if the config file cannot be loaded or saved.
     pub fn update_check_groups(&self, check_groups: Vec<String>) -> AnyResult<()> {
         let mut settings = self.get_settings_from_file()?;
         settings.includes = check_groups;
@@ -206,19 +254,19 @@ impl Config {
                 self.create_default_settings_file()?;
             }
             _ => bail!("unexpected option"),
-        };
+        }
         Ok(())
     }
 
-    /// Create config folder if not exists.
+    /// Create config folder (and parent directories) if not exists.
     fn create_config_folder(&self) -> AnyResult<()> {
-        if let Err(err) = fs::create_dir(&self.root_folder) {
+        if let Err(err) = fs::create_dir_all(&self.root_folder) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
-                bail!("could not create folder: {}", err);
+                bail!("could not create folder: {err}");
             }
-            debug!("configuration folder found: {}", &self.root_folder);
+            debug!("configuration folder found: {}", self.root_folder.display());
         } else {
-            debug!("configuration created in path: {}", &self.root_folder);
+            debug!("configuration created in path: {}", self.root_folder.display());
         }
         Ok(())
     }
@@ -233,6 +281,9 @@ impl Config {
                 .collect::<_>(),
             ignores_patterns_ids: vec![],
             deny_patterns_ids: vec![],
+            context: ContextConfig::default(),
+            audit_enabled: false,
+            min_severity: None,
         })
     }
 
@@ -247,7 +298,7 @@ impl Config {
         file.write_all(content.as_bytes())?;
         debug!(
             "settings file crated in path: {}. config data: {:?}",
-            &self.setting_file_path, settings
+            self.setting_file_path.display(), settings
         );
         Ok(())
     }
@@ -260,12 +311,12 @@ impl Config {
         Ok(content)
     }
 
-    fn backup(&self) -> AnyResult<String> {
-        let backup_to = format!(
+    fn backup(&self) -> AnyResult<PathBuf> {
+        let backup_to = PathBuf::from(format!(
             "{}.{}.bak",
-            self.setting_file_path,
+            self.setting_file_path.display(),
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
-        );
+        ));
         fs::rename(&self.setting_file_path, &backup_to)?;
         Ok(backup_to)
     }
@@ -299,6 +350,21 @@ impl Config {
         self.save_settings_file_from_struct(&settings)?;
         Ok(())
     }
+
+    /// Update the minimum severity threshold.
+    ///
+    /// # Arguments
+    /// * `min_severity` - The new minimum severity, or `None` to disable filtering.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` when could not load/save config
+    pub fn update_min_severity(&self, min_severity: Option<Severity>) -> AnyResult<()> {
+        let mut settings = self.get_settings_from_file()?;
+        settings.min_severity = min_severity;
+        self.save_settings_file_from_struct(&settings)?;
+        Ok(())
+    }
 }
 
 impl Settings {
@@ -308,12 +374,14 @@ impl Settings {
     ///
     /// Will return `Err` when could not load config file
     pub fn get_active_checks(&self) -> AnyResult<Vec<checks::Check>> {
+        let includes: HashSet<&str> = self.includes.iter().map(String::as_str).collect();
+        let ignores: HashSet<&str> =
+            self.ignores_patterns_ids.iter().map(String::as_str).collect();
         Ok(checks::get_all()?
-            .iter()
-            .filter(|&c| self.includes.contains(&c.from))
-            .filter(|&c| !self.ignores_patterns_ids.contains(&c.id))
-            .cloned()
-            .collect::<Vec<_>>())
+            .into_iter()
+            .filter(|c| includes.contains(c.from.as_str()))
+            .filter(|c| !ignores.contains(c.id.as_str()))
+            .collect())
     }
 
     #[must_use]
@@ -324,10 +392,10 @@ impl Settings {
 
 #[cfg(test)]
 mod test_config {
-    use std::{fs::read_dir, path::Path};
+    use std::fs::read_dir;
 
     use insta::assert_debug_snapshot;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -338,118 +406,135 @@ mod test_config {
 
     #[test]
     fn can_crate_new_config() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(Path::new(&config.root_folder).is_dir());
-        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
+        assert_debug_snapshot!(config.root_folder.is_dir());
+        assert_debug_snapshot!(config.setting_file_path.is_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn cat_get_settings_from_file() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(config.get_settings_from_file());
+        assert_debug_snapshot!(config.get_settings_from_file().is_ok());
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_manage_config_file() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let mut config = initialize_config_folder(&temp_dir);
 
         config.setting_file_path = temp_dir
             .path()
             .join("app")
-            .join("new-file.yaml")
-            .display()
-            .to_string();
+            .join("new-file.yaml");
 
-        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
+        assert_debug_snapshot!(config.setting_file_path.is_file());
         config.manage_setting_file().unwrap();
-        assert_debug_snapshot!(Path::new(&config.setting_file_path).is_file());
+        assert_debug_snapshot!(config.setting_file_path.is_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_add_check_groups() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.includes.len(), 12); // default: all groups
         config
             .update_check_groups(vec!["group-1".to_string(), "group-2".to_string()])
             .unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let updated = config.get_settings_from_file().unwrap();
+        assert_eq!(updated.includes, vec!["group-1", "group-2"]);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_update_challenge() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.challenge, Challenge::Math);
         config.update_challenge(Challenge::Yes).unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let updated = config.get_settings_from_file().unwrap();
+        assert_eq!(updated.challenge, Challenge::Yes);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_update_ignores() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(settings.ignores_patterns_ids.is_empty());
         config
             .update_ignores_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
             .unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let updated = config.get_settings_from_file().unwrap();
+        assert_eq!(updated.ignores_patterns_ids, vec!["id-1", "id-2"]);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_update_deny() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
 
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(settings.deny_patterns_ids.is_empty());
         config
             .update_deny_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
             .unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        let updated = config.get_settings_from_file().unwrap();
+        assert_eq!(updated.deny_patterns_ids, vec!["id-1", "id-2"]);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_reset_config_with_override() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
         config.update_challenge(Challenge::Yes).unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Yes
+        );
         config.reset_config(Some(0)).unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
-        assert_debug_snapshot!(read_dir(config.root_folder).unwrap().count());
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Math
+        );
+        assert_eq!(read_dir(&config.root_folder).unwrap().count(), 1);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_reset_config_with_with_backup() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
         config.update_challenge(Challenge::Yes).unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Yes
+        );
         config.reset_config(Some(1)).unwrap();
-        assert_debug_snapshot!(config.get_settings_from_file());
-        assert_debug_snapshot!(read_dir(config.root_folder).unwrap().count());
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Math
+        );
+        assert_eq!(read_dir(&config.root_folder).unwrap().count(), 2);
         temp_dir.close().unwrap();
     }
 }
 
 #[cfg(test)]
 mod test_settings {
-    use insta::assert_debug_snapshot;
-    use tempdir::TempDir;
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -460,9 +545,9 @@ mod test_settings {
 
     #[test]
     fn can_get_active_checks() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config
+        assert!(config
             .get_settings_from_file()
             .unwrap()
             .get_active_checks()
@@ -472,9 +557,30 @@ mod test_settings {
 
     #[test]
     fn can_get_settings_from_file() {
-        let temp_dir = TempDir::new("config-app").unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.get_settings_from_file().unwrap().get_active_groups());
+        let groups = config
+            .get_settings_from_file()
+            .unwrap()
+            .get_active_groups()
+            .clone();
+        assert_eq!(
+            groups,
+            vec![
+                "aws",
+                "azure",
+                "base",
+                "database",
+                "docker",
+                "fs",
+                "gcp",
+                "git",
+                "heroku",
+                "kubernetes",
+                "network",
+                "terraform",
+            ]
+        );
         temp_dir.close().unwrap();
     }
 }

@@ -1,0 +1,37 @@
+- from: azure
+  test: az\s+group\s+delete
+  description: "Deleting a resource group will destroy all resources within it."
+  id: azure:delete_resource_group
+  severity: High
+- from: azure
+  test: az\s+vm\s+delete
+  description: "Deleting a virtual machine permanently destroys it."
+  id: azure:delete_vm
+  severity: High
+  alternative: "az vm deallocate --name <vm>"
+  alternative_info: "Deallocate the VM to stop billing while preserving it for later."
+- from: azure
+  test: az\s+sql\s+server\s+delete
+  description: "Deleting an Azure SQL server will destroy all its databases."
+  id: azure:delete_sql_server
+  severity: High
+- from: azure
+  test: az\s+aks\s+delete
+  description: "Deleting an AKS cluster will destroy all workloads running on it."
+  id: azure:delete_aks_cluster
+  severity: High
+- from: azure
+  test: az\s+storage\s+(account|container|blob)\s+delete
+  description: "Deleting Azure storage resources can result in permanent data loss."
+  id: azure:delete_storage
+  severity: High
+- from: azure
+  test: az\s+keyvault\s+delete
+  description: "Deleting a Key Vault removes all secrets, keys, and certificates."
+  id: azure:delete_keyvault
+  severity: High
+- from: azure
+  test: az\s+ad\s+(app|sp)\s+delete
+  description: "Deleting an Azure AD application or service principal can break authentication."
+  id: azure:delete_ad_app
+  severity: High
