@@ -10,12 +10,13 @@
 </div>
 
 How do I save myself from myself?
-* `rm -rf *`
-* `git reset --hard` before hitting the enter key?
-* `kubectl delete ns` Stop! You are going to delete a lot of resources.
-* `docker system prune -a` Bye bye, all your images and containers.
-* `aws s3 rb` Deleting an entire S3 bucket?
-* And many more!
+
+- `rm -rf *`
+- `git reset --hard` before hitting the enter key?
+- `kubectl delete ns` Stop! You are going to delete a lot of resources.
+- `docker system prune -a` Bye bye, all your images and containers.
+- `aws s3 rb` Deleting an entire S3 bucket?
+- And many more!
 
 `shellfirm` will intercept any risky patterns and immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
 
@@ -34,17 +35,19 @@ Solve the challenge: 8 + 0 = ? (^C to cancel)
 ## Features
 
 ### Context-Aware Protection
-shellfirm detects *where* you're running and automatically escalates challenge difficulty:
 
-| Signal | Risk Level | Example |
-|--------|-----------|---------|
-| SSH session | Elevated | Harder challenge when remotely connected |
-| Root user | Critical | Hardest challenge to prevent root-level mistakes |
-| Protected git branch | Elevated | Extra caution on `main`, `master`, `release/*` |
-| Production Kubernetes | Critical | Safeguards for prod clusters |
-| Custom env vars | Configurable | Flag `ENVIRONMENT=production` as critical |
+shellfirm detects _where_ you're running and automatically escalates challenge difficulty:
+
+| Signal                | Risk Level   | Example                                          |
+| --------------------- | ------------ | ------------------------------------------------ |
+| SSH session           | Elevated     | Harder challenge when remotely connected         |
+| Root user             | Critical     | Hardest challenge to prevent root-level mistakes |
+| Protected git branch  | Elevated     | Extra caution on `main`, `master`, `release/*`   |
+| Production Kubernetes | Critical     | Safeguards for prod clusters                     |
+| Custom env vars       | Configurable | Flag `ENVIRONMENT=production` as critical        |
 
 ### Safe Alternative Suggestions
+
 When a risky command is detected, shellfirm suggests a safer alternative:
 
 ```
@@ -59,15 +62,16 @@ $ git push --force origin main
 ```
 
 ### Severity Levels
+
 Every check has a severity level that indicates how critical the matched pattern is:
 
-| Severity | Description | Examples |
-|----------|-------------|----------|
-| `Critical` | Irreversible, catastrophic actions | `rm -rf /`, `DROP DATABASE`, `mkfs`, `terraform apply -auto-approve` |
-| `High` | Dangerous but scoped actions | `git push --force`, `docker system prune -a`, cloud resource deletion |
-| `Medium` | Potentially risky, context-dependent | `git cherry-pick`, `chmod`, `docker network rm` |
-| `Low` | Informational, strict-mode guards | `git add .`, `git commit --all`, `git tag -a` |
-| `Info` | Advisory-only | Custom checks for team conventions |
+| Severity   | Description                          | Examples                                                              |
+| ---------- | ------------------------------------ | --------------------------------------------------------------------- |
+| `Critical` | Irreversible, catastrophic actions   | `rm -rf /`, `DROP DATABASE`, `mkfs`, `terraform apply -auto-approve`  |
+| `High`     | Dangerous but scoped actions         | `git push --force`, `docker system prune -a`, cloud resource deletion |
+| `Medium`   | Potentially risky, context-dependent | `git cherry-pick`, `chmod`, `docker network rm`                       |
+| `Low`      | Informational, strict-mode guards    | `git add .`, `git commit --all`, `git tag -a`                         |
+| `Info`     | Advisory-only                        | Custom checks for team conventions                                    |
 
 You can set a **minimum severity threshold** so that low-severity checks are silently skipped (but still logged to audit):
 
@@ -78,6 +82,7 @@ shellfirm config severity None     # Disable filtering (challenge on all)
 ```
 
 Or edit `~/.shellfirm/settings.yaml` directly:
+
 ```yaml
 min_severity: High
 ```
@@ -85,6 +90,7 @@ min_severity: High
 When `min_severity` is not set (the default), all severities trigger a challenge.
 
 ### Project-Level Policies
+
 Teams can share safety rules via a `.shellfirm.yaml` file in their repository:
 
 ```yaml
@@ -99,6 +105,7 @@ overrides:
 Policies are **additive-only** -- they can make shellfirm stricter but never weaker. Rules are inherited up the directory tree, so a monorepo can have different policies per subdirectory.
 
 ### Audit Trail
+
 Track every intercepted command and your decision:
 
 ```bash
@@ -107,6 +114,7 @@ shellfirm audit show
 ```
 
 ### Expanded Coverage
+
 Built-in patterns cover **9 ecosystems**: filesystem, git, Kubernetes, Terraform, Heroku, Docker, AWS, GCP/Azure, and databases.
 
 ---
@@ -124,6 +132,7 @@ Built-in patterns cover **9 ecosystems**: filesystem, git, Kubernetes, Terraform
 7. **Audit logging** -- every decision recorded (optional)
 
 ## Example
+
 ![](./docs/media/example.gif)
 
 ---
@@ -131,11 +140,13 @@ Built-in patterns cover **9 ecosystems**: filesystem, git, Kubernetes, Terraform
 ## Installation
 
 ### Via Homebrew
+
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
 ### Via Cargo
+
 ```bash
 cargo install shellfirm
 ```
@@ -143,6 +154,7 @@ cargo install shellfirm
 Or download the binary from the [releases page](https://github.com/kaplanelad/shellfirm/releases).
 
 Verify:
+
 ```bash
 shellfirm --version
 ```
@@ -160,6 +172,7 @@ shellfirm init --install
 That's it. Restart your shell (or `source` your rc file) and you're protected.
 
 To specify the shell explicitly:
+
 ```bash
 shellfirm init zsh --install
 shellfirm init bash --install
@@ -169,6 +182,7 @@ shellfirm init fish --install
 Supported shells: **Zsh**, **Bash**, **Fish**, **Nushell**, **PowerShell**, **Elvish**, **Xonsh**, **Oils (OSH/YSH)**.
 
 ### Verify
+
 ```bash
 git reset --hard  # Should trigger shellfirm!
 ```
@@ -193,16 +207,16 @@ shellfirm init elvish
 shellfirm init xonsh
 ```
 
-| Shell | RC File |
-|-------|---------|
-| Zsh | `~/.zshrc` |
-| Bash | `~/.bashrc` |
-| Fish | `~/.config/fish/config.fish` |
-| Nushell | `$nu.config-path` (run `config nu` to edit) |
-| PowerShell | `$PROFILE` (run `notepad $PROFILE` to edit) |
-| Elvish | `~/.config/elvish/rc.elv` |
-| Xonsh | `~/.xonshrc` |
-| Oils (OSH/YSH) | `~/.config/oils/oshrc` |
+| Shell          | RC File                                     |
+| -------------- | ------------------------------------------- |
+| Zsh            | `~/.zshrc`                                  |
+| Bash           | `~/.bashrc`                                 |
+| Fish           | `~/.config/fish/config.fish`                |
+| Nushell        | `$nu.config-path` (run `config nu` to edit) |
+| PowerShell     | `$PROFILE` (run `notepad $PROFILE` to edit) |
+| Elvish         | `~/.config/elvish/rc.elv`                   |
+| Xonsh          | `~/.xonshrc`                                |
+| Oils (OSH/YSH) | `~/.config/oils/oshrc`                      |
 
 </details>
 
@@ -215,9 +229,11 @@ curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/s
 ```
 
 Add `shellfirm` to the plugin list in `~/.zshrc`:
+
 ```bash
 plugins=(... shellfirm)
 ```
+
 </details>
 
 ---
@@ -226,11 +242,11 @@ plugins=(... shellfirm)
 
 ### Challenge Types
 
-| Type | Description |
-|------|------------|
-| `Math` | Solve a simple arithmetic problem (default) |
-| `Enter` | Press Enter to confirm |
-| `Yes` | Type "yes" to confirm |
+| Type    | Description                                 |
+| ------- | ------------------------------------------- |
+| `Math`  | Solve a simple arithmetic problem (default) |
+| `Enter` | Press Enter to confirm                      |
+| `Yes`   | Type "yes" to confirm                       |
 
 ```bash
 shellfirm config challenge   # Interactive selection
@@ -254,8 +270,8 @@ context:
     RAILS_ENV: "production"
     NODE_ENV: "production"
   escalation:
-    elevated: Enter    # Elevated risk -> at least Enter challenge
-    critical: Yes      # Critical risk -> at least Yes challenge
+    elevated: Enter # Elevated risk -> at least Enter challenge
+    critical: Yes # Critical risk -> at least Yes challenge
 audit_enabled: true
 ```
 
@@ -298,50 +314,16 @@ cd your-project
 shellfirm policy init    # Creates .shellfirm.yaml template
 ```
 
-### Example `.shellfirm.yaml`
-
-```yaml
-version: "1"
-
-# Hard-deny these patterns (team members cannot override)
-deny:
-  - "git:force_push"
-  - "fs:recursively_delete"
-
-# Escalate challenge for specific patterns
-overrides:
-  - id: "kubernetes:delete_namespace"
-    min_challenge: Yes
-  - id: "git:reset_hard"
-    min_challenge: Enter
-    branches:
-      - main
-      - "release/*"
-```
-
-### Validate
-
-```bash
-shellfirm policy validate
-# .shellfirm.yaml: valid
-```
-
-### How Policies Work
-
-- Policies are **additive-only**: they can make shellfirm stricter but never weaker
-- Files are discovered by walking up the directory tree from `cwd`
-- Commit `.shellfirm.yaml` to your repository so the whole team shares the same safety rules
-
----
-
 ## Audit Trail
 
 Enable auditing in your settings:
+
 ```yaml
 audit_enabled: true
 ```
 
 Commands:
+
 ```bash
 shellfirm audit show    # View the log
 shellfirm audit clear   # Clear the log
@@ -350,69 +332,3 @@ shellfirm audit clear   # Clear the log
 Each entry records: timestamp, command, matched patterns, severity, challenge type, outcome (ALLOWED/BLOCKED/DENIED/SKIPPED), and context labels. Checks that matched but were below `min_severity` are logged with a `SKIPPED` outcome.
 
 ---
-
-## Architecture
-
-### Testing
-
-shellfirm uses a three-tier testing strategy with full sandboxing (zero real system access):
-
-- **Tier 1 -- Pure Logic** (27 tests): Pattern matching, challenge escalation, policy merging, command splitting
-- **Tier 2 -- Sandboxed Integration** (17 tests): Full pipeline with mock `Environment` and `Prompter` traits
-- **Tier 3 -- Decision Matrix** (YAML-driven scenarios): Product behavior validated from a single `matrix.yaml` file
-
-```bash
-cargo test   # Runs all 102 tests, fully sandboxed
-```
-
-### Dependency Injection
-
-All I/O is abstracted through two traits:
-- `Environment` -- filesystem, env vars, command execution
-- `Prompter` -- user interaction (challenges)
-
-This enables complete test isolation without touching the real filesystem, network, or terminal.
-
----
-
-## Built-in Check Coverage
-
-| Ecosystem | Severities | Examples |
-|-----------|------------|----------|
-| **Filesystem** | Critical -- High | `rm -rf`, `chmod -R`, `mkfs`, `dd` |
-| **Filesystem (strict)** | Medium | `rm`, `rmdir`, `chmod` |
-| **Git** | High -- Medium | `force push`, `reset --hard`, `clean -fd`, `cherry-pick` |
-| **Git (strict)** | Low -- Medium | `git add .`, `git commit --all`, `git tag -a` |
-| **Kubernetes** | Critical | `delete namespace` |
-| **Kubernetes (strict)** | High | `delete`, `scale`, `rollout`, `set` |
-| **Terraform** | Critical -- High | `-auto-approve`, `state mv`, `force-unlock` |
-| **Docker** | High -- Medium | `system prune -a`, `rm -f`, `volume rm` |
-| **AWS** | High | `s3 rb`, `ec2 terminate`, `rds delete`, `iam delete-user` |
-| **GCP** | High | `compute instances delete`, `sql instances delete` |
-| **Azure** | High | `group delete`, `vm delete`, `keyvault delete` |
-| **Database** | Critical -- High | `DROP DATABASE`, `DROP TABLE`, `TRUNCATE`, `FLUSHALL` |
-| **Heroku** | Critical -- Medium | `apps:destroy`, `addons:destroy`, `ps:restart` |
-| **Network** | Critical -- High | `iptables -F`, `ufw disable`, `systemctl stop networking` |
-
----
-
-## Contributing
-
-```bash
-# Clone and build
-git clone https://github.com/kaplanelad/shellfirm.git
-cd shellfirm
-cargo build
-
-# Run tests (fully sandboxed, safe to run anywhere)
-cargo test
-
-# Add a new check pattern
-# 1. Add entry to shellfirm/checks/<ecosystem>.yaml
-# 2. Add test file to shellfirm/tests/checks/<id>.yaml
-# 3. Run: cargo test test_missing_patterns_coverage
-```
-
-## License
-
-MIT
