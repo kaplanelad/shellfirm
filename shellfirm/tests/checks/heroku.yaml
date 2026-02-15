@@ -1,0 +1,209 @@
+---
+# -- heroku:destroy_addons --
+- test: "heroku addons:destroy"
+  description: "match command"
+  expect_ids: ["heroku:destroy_addons"]
+- test: "heroku   addons:destroy"
+  description: "match command with spaces"
+  expect_ids: ["heroku:destroy_addons"]
+- test: "herokuu addons:destroy"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:destroy_app --
+- test: "heroku apps:destroy"
+  description: "match command"
+  expect_ids: ["heroku:destroy_app"]
+- test: "heroku   apps:destroy"
+  description: "match command with spaces"
+  expect_ids: ["heroku:destroy_app"]
+- test: "herokuu apps:destroy"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:destroy_client --
+- test: "heroku clients:destroy"
+  description: "match command"
+  expect_ids: ["heroku:destroy_client"]
+- test: "heroku   clients:destroy"
+  description: "match command with spaces"
+  expect_ids: ["heroku:destroy_client"]
+- test: "herokue clients:destroy"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:detach_addon --
+- test: "heroku addons:detach"
+  description: "match command"
+  expect_ids: ["heroku:detach_addon"]
+- test: "heroku   addons:detach"
+  description: "match command with spaces"
+  expect_ids: ["heroku:detach_addon"]
+- test: "herokuu addons:detach"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:disable_app_feature --
+- test: "heroku features:disable"
+  description: "match command"
+  expect_ids: ["heroku:disable_app_feature"]
+- test: "heroku  features:disable"
+  description: "match command with spaces"
+  expect_ids: ["heroku:disable_app_feature"]
+- test: "herokuu features:disable"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:enable_maintenance_mode --
+- test: "heroku maintenance:on"
+  description: "match command"
+  expect_ids: ["heroku:enable_maintenance_mode"]
+- test: "heroku   maintenance:on"
+  description: "match command with spaces"
+  expect_ids: ["heroku:enable_maintenance_mode"]
+- test: "herokuu maintenance:on"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:kill_app_dynos --
+- test: "heroku ps:kill"
+  description: "match command"
+  expect_ids: ["heroku:kill_app_dynos"]
+- test: "heroku   ps:kill"
+  description: "match command with spaces"
+  expect_ids: ["heroku:kill_app_dynos"]
+- test: "herokuu ps:kill"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:remove_app_container --
+- test: "heroku container:rm"
+  description: "match command"
+  expect_ids: ["heroku:remove_app_container"]
+- test: "heroku   container:rm"
+  description: "match command with spaces"
+  expect_ids: ["heroku:remove_app_container"]
+- test: "herokuu container:rm"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:remove_member --
+- test: "heroku members:remove"
+  description: "match command"
+  expect_ids: ["heroku:remove_member"]
+- test: "heroku  members:remove"
+  description: "match command with spaces"
+  expect_ids: ["heroku:remove_member"]
+- test: "herokuu members:remove"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:remove_user_access --
+- test: "heroku access:remove"
+  description: "match command"
+  expect_ids: ["heroku:remove_user_access"]
+- test: "heroku   access:remove"
+  description: "match command with spaces"
+  expect_ids: ["heroku:remove_user_access"]
+- test: "herokuu access:remove"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:remove_yourself_from_app --
+- test: "heroku apps:leave"
+  description: "match command"
+  expect_ids: ["heroku:remove_yourself_from_app"]
+- test: "heroku   apps:leave"
+  description: "match command with spaces"
+  expect_ids: ["heroku:remove_yourself_from_app"]
+- test: "herokuu apps:leave"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:rename_app_name --
+- test: "heroku apps:rename"
+  description: "match command"
+  expect_ids: ["heroku:rename_app_name"]
+- test: "heroku   apps:rename"
+  description: "match command with spaces"
+  expect_ids: ["heroku:rename_app_name"]
+- test: "herokuu apps:rename"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:reset_repo --
+- test: "heroku repo:reset"
+  description: "match command"
+  expect_ids: ["heroku:reset_repo"]
+- test: "heroku   repo:reset"
+  description: "match command with spaces"
+  expect_ids: ["heroku:reset_repo"]
+- test: "herokuu repo:reset"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:restart_app_dynos --
+- test: "heroku ps:restart"
+  description: "match command"
+  expect_ids: ["heroku:restart_app_dynos"]
+- test: "heroku   ps:restart"
+  description: "match command with spaces"
+  expect_ids: ["heroku:restart_app_dynos"]
+- test: "herokuu ps:restart"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:rotate_oauth_client --
+- test: "heroku clients:rotate"
+  description: "match command"
+  expect_ids: ["heroku:rotate_oauth_client"]
+- test: "heroku   clients:rotate"
+  description: "match command with spaces"
+  expect_ids: ["heroku:rotate_oauth_client"]
+- test: "herokuu clients:rotate"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:stop_app_dynos --
+- test: "heroku ps:stop"
+  description: "match command"
+  expect_ids: ["heroku:stop_app_dynos"]
+- test: "heroku     ps:stop"
+  description: "match command with spaces"
+  expect_ids: ["heroku:stop_app_dynos"]
+- test: "herokuu ps:stop"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:unset_environment_variable --
+- test: "heroku config:unset"
+  description: "match command"
+  expect_ids: ["heroku:unset_environment_variable"]
+- test: "heroku   config:unset"
+  description: "match command with spaces"
+  expect_ids: ["heroku:unset_environment_variable"]
+- test: "herokuu config:unset"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:update_collaborators_access --
+- test: "heroku access:update"
+  description: "match command"
+  expect_ids: ["heroku:update_collaborators_access"]
+- test: "heroku   access:update"
+  description: "match command with spaces"
+  expect_ids: ["heroku:update_collaborators_access"]
+- test: "herokuu access:update"
+  description: "invalid command"
+  expect_ids: []
+
+# -- heroku:update_oauth_client --
+- test: "heroku clients:update"
+  description: "match command"
+  expect_ids: ["heroku:update_oauth_client"]
+- test: "heroku   clients:update"
+  description: "match command with spaces"
+  expect_ids: ["heroku:update_oauth_client"]
+- test: "herokuu clients:update"
+  description: "invalid command"
+  expect_ids: []

@@ -1,3 +1,9 @@
+pub mod audit_cmd;
+pub mod check_cmd;
 pub mod command;
+pub mod completions_cmd;
 pub mod config;
 pub mod default;
+pub mod init;
+pub mod policy_cmd;
+pub mod status_cmd;

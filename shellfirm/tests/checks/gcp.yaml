@@ -1,0 +1,77 @@
+---
+# -- gcp:delete_gke_cluster --
+- test: "gcloud container clusters delete mycluster"
+  description: "deleting a GKE cluster destroys all workloads running on it"
+  expect_ids: ["gcp:delete_gke_cluster"]
+- test: "gcloud  container  clusters  delete  prod-cluster --zone us-east1-b"
+  description: "extra spaces in gcloud container clusters delete still matches"
+  expect_ids: ["gcp:delete_gke_cluster"]
+- test: "gcloud container clusters describe mycluster"
+  description: "describing a GKE cluster should not trigger delete check"
+  expect_ids: []
+
+# -- gcp:delete_instance --
+- test: "gcloud compute instances delete myvm"
+  description: "deleting a Compute Engine instance permanently destroys it"
+  expect_ids: ["gcp:delete_instance"]
+- test: "gcloud  compute  instances  delete  prod-vm --zone us-central1-a"
+  description: "extra spaces in gcloud compute instances delete still matches"
+  expect_ids: ["gcp:delete_instance"]
+- test: "gcloud compute instances list"
+  description: "listing Compute Engine instances should not trigger delete check"
+  expect_ids: []
+
+# -- gcp:delete_project --
+- test: "gcloud projects delete myproject"
+  description: "deleting a GCP project destroys all resources within it"
+  expect_ids: ["gcp:delete_project"]
+- test: "gcloud  projects  delete  my-other-project"
+  description: "extra spaces in gcloud projects delete still matches"
+  expect_ids: ["gcp:delete_project"]
+- test: "gcloud projects list"
+  description: "listing GCP projects should not trigger delete check"
+  expect_ids: []
+
+# -- gcp:delete_service_account --
+- test: "gcloud iam service-accounts delete sa@proj.iam"
+  description: "deleting a service account can break applications using it"
+  expect_ids: ["gcp:delete_service_account"]
+- test: "gcloud  iam  service-accounts  delete  deploy@proj.iam.gserviceaccount.com"
+  description: "extra spaces in gcloud iam service-accounts delete still matches"
+  expect_ids: ["gcp:delete_service_account"]
+- test: "gcloud iam service-accounts list"
+  description: "listing service accounts should not trigger delete check"
+  expect_ids: []
+
+# -- gcp:delete_sql_instance --
+- test: "gcloud sql instances delete mydb"
+  description: "deleting a Cloud SQL instance permanently destroys the database"
+  expect_ids: ["gcp:delete_sql_instance"]
+- test: "gcloud  sql  instances  delete  prod-db"
+  description: "extra spaces in gcloud sql instances delete still matches"
+  expect_ids: ["gcp:delete_sql_instance"]
+- test: "gcloud sql instances describe mydb"
+  description: "describing a Cloud SQL instance should not trigger delete check"
+  expect_ids: []
+
+# -- gcp:gcs_recursive_delete --
+- test: "gsutil rm -r gs://mybucket/path"
+  description: "recursively deleting all objects in a GCS bucket"
+  expect_ids: ["gcp:gcs_recursive_delete"]
+- test: "gsutil  rm  -r  gs://prod-bucket/data/"
+  description: "extra spaces in gsutil rm -r still matches"
+  expect_ids: ["gcp:gcs_recursive_delete"]
+- test: "gsutil ls gs://mybucket"
+  description: "listing GCS bucket contents should not trigger recursive delete check"
+  expect_ids: []
+
+# -- gcp:gcs_remove_bucket --
+- test: "gsutil rb gs://mybucket"
+  description: "removing a GCS bucket and all its contents"
+  expect_ids: ["gcp:gcs_remove_bucket"]
+- test: "gsutil  rb  gs://old-bucket"
+  description: "extra spaces in gsutil rb still matches"
+  expect_ids: ["gcp:gcs_remove_bucket"]
+- test: "gsutil cat gs://mybucket/file.txt"
+  description: "reading a GCS file should not trigger remove bucket check"
+  expect_ids: []

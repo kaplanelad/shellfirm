@@ -1,7 +1,0 @@
----
-- test: k scale
-  description: match command
-- test: kubectl   scale
-  description: match command with spaces
-- test: kubectll scale 
-  description: invalid command

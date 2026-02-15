@@ -21,14 +21,14 @@ pub fn multi_choice(
         .page_size(page_size);
 
     for s in selected {
-        question = question.choice_with_default(s.to_string(), true);
+        question = question.choice_with_default(s.clone(), true);
     }
 
     let answer = requestty::prompt_one(question.build())?;
 
     answer.as_list_items().map_or_else(
         || bail!("could not get selected list"),
-        |list| Ok(list.iter().map(|s| s.text.to_string()).collect::<Vec<_>>()),
+        |list| Ok(list.iter().map(|s| s.text.clone()).collect::<Vec<_>>()),
     )
 }
 
@@ -60,7 +60,7 @@ pub fn reset_config() -> Result<usize> {
 /// # Errors
 ///
 /// Will return `Err` when interact error
-pub fn select(message: &str, items: &Vec<String>) -> Result<String> {
+pub fn select(message: &str, items: &[String]) -> Result<String> {
     let questions = Question::select("select")
         .message(message)
         .choices(items)

@@ -1,0 +1,44 @@
+- from: docker
+  test: docker\s+system\s+prune\s+(-a|--all)
+  description: "This will remove all unused Docker data including stopped containers, networks, dangling images, and build cache."
+  id: docker:system_prune_all
+  severity: High
+  alternative: "docker system prune"
+  alternative_info: "Without -a, only dangling images are removed (not all unused images)."
+- from: docker
+  test: docker\s+rm\s+(-f|--force)\s+\$\(docker\s+ps
+  description: "Force removing all running or stopped containers."
+  id: docker:force_remove_all_containers
+  severity: High
+- from: docker
+  test: docker\s+rmi\s+(-f|--force)
+  description: "Force removing Docker images can break dependent containers."
+  id: docker:force_remove_images
+  severity: High
+- from: docker
+  test: docker\s+volume\s+rm
+  description: "Removing Docker volumes permanently deletes the data they contain."
+  id: docker:remove_volume
+  severity: High
+- from: docker
+  test: docker\s+volume\s+prune
+  description: "This will remove all unused Docker volumes and their data."
+  id: docker:volume_prune
+  severity: High
+- from: docker
+  test: docker\s+network\s+rm
+  description: "Removing a Docker network can disconnect containers using it."
+  id: docker:remove_network
+  severity: Medium
+- from: docker
+  test: docker-compose\s+down\s+(-v|--volumes)
+  description: "This will stop containers AND delete all associated volumes and data."
+  id: docker:compose_down_volumes
+  severity: High
+  alternative: "docker-compose down"
+  alternative_info: "Without -v, volumes are preserved so data is not lost."
+- from: docker
+  test: docker\s+stop\s+\$\(docker\s+ps
+  description: "Stopping all running Docker containers."
+  id: docker:stop_all_containers
+  severity: Medium

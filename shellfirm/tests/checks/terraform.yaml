@@ -1,0 +1,64 @@
+---
+# -- terraform:apply_with_auto_approve --
+- test: "terraform apply -auto-approve"
+  description: "match command"
+  expect_ids: ["terraform:apply_with_auto_approve"]
+- test: "terraform    apply    -auto-approve"
+  description: "match command with spaces"
+  expect_ids: ["terraform:apply_with_auto_approve"]
+- test: "terraform    apply    -auto-approv"
+  description: "match command with spaces"
+  expect_ids: []
+
+# -- terraform:force_unlock_with_force_flag --
+- test: "terraform force-unlock -force"
+  description: "match command"
+  expect_ids: ["terraform:force_unlock_with_force_flag"]
+- test: "terraform    force-unlock    -force"
+  description: "match command with spaces"
+  expect_ids: ["terraform:force_unlock_with_force_flag"]
+- test: "terraform  force-unlock"
+  description: "invalid command"
+  expect_ids: []
+
+# -- terraform:state --
+- test: "terraform state mv"
+  description: "match command"
+  expect_ids: ["terraform:state"]
+- test: "terraform state replace-provider"
+  description: "match command"
+  expect_ids: ["terraform:state"]
+- test: "terraform    state mv"
+  description: "match command with spaces"
+  expect_ids: ["terraform:state"]
+- test: "terraform state mv -dry-run"
+  description: "skip during the -dry-run flag"
+  expect_ids: []
+- test: "terraform state replace-provider -dry-run"
+  description: "skip during the -dry-run flag"
+  expect_ids: []
+
+# -- terraform:workspace_delete_with_force_flag --
+- test: "terraform workspace delete -lock-timeout=1 -force"
+  description: "match command"
+  expect_ids: ["terraform:workspace_delete_with_force_flag"]
+- test: "terraform   workspace   delete  - -force"
+  description: "match command with spaces"
+  expect_ids: ["terraform:workspace_delete_with_force_flag"]
+- test: "terraform workspace delete -lock-timeout=1"
+  description: "invalid command"
+  expect_ids: []
+
+# -- terraform:workspace_delete_without_lock --
+- test: "terraform workspace delete -lock=false"
+  description: "match command"
+  expect_ids: ["terraform:workspace_delete_without_lock"]
+- test: "terraform workspace delete -lock=false -force"
+  description: "match command with force"
+  expect_ids: ["terraform:workspace_delete_with_force_flag", "terraform:workspace_delete_without_lock"]
+- test: "terraform   workspace   delete   -lock=false"
+  description: "match command with spaces"
+  expect_ids: ["terraform:workspace_delete_without_lock"]
+- test: "terraform workspace delete"
+  description: "invalid command"
+  expect_ids: []

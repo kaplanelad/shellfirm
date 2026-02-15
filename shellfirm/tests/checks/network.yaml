@@ -1,0 +1,149 @@
+---
+# -- network:bring_down_interface --
+- test: "ifconfig eth0 down"
+  description: "match command with ifconfig"
+  expect_ids: ["network:bring_down_interface"]
+- test: "sudo ifconfig eth0 down"
+  description: "match command with sudo and ifconfig"
+  expect_ids: ["network:bring_down_interface"]
+- test: "ip link set eth0 down"
+  description: "match command with ip link"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "sudo ip link set eth0 down"
+  description: "match command with sudo and ip link"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "ifconfig eth0 up"
+  description: "should not match up command"
+  expect_ids: []
+- test: "ip link set eth0 up"
+  description: "should not match up command with ip link"
+  expect_ids: []
+- test: "ifconfig wlan0 down"
+  description: "should not match non-eth interface"
+  expect_ids: []
+
+# -- network:bring_down_interface_ip --
+- test: "ip link set eth0 down"
+  description: "match command with ip link"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "sudo ip link set eth0 down"
+  description: "match command with sudo and ip link"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "ip link set eth0 up"
+  description: "should not match up command"
+  expect_ids: []
+- test: "ip link show eth0"
+  description: "should not match show command"
+  expect_ids: []
+
+# -- network:delete_custom_chains --
+- test: "iptables -X"
+  description: "match command"
+  expect_ids: ["network:delete_custom_chains"]
+- test: "sudo iptables -X"
+  description: "match command with sudo"
+  expect_ids: ["network:delete_custom_chains"]
+- test: "iptables -X CUSTOM_CHAIN"
+  description: "should not match specific chain"
+  expect_ids: ["network:delete_custom_chains"]
+- test: "iptables -L"
+  description: "should not match list command"
+  expect_ids: []
+
+# -- network:delete_default_route --
+- test: "route del default"
+  description: "match command"
+  expect_ids: ["network:delete_default_route"]
+- test: "sudo route del default"
+  description: "match command with sudo"
+  expect_ids: ["network:delete_default_route"]
+- test: "route add default"
+  description: "should not match add command"
+  expect_ids: []
+- test: "route show"
+  description: "should not match show command"
+  expect_ids: []
+
+# -- network:disable_firewall --
+- test: "ufw disable"
+  description: "match command"
+  expect_ids: ["network:disable_firewall"]
+- test: "sudo ufw disable"
+  description: "match command with sudo"
+  expect_ids: ["network:disable_firewall"]
+- test: "ufw enable"
+  description: "should not match enable command"
+  expect_ids: []
+- test: "ufw status"
+  description: "should not match status command"
+  expect_ids: []
+
+# -- network:flush_iptables --
+- test: "iptables -F"
+  description: "match command"
+  expect_ids: ["network:flush_iptables"]
+- test: "sudo iptables -F"
+  description: "match command with sudo"
+  expect_ids: ["network:flush_iptables"]
+- test: "iptables -F INPUT"
+  description: "should not match specific chain"
+  expect_ids: ["network:flush_iptables"]
+- test: "iptables -L"
+  description: "should not match list command"
+  expect_ids: []
+
+# -- network:flush_nat_rules --
+- test: "iptables -t nat -F"
+  description: "match command"
+  expect_ids: ["network:flush_nat_rules"]
+- test: "sudo iptables -t nat -F"
+  description: "match command with sudo"
+  expect_ids: ["network:flush_nat_rules"]
+- test: "iptables -t nat -F PREROUTING"
+  description: "should not match specific chain"
+  expect_ids: ["network:flush_nat_rules"]
+- test: "iptables -t nat -L"
+  description: "should not match list command"
+  expect_ids: []
+
+# -- network:force_reset_firewall --
+- test: "ufw --force reset"
+  description: "match command"
+  expect_ids: ["network:force_reset_firewall"]
+- test: "sudo ufw --force reset"
+  description: "match command with sudo"
+  expect_ids: ["network:force_reset_firewall"]
+- test: "ufw reset"
+  description: "should not match without force flag"
+  expect_ids: []
+- test: "ufw status"
+  description: "should not match status command"
+  expect_ids: []
+
+# -- network:stop_network_manager --
+- test: "systemctl stop NetworkManager"
+  description: "match command"
+  expect_ids: ["network:stop_network_manager"]
+- test: "sudo systemctl stop NetworkManager"
+  description: "match command with sudo"
+  expect_ids: ["network:stop_network_manager"]
+- test: "systemctl status NetworkManager"
+  description: "should not match status command"
+  expect_ids: []
+- test: "systemctl restart NetworkManager"
+  description: "should not match restart command"
+  expect_ids: []
+
+# -- network:stop_networking --
+- test: "systemctl stop networking"
+  description: "match command"
+  expect_ids: ["network:stop_networking"]
+- test: "sudo systemctl stop networking"
+  description: "match command with sudo"
+  expect_ids: ["network:stop_networking"]
+- test: "systemctl status networking"
+  description: "should not match status command"
+  expect_ids: []
+- test: "systemctl restart networking"
+  description: "should not match restart command"
+  expect_ids: []

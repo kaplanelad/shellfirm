@@ -1,0 +1,39 @@
+- from: gcp
+  test: gcloud\s+projects\s+delete
+  description: "Deleting a GCP project will destroy all resources within it."
+  id: gcp:delete_project
+  severity: High
+- from: gcp
+  test: gcloud\s+compute\s+instances\s+delete
+  description: "Deleting a Compute Engine instance permanently destroys it."
+  id: gcp:delete_instance
+  severity: High
+  alternative: "gcloud compute instances stop <instance>"
+  alternative_info: "Stop the instance instead of deleting to preserve it for later."
+- from: gcp
+  test: gcloud\s+sql\s+instances\s+delete
+  description: "Deleting a Cloud SQL instance permanently destroys the database."
+  id: gcp:delete_sql_instance
+  severity: High
+- from: gcp
+  test: gcloud\s+container\s+clusters\s+delete
+  description: "Deleting a GKE cluster will destroy all workloads running on it."
+  id: gcp:delete_gke_cluster
+  severity: High
+- from: gcp
+  test: gsutil\s+rm\s+-r\s+gs://
+  description: "Recursively deleting all objects in a GCS bucket."
+  id: gcp:gcs_recursive_delete
+  severity: High
+  alternative: "gsutil ls gs://<bucket>"
+  alternative_info: "List bucket contents first to verify what would be deleted."
+- from: gcp
+  test: gsutil\s+rb\s+gs://
+  description: "Removing a GCS bucket and all its contents."
+  id: gcp:gcs_remove_bucket
+  severity: High
+- from: gcp
+  test: gcloud\s+iam\s+service-accounts\s+delete
+  description: "Deleting a service account can break applications using it."
+  id: gcp:delete_service_account
+  severity: High

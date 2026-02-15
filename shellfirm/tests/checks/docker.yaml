@@ -1,0 +1,103 @@
+---
+# -- docker:compose_down_volumes --
+- test: "docker-compose down -v"
+  description: "match compose down with short -v flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker-compose down --volumes"
+  description: "match compose down with long --volumes flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker-compose down"
+  description: "negative: compose down without -v or --volumes should not match"
+  expect_ids: []
+
+# -- docker:force_remove_all_containers --
+- test: "docker rm -f $(docker ps -aq)"
+  description: "match force remove all containers via command substitution"
+  expect_ids: ["docker:force_remove_all_containers"]
+- test: "docker rm --force $(docker ps -aq)"
+  description: "match force remove all containers with long --force flag"
+  expect_ids: ["docker:force_remove_all_containers"]
+- test: "docker  rm  -f  $(docker  ps -q)"
+  description: "match force remove all containers with extra spaces"
+  expect_ids: ["docker:force_remove_all_containers"]
+- test: "docker rm mycontainer"
+  description: "negative: removing a specific container without force and $(docker ps) should not match"
+  expect_ids: []
+
+# -- docker:force_remove_images --
+- test: "docker rmi -f image:tag"
+  description: "match force remove image with short -f flag"
+  expect_ids: ["docker:force_remove_images"]
+- test: "docker rmi --force image"
+  description: "match force remove image with long --force flag"
+  expect_ids: ["docker:force_remove_images"]
+- test: "docker rmi myimage:latest"
+  description: "negative: remove image without -f or --force should not match"
+  expect_ids: []
+
+# -- docker:remove_network --
+- test: "docker network rm mynet"
+  description: "match remove network command"
+  expect_ids: ["docker:remove_network"]
+- test: "docker network rm net1 net2"
+  description: "match removing multiple networks"
+  expect_ids: ["docker:remove_network"]
+- test: "docker  network  rm production-net"
+  description: "match remove network with extra spaces"
+  expect_ids: ["docker:remove_network"]
+- test: "docker network ls"
+  description: "negative: listing networks should not match"
+  expect_ids: []
+
+# -- docker:remove_volume --
+- test: "docker volume rm myvolume"
+  description: "match remove volume command"
+  expect_ids: ["docker:remove_volume"]
+- test: "docker volume rm vol1 vol2"
+  description: "match removing multiple volumes"
+  expect_ids: ["docker:remove_volume"]
+- test: "docker  volume  rm  data-vol"
+  description: "match remove volume with extra spaces"
+  expect_ids: ["docker:remove_volume"]
+- test: "docker volume inspect myvol"
+  description: "negative: inspecting a volume should not match"
+  expect_ids: []
+
+# -- docker:stop_all_containers --
+- test: "docker stop $(docker ps -q)"
+  description: "match stop all running containers via command substitution"
+  expect_ids: ["docker:stop_all_containers"]
+- test: "docker  stop  $(docker  ps -aq)"
+  description: "match stop all containers with extra spaces"
+  expect_ids: ["docker:stop_all_containers"]
+- test: "docker stop $(docker ps -a -q)"
+  description: "match stop all containers with separate ps flags"
+  expect_ids: ["docker:stop_all_containers"]
+- test: "docker stop mycontainer"
+  description: "negative: stopping a specific container should not match"
+  expect_ids: []
+
+# -- docker:system_prune_all --
+- test: "docker system prune -a"
+  description: "match system prune with short -a flag"
+  expect_ids: ["docker:system_prune_all"]
+- test: "docker system prune --all"
+  description: "match system prune with long --all flag"
+  expect_ids: ["docker:system_prune_all"]
+- test: "docker system prune"
+  description: "negative: system prune without -a or --all should not match"
+  expect_ids: []
+
+# -- docker:volume_prune --
+- test: "docker volume prune"
+  description: "match volume prune command"
+  expect_ids: ["docker:volume_prune"]
+- test: "docker  volume  prune"
+  description: "match volume prune with extra spaces"
+  expect_ids: ["docker:volume_prune"]
+- test: "docker volume prune -f"
+  description: "match volume prune with force flag"
+  expect_ids: ["docker:volume_prune"]
+- test: "docker volume ls"
+  description: "negative: listing volumes should not match"
+  expect_ids: []

@@ -1,7 +1,11 @@
-use std::{io, thread, time::Duration};
+//! Challenge prompts and the [`Prompter`] trait for testability.
+
+use std::{cell::RefCell, io, thread, time::Duration};
 
 use console::style;
-use rand::Rng;
+use rand::RngExt;
+
+use crate::config::Challenge;
 
 /// wrong answer text show when user solve the challenge incorrectly
 const WRONG_ANSWER: &str = "wrong answer, try again...";
@@ -11,16 +15,183 @@ const SOLVE_MATH_TEXT: &str = "Solve the challenge:";
 const SOLVE_ENTER_TEXT: &str = "Type `Enter` to continue";
 /// show yes challenge text
 const SOLVE_YES_TEXT: &str = "Type `yes` to continue";
-/// show yes challenge text
+/// show denied text
 const DENIED_TEXT: &str = "The command is not allowed.";
 /// show to the user how can he cancel the command
 const CANCEL_PROMPT_TEXT: &str = "^C to cancel";
 
+// ---------------------------------------------------------------------------
+// ChallengeResult + DisplayContext
+// ---------------------------------------------------------------------------
+
+/// The outcome of a challenge prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChallengeResult {
+    /// User solved the challenge — command proceeds.
+    Passed,
+    /// Command was denied — blocks forever in real impl.
+    Denied,
+}
+
+/// Information shown to the user when a risky command is detected.
+/// Used by `MockPrompter` to capture what *would* be displayed.
+#[derive(Debug, Clone, Default)]
+pub struct DisplayContext {
+    pub is_denied: bool,
+    pub descriptions: Vec<String>,
+    pub alternatives: Vec<AlternativeInfo>,
+    pub context_labels: Vec<String>,
+    pub effective_challenge: Challenge,
+    pub escalation_note: Option<String>,
+    /// The highest severity among the matched checks.
+    pub severity_label: Option<String>,
+}
+
+/// A safer-alternative suggestion.
+#[derive(Debug, Clone)]
+pub struct AlternativeInfo {
+    pub suggestion: String,
+    pub explanation: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Prompter trait
+// ---------------------------------------------------------------------------
+
+/// Abstracts user interaction so tests can inject mock responses.
+pub trait Prompter {
+    /// Display warnings and run a challenge. Returns the outcome.
+    fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult;
+}
+
+// ---------------------------------------------------------------------------
+// TerminalPrompter (real implementation)
+// ---------------------------------------------------------------------------
+
+/// Production prompter — reads from stdin, writes to stderr.
+pub struct TerminalPrompter;
+
+impl Prompter for TerminalPrompter {
+    fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
+        // Banner
+        if display.is_denied {
+            eprintln!("{}", style("##################").red().bold());
+            eprintln!("{}", style("# COMMAND DENIED #").red().bold());
+            eprintln!("{}", style("##################").red().bold());
+        } else {
+            eprintln!("{}", style("#######################").yellow().bold());
+            eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
+            eprintln!("{}", style("#######################").yellow().bold());
+        }
+
+        // Severity label
+        if let Some(ref sev) = display.severity_label {
+            eprintln!("{}", style(format!("  Severity: [{sev}]")).red().bold());
+        }
+
+        // Context labels
+        if !display.context_labels.is_empty() {
+            let labels = display.context_labels.join(", ");
+            eprintln!("{}", style(format!("  Context: {labels}")).cyan().bold());
+        }
+
+        // Descriptions
+        for desc in &display.descriptions {
+            eprintln!("* {desc}");
+        }
+
+        // Alternatives
+        for alt in &display.alternatives {
+            eprintln!();
+            eprintln!(
+                "  {} {}",
+                style("Safer alternative:").green().bold(),
+                alt.suggestion
+            );
+            if let Some(ref info) = alt.explanation {
+                eprintln!("  {}", style(format!("({info})")).dim());
+            }
+        }
+
+        // Escalation note
+        if let Some(ref note) = display.escalation_note {
+            eprintln!();
+            eprintln!(
+                "  {}",
+                style(format!("Challenge ESCALATED: {note}"))
+                    .magenta()
+                    .bold()
+            );
+        }
+
+        eprintln!();
+
+        // Deny
+        if display.is_denied {
+            eprintln!("{} type {}", DENIED_TEXT, get_cancel_string());
+            loop {
+                thread::sleep(Duration::from_secs(60));
+            }
+        }
+
+        // Challenge
+        match display.effective_challenge {
+            Challenge::Math => {
+                let _ = math_challenge();
+            }
+            Challenge::Enter => {
+                let _ = enter_challenge();
+            }
+            Challenge::Yes => {
+                let _ = yes_challenge();
+            }
+        }
+        ChallengeResult::Passed
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MockPrompter (used in tests)
+// ---------------------------------------------------------------------------
+
+/// Test prompter that returns a preconfigured response and records displays.
+pub struct MockPrompter {
+    pub response: ChallengeResult,
+    /// Records all `DisplayContext`s that were shown.
+    pub captured_displays: RefCell<Vec<DisplayContext>>,
+}
+
+impl MockPrompter {
+    /// Create a tracking mock that records displays and passes challenges.
+    #[must_use]
+    pub const fn passing() -> Self {
+        Self {
+            response: ChallengeResult::Passed,
+            captured_displays: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl Prompter for MockPrompter {
+    fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
+        self.captured_displays.borrow_mut().push(display.clone());
+        if display.is_denied {
+            return ChallengeResult::Denied;
+        }
+        self.response
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy public functions (kept for backward compat with existing callers)
+// ---------------------------------------------------------------------------
+
 /// Show math challenge to the user.
+#[must_use]
 pub fn math_challenge() -> bool {
-    let mut rng = rand::thread_rng();
-    let num_a = rng.gen_range(0..10);
-    let num_b = rng.gen_range(0..10);
+    let mut rng = rand::rng();
+    let num_a = rng.random_range(0..10);
+    let num_b = rng.random_range(0..10);
     let expected_answer = num_a + num_b;
 
     eprintln!(
@@ -46,6 +217,7 @@ pub fn math_challenge() -> bool {
 }
 
 /// Show enter challenge to the user.
+#[must_use]
 pub fn enter_challenge() -> bool {
     eprintln!("{} {}", SOLVE_ENTER_TEXT, get_cancel_string());
     loop {
@@ -59,6 +231,7 @@ pub fn enter_challenge() -> bool {
 }
 
 /// Show yes challenge to the user.
+#[must_use]
 pub fn yes_challenge() -> bool {
     eprintln!("{} {}", SOLVE_YES_TEXT, get_cancel_string());
     loop {
@@ -79,14 +252,17 @@ pub fn deny() {
     }
 }
 
-/// Catch user stdin. and return the user type
+/// Catch user stdin and return the user's input.
+/// If stdin is closed or unreadable, exits gracefully instead of panicking.
 fn show_stdin_prompt() -> String {
     let mut answer = String::new();
-    io::stdin()
-        .read_line(&mut answer)
-        .expect("Failed to read line");
-
-    answer
+    match io::stdin().read_line(&mut answer) {
+        Ok(_) => answer,
+        Err(_) => {
+            // stdin closed or error — treat as cancellation and exit gracefully
+            std::process::exit(exitcode::OK);
+        }
+    }
 }
 
 /// return cancel string with colorize format

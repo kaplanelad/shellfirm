@@ -1,7 +1,0 @@
----
-- test: k delete ns
-  description: match command
-- test: kubectl    delete    namespace
-  description: match command with spaces
-- test: kubectll delete
-  description: invalid command

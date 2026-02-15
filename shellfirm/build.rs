@@ -13,10 +13,14 @@ fn main() -> Result<()> {
 
     writeln!(&mut groups_names, r"[",)?;
 
-    let paths = fs::read_dir("./checks")?;
+    let mut paths: Vec<_> = fs::read_dir("./checks")?
+        .filter_map(Result::ok)
+        .collect();
+    paths.sort_by_key(std::fs::DirEntry::path);
+
     let mut all_group_checks = String::new();
-    for path in paths {
-        let path_name = format!("{}", &path?.path().display());
+    for entry in &paths {
+        let path_name = format!("{}", entry.path().display());
         let contents = fs::read_to_string(&path_name)?;
         all_group_checks.push_str(&contents);
         all_group_checks.push('\n');

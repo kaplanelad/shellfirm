@@ -1,7 +1,0 @@
----
-- test: heroku maintenance:on
-  description: match command
-- test: heroku   maintenance:on
-  description: match command with spaces
-- test: herokuu maintenance:on
-  description: invalid command

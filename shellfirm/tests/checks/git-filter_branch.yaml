@@ -1,8 +1,0 @@
-- test: "git filter-branch --env-filter"
-  description: "match filter-branch command"
-  expected_detection_ids:
-    - git:filter_branch
-- test: "git filter-branch --force"
-  description: "match filter-branch with force"
-  expected_detection_ids:
-    - git:filter_branch

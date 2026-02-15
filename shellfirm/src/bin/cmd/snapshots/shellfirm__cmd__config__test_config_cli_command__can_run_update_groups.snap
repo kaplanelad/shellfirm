@@ -5,6 +5,8 @@ expression: "run_update_groups(&config, Some(vec![\"test-1\".to_string()]))"
 Ok(
     CmdExit {
         code: 0,
-        message: None,
+        message: Some(
+            "Check groups updated successfully: test-1",
+        ),
     },
 )

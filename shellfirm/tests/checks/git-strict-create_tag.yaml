@@ -1,8 +1,0 @@
-- test: "git tag -a v1.0.0"
-  description: "match create annotated tag"
-  expected_detection_ids:
-    - git:create_tag
-- test: "git tag -a"
-  description: "match create annotated tag without name"
-  expected_detection_ids:
-    - git:create_tag

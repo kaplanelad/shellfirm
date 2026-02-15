@@ -1,8 +1,0 @@
-- test: "git checkout -f main"
-  description: "match force checkout"
-  expected_detection_ids:
-    - git:force_checkout
-- test: "git checkout -f"
-  description: "match force checkout current branch"
-  expected_detection_ids:
-    - git:force_checkout

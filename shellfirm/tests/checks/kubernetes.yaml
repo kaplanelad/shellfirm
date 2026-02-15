@@ -1,0 +1,69 @@
+---
+# -- kubernetes:delete_namespace --
+- test: "k delete ns"
+  description: "match command"
+  expect_ids:
+    ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl    delete    namespace"
+  description: "match command with spaces"
+  expect_ids:
+    ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectll delete"
+  description: "invalid command"
+  expect_ids: []
+
+# -- kubernetes-strict:change_resource_size --
+- test: "k scale"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:change_resource_size"]
+- test: "kubectl   scale"
+  description: "match command with spaces"
+  expect_ids: ["kubernetes-strict:change_resource_size"]
+- test: "kubectll scale"
+  description: "invalid command"
+  expect_ids: []
+
+# -- kubernetes-strict:delete_resource --
+- test: "k delete -n test"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl   delete   -n     test"
+  description: "match command with spaces"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "ka delete -n test"
+  description: "invalid command"
+  expect_ids: []
+
+# -- kubernetes-strict:rollout_resource --
+- test: "kubectl rollout restart"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:rollout_resource"]
+- test: "kubectl rollout resume"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:rollout_resource"]
+- test: "kubectl rollout pause"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:rollout_resource"]
+- test: "kubectl   rollout   undo"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:rollout_resource"]
+- test: "kubectl rollout s"
+  description: "invalid command"
+  expect_ids: []
+- test: "kubectl rollout"
+  description: "invalid command"
+  expect_ids: []
+
+# -- kubernetes-strict:update_resource --
+- test: "k set env"
+  description: "match command"
+  expect_ids: ["kubernetes-strict:update_resource"]
+- test: "kubectl   set   env"
+  description: "match command with spaces"
+  expect_ids: ["kubernetes-strict:update_resource"]
+- test: "k set"
+  description: "invalid command"
+  expect_ids: []
+- test: "kubectl set"
+  description: "invalid command"
+  expect_ids: []

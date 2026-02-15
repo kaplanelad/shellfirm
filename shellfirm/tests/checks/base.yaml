@@ -1,0 +1,91 @@
+---
+# -- base:bash_fork_bomb --
+- test: ':(){ :|:& };:'
+  description: "match fork bomb command"
+  expect_ids: ["base:bash_fork_bomb"]
+- test: ':(){ echo hello; };:'
+  description: "similar syntax but not a fork bomb"
+  expect_ids: []
+
+# -- base:delete_all_cron_tasks --
+- test: "crontab -r"
+  description: "match command"
+  expect_ids: ["base:delete_all_cron_tasks"]
+- test: "crontab   -r"
+  description: "match command with multiple spaces"
+  expect_ids: ["base:delete_all_cron_tasks"]
+- test: " crontab   -r"
+  description: "match command with multiple spaces"
+  expect_ids: ["base:delete_all_cron_tasks"]
+- test: "crontab-r"
+  description: "invalid command"
+  expect_ids: []
+
+# -- base:execute_all_history_commands --
+- test: "history | bash"
+  description: "match command that end with bash"
+  expect_ids: ["base:execute_all_history_commands"]
+- test: "history | sh"
+  description: "match command that end with sh"
+  expect_ids: ["base:execute_all_history_commands"]
+- test: "history   |   sh"
+  description: "match command with multiple spaces"
+  expect_ids: ["base:execute_all_history_commands"]
+- test: "history | grep -v  | bash"
+  description: "match command"
+  expect_ids: ["base:execute_all_history_commands"]
+- test: "history|bash"
+  description: "match command without spaces"
+  expect_ids: ["base:execute_all_history_commands"]
+- test: "history | shh"
+  description: "not end with sh"
+  expect_ids: []
+- test: "history | bashh"
+  description: "not end with bash"
+  expect_ids: []
+
+# -- base:reboot_machine --
+- test: "reboot"
+  description: "match command"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboot -r"
+  description: "match command with flag"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboot -r now"
+  description: "match command with flag value"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboot    -r   now"
+  description: "match command with spaces"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboot"
+  description: "match command with spaces"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboot  now   -r"
+  description: "match command with flag value"
+  expect_ids: ["base:reboot_machine"]
+- test: "reboott"
+  description: "not match"
+  expect_ids: []
+
+# -- base:shutdown_machine --
+- test: "shutdown"
+  description: "match command"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdown -r"
+  description: "match command with flag"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdown -r now"
+  description: "match command with flag value"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdown  -r    now"
+  description: "match command with spaces"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdown    now  -r"
+  description: "match command with spaces"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdown"
+  description: "match command with spaces"
+  expect_ids: ["base:shutdown_machine"]
+- test: "shutdownn"
+  description: "not match"
+  expect_ids: []

@@ -1,7 +1,0 @@
----
-- test: heroku ps:kill
-  description: match command
-- test: heroku   ps:kill
-  description: match command with spaces
-- test: herokuu ps:kill
-  description: invalid command

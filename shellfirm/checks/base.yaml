@@ -1,20 +1,25 @@
 - from: base
   test: ':\(\)\{ :|:& \};:'
-  description: "This short line defines a shell function that creates new copies of itself.\nThe process continually replicates itself, and its copies continually replicate themselves, quickly taking up all your CPU time and memory.\nThis can cause your computer to freeze. It’s basically a denial-of-service attack."
+  description: "This short line defines a shell function that creates new copies of itself.\nThe process continually replicates itself, and its copies continually replicate themselves, quickly taking up all your CPU time and memory.\nThis can cause your computer to freeze. It's basically a denial-of-service attack."
   id: base:bash_fork_bomb
+  severity: Critical
 - from: base
   test: \s*crontab\s+-r
   description: "You are going to remove your entire table of cron tasks."
   id: base:delete_all_cron_tasks
+  severity: High
 - from: base
   test: \s*history(.*)[|](.*)(bash|sh)($|\s)
   description: "You are going to executes every command from the command log that you have already executed."
   id: base:execute_all_history_commands
+  severity: Critical
 - from: base
   test: reboot(\s|$)
   description: "You are going to reboot your machine."
   id: base:reboot_machine
+  severity: High
 - from: base
   test: shutdown(\s|$)
   description: "You are going to shutdown your machine."
   id: base:shutdown_machine
+  severity: High

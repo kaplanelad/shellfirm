@@ -1,0 +1,80 @@
+---
+# -- azure:delete_ad_app --
+- test: "az ad app delete --id 123"
+  description: "deleting an Azure AD application can break authentication"
+  expect_ids: ["azure:delete_ad_app"]
+- test: "az ad sp delete --id 456"
+  description: "deleting an Azure AD service principal can break authentication"
+  expect_ids: ["azure:delete_ad_app"]
+- test: "az ad app list"
+  description: "listing AD apps should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_aks_cluster --
+- test: "az aks delete --name mycluster"
+  description: "deleting an AKS cluster destroys all workloads running on it"
+  expect_ids: ["azure:delete_aks_cluster"]
+- test: "az  aks  delete --name prod-cluster --resource-group rg"
+  description: "extra spaces between az aks and delete still matches"
+  expect_ids: ["azure:delete_aks_cluster"]
+- test: "az aks show --name mycluster"
+  description: "showing AKS cluster info should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_keyvault --
+- test: "az keyvault delete --name myvault"
+  description: "deleting a Key Vault removes all secrets, keys, and certificates"
+  expect_ids: ["azure:delete_keyvault"]
+- test: "az  keyvault  delete --name prod-vault"
+  description: "extra spaces between az keyvault and delete still matches"
+  expect_ids: ["azure:delete_keyvault"]
+- test: "az keyvault show --name myvault"
+  description: "showing Key Vault info should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_resource_group --
+- test: "az group delete --name mygroup"
+  description: "deleting a resource group destroys all resources within it"
+  expect_ids: ["azure:delete_resource_group"]
+- test: "az  group  delete --name prod-group --yes"
+  description: "extra spaces between az group and delete still matches"
+  expect_ids: ["azure:delete_resource_group"]
+- test: "az group show --name mygroup"
+  description: "showing resource group info should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_sql_server --
+- test: "az sql server delete --name mysrv"
+  description: "deleting an Azure SQL server destroys all its databases"
+  expect_ids: ["azure:delete_sql_server"]
+- test: "az  sql  server  delete --name prod-sql --resource-group rg"
+  description: "extra spaces between az sql server and delete still matches"
+  expect_ids: ["azure:delete_sql_server"]
+- test: "az sql server show --name mysrv"
+  description: "showing SQL server info should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_storage --
+- test: "az storage account delete --name myaccount"
+  description: "deleting an Azure storage account"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage container delete --name mycontainer"
+  description: "deleting an Azure storage container"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete --name myblob"
+  description: "deleting an Azure storage blob"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage account show --name myaccount"
+  description: "showing storage account info should not trigger delete check"
+  expect_ids: []
+
+# -- azure:delete_vm --
+- test: "az vm delete --name myvm --resource-group rg"
+  description: "deleting a virtual machine permanently destroys it"
+  expect_ids: ["azure:delete_vm"]
+- test: "az  vm  delete --name prod-vm --yes"
+  description: "extra spaces between az vm and delete still matches"
+  expect_ids: ["azure:delete_vm"]
+- test: "az vm show --name myvm"
+  description: "showing VM info should not trigger delete check"
+  expect_ids: []

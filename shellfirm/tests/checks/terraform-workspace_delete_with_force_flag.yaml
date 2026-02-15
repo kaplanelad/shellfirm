@@ -1,7 +1,0 @@
----
-- test: terraform workspace delete -lock-timeout=1 -force
-  description: match command
-- test: terraform   workspace   delete  - -force
-  description: match command with spaces
-- test: terraform workspace delete -lock-timeout=1
-  description: invalid command

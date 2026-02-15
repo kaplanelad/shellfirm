@@ -1,7 +1,0 @@
----
-- test: heroku repo:reset
-  description: match command
-- test: heroku   repo:reset
-  description: match command with spaces
-- test: herokuu repo:reset
-  description: invalid command

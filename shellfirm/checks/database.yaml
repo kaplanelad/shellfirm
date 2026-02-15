@@ -1,0 +1,60 @@
+- from: database
+  test: DROP\s+DATABASE
+  description: "Dropping a database will permanently delete all its data."
+  id: database:drop_database
+  severity: Critical
+- from: database
+  test: DROP\s+TABLE
+  description: "Dropping a table will permanently delete all its data."
+  id: database:drop_table
+  severity: Critical
+- from: database
+  test: TRUNCATE\s+TABLE
+  description: "Truncating a table will delete all rows permanently."
+  id: database:truncate_table
+  severity: Critical
+- from: database
+  test: DELETE\s+FROM\s+\w+\s*;?\s*$
+  description: "DELETE without a WHERE clause will delete all rows in the table."
+  id: database:delete_all_rows
+  severity: Critical
+  filters:
+    - type: NotContains
+      value: "WHERE"
+  alternative: "DELETE FROM <table> WHERE <condition>"
+  alternative_info: "Always include a WHERE clause to limit which rows are deleted."
+- from: database
+  test: UPDATE\s+\w+\s+SET\s+.*(?:;|\s*$)
+  description: "UPDATE without a WHERE clause will modify all rows in the table."
+  id: database:update_all_rows
+  severity: High
+  filters:
+    - type: NotContains
+      value: "WHERE"
+- from: database
+  test: mysql.*-e\s+.*DROP
+  description: "Executing DROP commands via mysql CLI."
+  id: database:mysql_drop
+  severity: Critical
+- from: database
+  test: psql.*-c\s+.*DROP
+  description: "Executing DROP commands via psql CLI."
+  id: database:psql_drop
+  severity: Critical
+- from: database
+  test: mongosh?.*--eval.*drop
+  description: "Executing drop operations via MongoDB shell."
+  id: database:mongo_drop
+  severity: Critical
+- from: database
+  test: redis-cli\s+FLUSHALL
+  description: "FLUSHALL will delete all data across all Redis databases."
+  id: database:redis_flushall
+  severity: Critical
+  alternative: "redis-cli FLUSHDB"
+  alternative_info: "FLUSHDB only clears the current database, not all databases."
+- from: database
+  test: redis-cli\s+FLUSHDB
+  description: "FLUSHDB will delete all data in the current Redis database."
+  id: database:redis_flushdb
+  severity: High

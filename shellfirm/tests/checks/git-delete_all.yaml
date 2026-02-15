@@ -1,7 +1,0 @@
----
-- test: git  rm *
-  description: match command
-- test: git rm .
-  description: match command
-- test: gitt rm
-  description: invalid command

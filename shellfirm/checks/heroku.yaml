@@ -2,75 +2,94 @@
   test: heroku\s*ps:restart
   description: "Restarting app dynos"
   id: heroku:restart_app_dynos
+  severity: Medium
 - from: heroku
   test: heroku\s*ps:stop
   description: "Stop app dynos"
   id: heroku:stop_app_dynos
+  severity: High
 - from: heroku
   test: heroku\s*ps:kill
   description: "Kill app dynos"
   id: heroku:kill_app_dynos
+  severity: High
 - from: heroku
   test: heroku\s*maintenance:on
   description: "Put the app into maintenance mode?"
   id: heroku:enable_maintenance_mode
+  severity: High
 - from: heroku
   test: heroku\s*members:remove
   description: "Removes a user from a team"
   id: heroku:remove_member
+  severity: High
 - from: heroku
   test: heroku\s*features:disable
   description: "Disables an app feature"
   id: heroku:disable_app_feature
+  severity: Medium
 - from: heroku
   test: heroku\s*container:rm
   description: "Remove the process type from your app"
   id: heroku:remove_app_container
+  severity: High
 - from: heroku
   test: heroku\s*config:unset
   description: "unset one or more config vars"
   id: heroku:unset_environment_variable
+  severity: Medium
 - from: heroku
   test: heroku\s*clients:destroy
   description: "Delete client by ID"
   id: heroku:destroy_client
+  severity: High
 - from: heroku
   test: heroku\s*clients:rotate
   description: "Rotate OAuth client secret"
   id: heroku:rotate_oauth_client
+  severity: Medium
 - from: heroku
   test: heroku\s*clients:update
   description: "Update OAuth client"
   id: heroku:update_oauth_client
+  severity: Medium
 - from: heroku
   test: heroku\s*apps:destroy
   description: "Permanently destroy an app"
   id: heroku:destroy_app
+  severity: Critical
 - from: heroku
   test: heroku\s*apps:leave
   description: "Remove yourself from a team app"
   id: heroku:remove_yourself_from_app
+  severity: Medium
 - from: heroku
   test: heroku\s*apps:rename
   description: "Rename an app"
   id: heroku:rename_app_name
+  severity: Medium
 - from: heroku
   test: heroku\s*addons:destroy
   description: "Permanently destroy an add-on resource"
   id: heroku:destroy_addons
+  severity: High
 - from: heroku
   test: heroku\s*addons:detach
   description: "Detach an existing add-on resource from an app"
   id: heroku:detach_addon
+  severity: Medium
 - from: heroku
   test: heroku\s*access:remove
   description: "Remove users from a team app"
   id: heroku:remove_user_access
+  severity: High
 - from: heroku
   test: heroku\s*access:update
   description: "Update existing collaborators on an team app"
   id: heroku:update_collaborators_access
+  severity: Medium
 - from: heroku
   test: heroku\s*repo:reset
   description: "Reset heroku repo"
   id: heroku:reset_repo
+  severity: High
