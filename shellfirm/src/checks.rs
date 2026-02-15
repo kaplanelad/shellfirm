@@ -251,7 +251,7 @@ pub fn challenge_with_context(
 
 /// Check if the given command matched to one of the checks.
 ///
-/// Uses [`RealEnvironment`] for filter evaluation (filesystem checks).
+/// Uses [`crate::env::RealEnvironment`] for filter evaluation (filesystem checks).
 /// For testing, prefer [`run_check_on_command_with_env`] with a mock environment.
 ///
 /// # Arguments
