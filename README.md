@@ -163,20 +163,41 @@ shellfirm --version
 
 ## Shell Setup
 
-One command — auto-detects your shell and writes the hook to your rc file:
+One command — detects every shell on your system and installs hooks for all of them:
 
 ```bash
-shellfirm init --install
+shellfirm init
 ```
 
-That's it. Restart your shell (or `source` your rc file) and you're protected.
+That's it. Restart your shells and you're protected everywhere — zsh, bash, fish, and any other shell you have installed.
 
-To specify the shell explicitly:
+### Preview before installing
+
+See what would happen without writing anything:
 
 ```bash
-shellfirm init zsh --install
-shellfirm init bash --install
-shellfirm init fish --install
+shellfirm init --dry-run
+```
+
+To install for a specific shell only:
+
+```bash
+shellfirm init fish
+shellfirm init zsh --dry-run
+```
+
+### Uninstall
+
+Remove hooks from all shells:
+
+```bash
+shellfirm init --uninstall
+```
+
+Or from a specific shell:
+
+```bash
+shellfirm init fish --uninstall
 ```
 
 Supported shells: **Zsh**, **Bash**, **Fish**, **Nushell**, **PowerShell**, **Elvish**, **Xonsh**, **Oils (OSH/YSH)**.
@@ -188,10 +209,10 @@ git reset --hard  # Should trigger shellfirm!
 ```
 
 <details>
-<summary>Manual setup (print hook without installing)</summary>
+<summary>Manual setup (pipe hook to eval)</summary>
 
-If you prefer to add the hook yourself, run `shellfirm init` without `--install` to
-print the hook code to stdout:
+If you prefer to add the hook yourself, pipe `shellfirm init` through eval/source.
+When piped, the command prints the hook code to stdout instead of installing:
 
 ```bash
 # Zsh / Bash / Oils — add this line to your rc file:
@@ -201,10 +222,10 @@ eval "$(shellfirm init zsh)"
 shellfirm init fish | source
 
 # Nushell / PowerShell / Elvish / Xonsh — run and paste output into your config:
-shellfirm init nushell
-shellfirm init powershell
-shellfirm init elvish
-shellfirm init xonsh
+shellfirm init nushell | cat
+shellfirm init powershell | cat
+shellfirm init elvish | cat
+shellfirm init xonsh | cat
 ```
 
 | Shell          | RC File                                     |

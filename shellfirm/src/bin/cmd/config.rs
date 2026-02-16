@@ -306,7 +306,7 @@ pub fn run_severity(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn run_show(_config: &Config, settings: &Settings) -> Result<shellfirm::CmdExit> {
+fn run_show(config: &Config, settings: &Settings) -> Result<shellfirm::CmdExit> {
     let groups = if settings.includes.is_empty() {
         "(none)".to_string()
     } else {
@@ -341,8 +341,11 @@ fn run_show(_config: &Config, settings: &Settings) -> Result<shellfirm::CmdExit>
         |s| format!("{s}"),
     );
 
+    let config_path = config.setting_file_path.display();
+
     let output = format!(
         "\
+Config path:         {config_path}
 Challenge:           {challenge}
 Active groups:       {groups}
 Active checks:       {active_checks}
@@ -352,6 +355,7 @@ Min severity:        {min_severity}
 Audit:               {audit}
 Protected branches:  {protected_branches}
 Escalation:          elevated={elevated}, critical={critical}",
+        config_path = config_path,
         challenge = settings.challenge,
         audit = if settings.audit_enabled {
             "enabled"

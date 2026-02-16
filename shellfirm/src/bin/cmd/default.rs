@@ -4,6 +4,7 @@ pub fn command() -> Command {
     Command::new("shellfirm")
         .version(crate_version!())
         .about("Protect yourself from risky shell commands with interactive challenges")
+        .arg_required_else_help(true)
         .arg(
             Arg::new("log")
                 .long("log")
