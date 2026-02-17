@@ -6,20 +6,29 @@
 - test: "sudo ifconfig eth0 down"
   description: "match command with sudo and ifconfig"
   expect_ids: ["network:bring_down_interface"]
+- test: "ifconfig ens33 down"
+  description: "match command with modern interface name"
+  expect_ids: ["network:bring_down_interface"]
+- test: "ifconfig enp0s3 down"
+  description: "match command with predictable interface name"
+  expect_ids: ["network:bring_down_interface"]
+- test: "ifconfig wlan0 down"
+  description: "match command with wireless interface"
+  expect_ids: ["network:bring_down_interface"]
 - test: "ip link set eth0 down"
   description: "match command with ip link"
   expect_ids: ["network:bring_down_interface_ip"]
 - test: "sudo ip link set eth0 down"
   description: "match command with sudo and ip link"
   expect_ids: ["network:bring_down_interface_ip"]
+- test: "ip link set ens33 down"
+  description: "match command with ip link and modern interface name"
+  expect_ids: ["network:bring_down_interface_ip"]
 - test: "ifconfig eth0 up"
   description: "should not match up command"
   expect_ids: []
 - test: "ip link set eth0 up"
   description: "should not match up command with ip link"
-  expect_ids: []
-- test: "ifconfig wlan0 down"
-  description: "should not match non-eth interface"
   expect_ids: []
 
 # -- network:bring_down_interface_ip --
@@ -28,6 +37,12 @@
   expect_ids: ["network:bring_down_interface_ip"]
 - test: "sudo ip link set eth0 down"
   description: "match command with sudo and ip link"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "ip link set ens33 down"
+  description: "match command with modern interface name"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "ip link set enp0s3 down"
+  description: "match command with predictable interface name"
   expect_ids: ["network:bring_down_interface_ip"]
 - test: "ip link set eth0 up"
   description: "should not match up command"

@@ -20,15 +20,27 @@ struct CheckTest {
 struct AllPathsExistEnv;
 
 impl shellfirm::env::Environment for AllPathsExistEnv {
-    fn var(&self, _key: &str) -> Option<String> { None }
-    fn current_dir(&self) -> anyhow::Result<PathBuf> { Ok(PathBuf::from("/mock")) }
-    fn path_exists(&self, _path: &std::path::Path) -> bool { true }
-    fn home_dir(&self) -> Option<PathBuf> { Some(PathBuf::from("/home/user")) }
-    fn run_command(&self, _cmd: &str, _args: &[&str], _timeout_ms: u64) -> Option<String> { None }
+    fn var(&self, _key: &str) -> Option<String> {
+        None
+    }
+    fn current_dir(&self) -> anyhow::Result<PathBuf> {
+        Ok(PathBuf::from("/mock"))
+    }
+    fn path_exists(&self, _path: &std::path::Path) -> bool {
+        true
+    }
+    fn home_dir(&self) -> Option<PathBuf> {
+        Some(PathBuf::from("/home/user"))
+    }
+    fn run_command(&self, _cmd: &str, _args: &[&str], _timeout_ms: u64) -> Option<String> {
+        None
+    }
     fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<String> {
         Err(anyhow::anyhow!("not implemented"))
     }
-    fn find_file_upward(&self, _start: &std::path::Path, _filename: &str) -> Option<PathBuf> { None }
+    fn find_file_upward(&self, _start: &std::path::Path, _filename: &str) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// Run every test case from every consolidated YAML file in `tests/checks/`
@@ -71,7 +83,8 @@ fn test_all_checks() {
             want_ids.sort();
 
             assert_eq!(
-                got_ids, want_ids,
+                got_ids,
+                want_ids,
                 "\n  File: {}\n  Command: {:?}\n  Description: {}\n  Expected: {:?}\n  Got: {:?}\n",
                 file.display(),
                 case.test,

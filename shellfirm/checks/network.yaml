@@ -34,12 +34,12 @@
   id: network:stop_network_manager
   severity: High
 - from: network
-  test: ifconfig\s+eth\d+\s+down
+  test: ifconfig\s+\w+\s+down
   description: "Bringing down network interface"
   id: network:bring_down_interface
   severity: High
 - from: network
-  test: ip\s+link\s+set\s+eth\d+\s+down
+  test: ip\s+link\s+set\s+\w+\s+down
   description: "Bringing down network interface using ip command"
   id: network:bring_down_interface_ip
   severity: High

@@ -23,7 +23,7 @@ use shellfirm::{
 fn default_settings() -> Settings {
     Settings {
         challenge: Challenge::Math,
-        includes: vec![
+        enabled_groups: vec![
             "base".into(),
             "fs".into(),
             "git".into(),
@@ -31,11 +31,14 @@ fn default_settings() -> Settings {
             "docker".into(),
             "aws".into(),
         ],
+        disabled_groups: vec![],
         ignores_patterns_ids: vec![],
         deny_patterns_ids: vec![],
         context: ContextConfig::default(),
         audit_enabled: false,
         min_severity: None,
+        agent: shellfirm::AgentConfig::default(),
+        llm: shellfirm::LlmConfig::default(),
     }
 }
 
@@ -216,6 +219,7 @@ fn test_pipeline_project_policy_denies_force_push() {
     let prompter = MockPrompter::passing();
     let settings = default_settings();
     let policy = ProjectPolicy {
+        version: 1,
         deny: vec!["git:force_push".into()],
         ..Default::default()
     };
@@ -368,6 +372,7 @@ fn test_audit_log_written_to_temp_dir() {
     let path = temp.path().join("audit.log");
 
     let event = shellfirm::audit::AuditEvent {
+        event_id: "test-integration-1".into(),
         timestamp: "2026-02-15T10:00:00Z".into(),
         command: "git push -f".into(),
         matched_ids: vec!["git:force_push".into()],
@@ -375,6 +380,8 @@ fn test_audit_log_written_to_temp_dir() {
         outcome: shellfirm::audit::AuditOutcome::Allowed,
         context_labels: vec!["branch=main".into()],
         severity: shellfirm::checks::Severity::High,
+        agent_name: None,
+        agent_session_id: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();
@@ -394,6 +401,7 @@ fn test_audit_clear() {
     let path = temp.path().join("audit.log");
 
     let event = shellfirm::audit::AuditEvent {
+        event_id: "test-integration-2".into(),
         timestamp: "2026-02-15T10:00:00Z".into(),
         command: "rm -rf /".into(),
         matched_ids: vec!["fs:recursively_delete".into()],
@@ -401,6 +409,8 @@ fn test_audit_clear() {
         outcome: shellfirm::audit::AuditOutcome::Denied,
         context_labels: vec![],
         severity: shellfirm::checks::Severity::Critical,
+        agent_name: None,
+        agent_session_id: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();

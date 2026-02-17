@@ -9,15 +9,13 @@ pub fn command() -> Command {
         .about("Manage project-level .shellfirm.yaml policies")
         .arg_required_else_help(true)
         .subcommand(
-            Command::new("init").about("Create a .shellfirm.yaml template in the current directory"),
+            Command::new("init")
+                .about("Create a .shellfirm.yaml template in the current directory"),
         )
         .subcommand(
             Command::new("validate")
                 .about("Validate a .shellfirm.yaml file")
-                .arg(
-                    Arg::new("file")
-                        .help("Path to the policy file (default: .shellfirm.yaml)"),
-                ),
+                .arg(Arg::new("file").help("Path to the policy file (default: .shellfirm.yaml)")),
         )
 }
 

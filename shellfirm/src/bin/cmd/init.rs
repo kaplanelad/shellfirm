@@ -7,7 +7,6 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use console::style;
 
 const MARKER: &str = "# Added by shellfirm init";
-const LEGACY_MARKER: &str = "# Added by shellfirm init --install";
 
 const ALL_SHELLS: &[&str] = &[
     "bash",
@@ -70,22 +69,6 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
     let uninstall = matches.get_flag("uninstall");
     let explicit_shell = matches.get_one::<String>("shell").cloned();
 
-    // When stdout is piped (e.g. eval "$(shellfirm init zsh)"), print the hook
-    // to stdout for backward compatibility with existing rc files.
-    if !dry_run && !uninstall && explicit_shell.is_some() && !std::io::stdout().is_terminal() {
-        let shell = explicit_shell.clone().or_else(detect_shell);
-        return match validate_shell_name(shell.as_deref()) {
-            Ok(name) => {
-                println!("{}", get_hook(name));
-                Ok(shellfirm::CmdExit {
-                    code: exitcode::OK,
-                    message: None,
-                })
-            }
-            Err(exit) => Ok(exit),
-        };
-    }
-
     // --- Uninstall mode ---
     if uninstall {
         return match explicit_shell {
@@ -96,7 +79,7 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
                 };
                 uninstall_hook(shell_name)
             }
-            None => run_uninstall_all(),
+            None => Ok(run_uninstall_all()),
         };
     }
 
@@ -108,6 +91,16 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
                 Ok(name) => name,
                 Err(exit) => return Ok(exit),
             };
+
+            // When piped (e.g. eval "$(shellfirm init zsh)"), print hook to stdout
+            if !std::io::stdout().is_terminal() {
+                let hook = get_hook(shell_name);
+                print!("{hook}");
+                return Ok(shellfirm::CmdExit {
+                    code: exitcode::OK,
+                    message: None,
+                });
+            }
 
             if dry_run {
                 preview_shell(shell_name);
@@ -122,12 +115,27 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
         // `shellfirm init` — install for ALL detected shells
         None => {
             if dry_run {
-                run_dry_run_all()
+                Ok(run_dry_run_all())
             } else {
-                run_install_all()
+                Ok(run_install_all())
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Current-shell detection (for activation hint)
+// ---------------------------------------------------------------------------
+
+/// Return the rc file path for the user's current shell (from `$SHELL`).
+fn detect_current_shell_rc() -> Option<PathBuf> {
+    let shell_var = std::env::var("SHELL").ok()?;
+    let binary = std::path::Path::new(&shell_var).file_name()?.to_str()?;
+    let name = SHELL_BINARIES
+        .iter()
+        .find(|(_, bins)| bins.contains(&binary))
+        .map(|(name, _)| *name)?;
+    rc_file_path(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -158,13 +166,13 @@ fn validate_shell_name(shell: Option<&str>) -> std::result::Result<&str, shellfi
 // --all: install hooks for every detected shell
 // ---------------------------------------------------------------------------
 
-fn run_install_all() -> Result<shellfirm::CmdExit> {
+fn run_install_all() -> shellfirm::CmdExit {
     let detected = detect_installed_shells();
     if detected.is_empty() {
-        return Ok(shellfirm::CmdExit {
+        return shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("No supported shells detected on this system.".to_string()),
-        });
+        };
     }
 
     println!(
@@ -223,27 +231,34 @@ fn run_install_all() -> Result<shellfirm::CmdExit> {
     println!();
 
     let total_protected = installed + already;
-    let summary = if errors > 0 {
-        format!(
-            "{total_protected} shell(s) protected ({installed} new, {already} already set up, {errors} error(s)).\nRestart your shells to activate."
-        )
+    let counts = if errors > 0 {
+        format!("{total_protected} shell(s) protected ({installed} new, {already} already set up, {errors} error(s)).")
     } else {
-        format!(
-            "{total_protected} shell(s) protected ({installed} new, {already} already set up).\nRestart your shells to activate."
-        )
+        format!("{total_protected} shell(s) protected ({installed} new, {already} already set up).")
     };
 
-    Ok(shellfirm::CmdExit {
+    // Build a clear activation hint for the user's current shell
+    let activate_hint = detect_current_shell_rc().map_or_else(
+        || "\n  Restart your shells to activate.\n".to_string(),
+        |rc| {
+            format!(
+                "\n  To activate, run:\n\n    {}\n",
+                style(format!("source {}", rc.display())).bold().underlined()
+            )
+        },
+    );
+
+    shellfirm::CmdExit {
         code: exitcode::OK,
-        message: Some(summary),
-    })
+        message: Some(format!("{counts}{activate_hint}")),
+    }
 }
 
 // ---------------------------------------------------------------------------
 // --dry-run --all: preview all shells
 // ---------------------------------------------------------------------------
 
-fn run_dry_run_all() -> Result<shellfirm::CmdExit> {
+fn run_dry_run_all() -> shellfirm::CmdExit {
     let detected = detect_installed_shells();
 
     println!(
@@ -265,10 +280,10 @@ fn run_dry_run_all() -> Result<shellfirm::CmdExit> {
         }
     }
 
-    Ok(shellfirm::CmdExit {
+    shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some("\nNo changes made. Run without --dry-run to apply.".to_string()),
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -388,26 +403,24 @@ fn install_hook(shell: &str) -> Result<shellfirm::CmdExit> {
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some(format!(
-            "{} hook added to {}\nRestart your shell to activate, or run:  {}",
+            "\n  {} hook added to {}\n\n  To activate, run:\n\n    {}\n",
             style("shellfirm").green().bold(),
             style(rc_path.display().to_string()).cyan(),
-            style(format!("source {}", rc_path.display())).bold(),
+            style(format!("source {}", rc_path.display())).bold().underlined(),
         )),
     })
 }
 
 fn is_already_installed(rc_path: &std::path::Path) -> bool {
     let content = fs::read_to_string(rc_path).unwrap_or_default();
-    content.contains("shellfirm init")
-        || content.contains(MARKER)
-        || content.contains(LEGACY_MARKER)
+    content.contains("shellfirm init") || content.contains(MARKER)
 }
 
 // ---------------------------------------------------------------------------
 // Uninstall: remove shellfirm hooks from rc files
 // ---------------------------------------------------------------------------
 
-fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
+fn run_uninstall_all() -> shellfirm::CmdExit {
     println!(
         "\n{}",
         style("shellfirm — removing hooks from all shells").bold()
@@ -447,10 +460,10 @@ fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
     println!();
 
     if removed == 0 && errors == 0 {
-        return Ok(shellfirm::CmdExit {
+        return shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("No shellfirm hooks found in any shell.".to_string()),
-        });
+        };
     }
 
     let summary = if errors > 0 {
@@ -459,10 +472,10 @@ fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
         format!("Removed hooks from {removed} shell(s).\nRestart your shells to deactivate.")
     };
 
-    Ok(shellfirm::CmdExit {
+    shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some(summary),
-    })
+    }
 }
 
 enum UninstallOutcome {
@@ -536,17 +549,14 @@ fn uninstall_hook(shell: &str) -> Result<shellfirm::CmdExit> {
     })
 }
 
-/// Remove the shellfirm block from rc file content. Handles both the current
-/// and legacy marker formats.
+/// Remove the shellfirm block from rc file content.
 fn remove_shellfirm_block(content: &str, shell: &str) -> (String, bool) {
     let snippet = rc_snippet(shell);
 
     let blocks = [
         format!("\n{MARKER}\n{snippet}\n"),
-        format!("\n{LEGACY_MARKER}\n{snippet}\n"),
         // Block at the very start of file (no leading newline)
         format!("{MARKER}\n{snippet}\n"),
-        format!("{LEGACY_MARKER}\n{snippet}\n"),
     ];
 
     let mut result = content.to_string();
@@ -596,75 +606,6 @@ fn rc_file_path(shell: &str) -> Option<PathBuf> {
 // Shell detection
 // ---------------------------------------------------------------------------
 
-/// Detect the shell that is *currently running* (not just the login shell).
-///
-/// Strategy:
-///   1. Check shell-specific env vars exported to child processes (e.g.
-///      `FISH_VERSION` for fish, `XONSH_VERSION` for xonsh).
-///   2. Inspect the parent process name via `ps` — this is the most reliable
-///      way to identify the running shell on Unix.
-///   3. Fall back to `$SHELL` (the login shell).
-fn detect_shell() -> Option<String> {
-    if let Some(s) = detect_from_env_vars() {
-        return Some(s);
-    }
-
-    #[cfg(unix)]
-    if let Some(s) = detect_from_parent_process() {
-        return Some(s);
-    }
-
-    std::env::var("SHELL")
-        .ok()
-        .and_then(|s| shell_name_from_str(&s))
-}
-
-/// Some shells export a version variable that child processes can read.
-fn detect_from_env_vars() -> Option<String> {
-    if std::env::var("FISH_VERSION").is_ok() {
-        return Some("fish".into());
-    }
-    if std::env::var("XONSH_VERSION").is_ok() {
-        return Some("xonsh".into());
-    }
-    None
-}
-
-/// Ask the OS for the parent process name (the shell that launched us).
-#[cfg(unix)]
-fn detect_from_parent_process() -> Option<String> {
-    let ppid = std::os::unix::process::parent_id();
-    let output = std::process::Command::new("ps")
-        .args(["-p", &ppid.to_string(), "-o", "comm="])
-        .output()
-        .ok()?;
-    let comm = String::from_utf8_lossy(&output.stdout);
-    let name = comm.trim().trim_start_matches('-');
-    shell_name_from_str(name)
-}
-
-fn shell_name_from_str(s: &str) -> Option<String> {
-    if s.contains("fish") {
-        Some("fish".into())
-    } else if s.contains("zsh") {
-        Some("zsh".into())
-    } else if s.contains("bash") {
-        Some("bash".into())
-    } else if s.contains("nu") {
-        Some("nushell".into())
-    } else if s.contains("pwsh") || s.contains("powershell") {
-        Some("powershell".into())
-    } else if s.contains("elvish") {
-        Some("elvish".into())
-    } else if s.contains("xonsh") {
-        Some("xonsh".into())
-    } else if s.contains("osh") || s.contains("ysh") {
-        Some("oils".into())
-    } else {
-        None
-    }
-}
-
 fn detect_installed_shells() -> Vec<&'static str> {
     SHELL_BINARIES
         .iter()
@@ -712,6 +653,7 @@ shellfirm-pre-command() {
         zle .accept-line
         return
     fi
+    echo
     shellfirm pre-command -c "${BUFFER}"
     if [[ $? -eq 0 ]]; then
         zle .accept-line
@@ -720,6 +662,7 @@ shellfirm-pre-command() {
 zle -N accept-line shellfirm-pre-command"#
 }
 
+#[allow(clippy::literal_string_with_formatting_args)]
 const fn bash_hook() -> &'static str {
     r#"# shellfirm hook for bash — intercepts commands before execution via DEBUG trap
 _shellfirm_hook() {
@@ -757,6 +700,7 @@ function _shellfirm_check
         return
     end
     stty sane
+    echo
     shellfirm pre-command -c "$cmd"
     if test $status -eq 0
         commandline -f execute
@@ -806,6 +750,7 @@ if (Get-Command shellfirm -ErrorAction SilentlyContinue) {
             return
         }
 
+        Write-Host ""
         shellfirm pre-command -c $line 2>$null
         if ($LASTEXITCODE -eq 0) {
             [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
@@ -834,6 +779,7 @@ if (not ?(which shellfirm &>/dev/null)) {
             return
         }
         try {
+            echo ""
             shellfirm pre-command -c $cmd 2>/dev/null
             edit:smart-enter
         } catch {
@@ -886,11 +832,6 @@ trap '_shellfirm_hook' DEBUG"#
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn detect_shell_from_env() {
-        let _ = detect_shell();
-    }
 
     #[test]
     fn all_hooks_are_non_empty() {
@@ -960,21 +901,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_marker_detected() {
-        let dir = tempfile::tempdir().unwrap();
-        let rc = dir.path().join(".zshrc");
-
-        let content =
-            format!("# existing config\n{LEGACY_MARKER}\neval \"$(shellfirm init zsh)\"\n");
-        fs::write(&rc, &content).unwrap();
-
-        assert!(
-            is_already_installed(&rc),
-            "should detect legacy marker from --install era"
-        );
-    }
-
-    #[test]
     fn validate_shell_name_accepts_known() {
         for shell in ALL_SHELLS {
             assert!(validate_shell_name(Some(shell)).is_ok());
@@ -993,6 +919,19 @@ mod tests {
     }
 
     #[test]
+    fn eval_shells_hook_contains_shellfirm_pre_command() {
+        // These shells use `eval "$(shellfirm init <shell>)"` — the hook
+        // printed to stdout must contain `shellfirm pre-command` to intercept commands.
+        for shell in &["zsh", "bash", "fish", "oils"] {
+            let hook = get_hook(shell);
+            assert!(
+                hook.contains("shellfirm pre-command"),
+                "{shell} hook must contain 'shellfirm pre-command' for interception"
+            );
+        }
+    }
+
+    #[test]
     fn uninstall_removes_block_with_current_marker() {
         let snippet = rc_snippet("zsh");
         let content = format!("# my config\nPATH=/usr/bin\n\n{MARKER}\n{snippet}\n");
@@ -1003,17 +942,6 @@ mod tests {
         assert!(!result.contains("shellfirm init zsh"));
         assert!(result.contains("# my config"));
         assert!(result.contains("PATH=/usr/bin"));
-    }
-
-    #[test]
-    fn uninstall_removes_block_with_legacy_marker() {
-        let snippet = rc_snippet("bash");
-        let content = format!("# my config\n\n{LEGACY_MARKER}\n{snippet}\n");
-
-        let (result, changed) = remove_shellfirm_block(&content, "bash");
-        assert!(changed);
-        assert!(!result.contains(LEGACY_MARKER));
-        assert!(result.contains("# my config"));
     }
 
     #[test]

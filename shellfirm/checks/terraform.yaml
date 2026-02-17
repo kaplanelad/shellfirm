@@ -1,5 +1,5 @@
 - from: terraform
-  test: terraform\s*apply.*-auto-approve
+  test: terraform\s+apply.*-auto-approve
   method: Regex
   enable: true
   description: "apply state without asking for confirmation."
@@ -8,7 +8,7 @@
   alternative: "terraform plan -out=plan.tfplan && terraform apply plan.tfplan"
   alternative_info: "Review the plan first, then apply from the saved plan file for a controlled deployment."
 - from: terraform
-  test: terraform\s*state\s*(mv|replace-provider)
+  test: terraform\s+state\s+(mv|replace-provider)
   method: Regex
   enable: true
   description: "Move state without asking for confirmation."
@@ -20,21 +20,21 @@
   alternative: "terraform state <cmd> -dry-run"
   alternative_info: "Preview the state change with -dry-run before actually modifying state."
 - from: terraform
-  test: terraform\s*workspace\s*delete.*(-force)
+  test: terraform\s+workspace\s+delete.*(-force)
   method: Regex
   enable: true
   description: "Delete a Terraform workspace without asking for confirmation."
   id: terraform:workspace_delete_with_force_flag
   severity: High
 - from: terraform
-  test: terraform\s*workspace\s*delete.*(-lock=false)
+  test: terraform\s+workspace\s+delete.*(-lock=false)
   method: Regex
   enable: true
   description: "Delete a Terraform workspace without asking for confirmation."
   id: terraform:workspace_delete_without_lock
   severity: High
 - from: terraform
-  test: terraform\s*force-unlock\s*(-force)
+  test: terraform\s+force-unlock\s+(-force)
   method: Regex
   enable: true
   description: "Manually unlock the state for the defined configuration. without asking for confirmation."

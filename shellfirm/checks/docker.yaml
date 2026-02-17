@@ -31,7 +31,7 @@
   id: docker:remove_network
   severity: Medium
 - from: docker
-  test: docker-compose\s+down\s+(-v|--volumes)
+  test: docker[\s-]compose\s+down\s+(-v|--volumes)
   description: "This will stop containers AND delete all associated volumes and data."
   id: docker:compose_down_volumes
   severity: High

@@ -3,16 +3,25 @@
 - test: "DELETE FROM users;"
   description: "DELETE without WHERE clause deletes all rows in the table"
   expect_ids: ["database:delete_all_rows"]
+- test: "delete from users;"
+  description: "lowercase DELETE without WHERE clause"
+  expect_ids: ["database:delete_all_rows"]
 - test: "DELETE  FROM  orders;"
   description: "extra spaces in DELETE FROM still matches"
   expect_ids: ["database:delete_all_rows"]
 - test: "DELETE FROM users WHERE id = 1"
   description: "DELETE with WHERE clause should not match delete_all_rows"
   expect_ids: []
+- test: "delete from users where id = 1"
+  description: "lowercase DELETE with WHERE clause should not match"
+  expect_ids: []
 
 # -- database:drop_database --
 - test: "DROP DATABASE mydb"
   description: "dropping a database permanently deletes all its data"
+  expect_ids: ["database:drop_database"]
+- test: "drop database mydb"
+  description: "lowercase drop database"
   expect_ids: ["database:drop_database"]
 - test: "SELECT * FROM information_schema.schemata"
   description: "querying schema info should not trigger drop database check"
@@ -21,6 +30,9 @@
 # -- database:drop_table --
 - test: "DROP TABLE users"
   description: "dropping a table permanently deletes all its data"
+  expect_ids: ["database:drop_table"]
+- test: "drop table users"
+  description: "lowercase drop table"
   expect_ids: ["database:drop_table"]
 - test: "SELECT * FROM users"
   description: "selecting from a table should not trigger drop table check"
@@ -63,6 +75,9 @@
 - test: "redis-cli FLUSHALL"
   description: "FLUSHALL deletes all data across all Redis databases"
   expect_ids: ["database:redis_flushall"]
+- test: "redis-cli flushall"
+  description: "lowercase flushall"
+  expect_ids: ["database:redis_flushall"]
 - test: "redis-cli  FLUSHALL"
   description: "extra spaces in redis-cli FLUSHALL still matches"
   expect_ids: ["database:redis_flushall"]
@@ -73,6 +88,9 @@
 # -- database:redis_flushdb --
 - test: "redis-cli FLUSHDB"
   description: "FLUSHDB deletes all data in the current Redis database"
+  expect_ids: ["database:redis_flushdb"]
+- test: "redis-cli flushdb"
+  description: "lowercase flushdb"
   expect_ids: ["database:redis_flushdb"]
 - test: "redis-cli  FLUSHDB"
   description: "extra spaces in redis-cli FLUSHDB still matches"
@@ -85,6 +103,9 @@
 - test: "TRUNCATE TABLE users"
   description: "truncating a table deletes all rows permanently"
   expect_ids: ["database:truncate_table"]
+- test: "truncate table users"
+  description: "lowercase truncate table"
+  expect_ids: ["database:truncate_table"]
 - test: "TRUNCATE  TABLE  orders"
   description: "extra spaces in TRUNCATE TABLE still matches"
   expect_ids: ["database:truncate_table"]
@@ -96,9 +117,15 @@
 - test: "UPDATE users SET active=false;"
   description: "UPDATE without WHERE clause modifies all rows in the table"
   expect_ids: ["database:update_all_rows"]
+- test: "update users set active=false;"
+  description: "lowercase UPDATE without WHERE clause"
+  expect_ids: ["database:update_all_rows"]
 - test: "UPDATE  orders  SET  status='cancelled';"
   description: "extra spaces in UPDATE SET still matches without WHERE"
   expect_ids: ["database:update_all_rows"]
 - test: "UPDATE users SET active=false WHERE id = 1;"
   description: "UPDATE with WHERE clause should not match update_all_rows"
+  expect_ids: []
+- test: "update users set active=false where id = 1;"
+  description: "lowercase UPDATE with WHERE clause should not match"
   expect_ids: []

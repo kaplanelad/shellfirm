@@ -9,7 +9,7 @@
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}rm\s{1,}(\*|.)
+  test: git\s{1,}rm\s{1,}(\*|\.)
   description: "This command going to delete all files."
   id: git:delete_all
   severity: High
@@ -26,10 +26,13 @@
   alternative: "git clean -fdn"
   alternative_info: "Dry-run mode shows what would be deleted without actually removing anything."
 - from: git
-  test: git\s{1,}push\s{1,}(-f|--force)
+  test: git\s{1,}push\s{1,}.*(-f\b|--force)
   description: "This command will force push and overwrite remote history."
   id: git:force_push
   severity: High
+  filters:
+    - type: NotContains
+      value: "--force-with-lease"
   alternative: "git push --force-with-lease"
   alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
@@ -89,12 +92,12 @@
   id: git:worktree_management
   severity: Medium
 - from: git
-  test: git\s{1,}add\s{1,}.
+  test: git\s{1,}add\s{1,}(\.|--all|-A)(\s|$)
   description: "Do you want to add all changes files to the staging area?"
   id: git-strict:add_all
   severity: Low
 - from: git
-  test: git\s{1,}commit\s{1,}(--all|-(.*a))
+  test: git\s{1,}commit\s{1,}(--all\b|-[a-z]*a)
   description: "Do you want to commit all changes file and commit them?"
   id: git-strict:commit_all
   severity: Low

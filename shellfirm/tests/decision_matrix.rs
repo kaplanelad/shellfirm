@@ -9,12 +9,11 @@ use std::{collections::HashMap, path::PathBuf};
 use serde_derive::Deserialize;
 use shellfirm::{
     checks,
-    Challenge,
     context::{self, ContextConfig, RiskLevel},
     env::MockEnvironment,
     policy::{self, MergedPolicy, ProjectPolicy},
     prompt::MockPrompter,
-    Settings,
+    Challenge, Settings,
 };
 
 // ---------------------------------------------------------------------------
@@ -99,16 +98,10 @@ impl ScenarioContext {
 
         let mut command_outputs = HashMap::new();
         if let Some(ref branch) = self.git_branch {
-            command_outputs.insert(
-                "git rev-parse --abbrev-ref HEAD".into(),
-                branch.clone(),
-            );
+            command_outputs.insert("git rev-parse --abbrev-ref HEAD".into(), branch.clone());
         }
         if let Some(ref k8s) = self.k8s_context {
-            command_outputs.insert(
-                "kubectl config current-context".into(),
-                k8s.clone(),
-            );
+            command_outputs.insert("kubectl config current-context".into(), k8s.clone());
         }
 
         MockEnvironment {
@@ -141,7 +134,7 @@ fn parse_risk_level(s: &str) -> RiskLevel {
 fn default_settings() -> Settings {
     Settings {
         challenge: Challenge::Math,
-        includes: vec![
+        enabled_groups: vec![
             "base".into(),
             "fs".into(),
             "git".into(),
@@ -155,11 +148,14 @@ fn default_settings() -> Settings {
             "heroku".into(),
             "network".into(),
         ],
+        disabled_groups: vec![],
         ignores_patterns_ids: vec![],
         deny_patterns_ids: vec![],
         context: ContextConfig::default(),
         audit_enabled: false,
         min_severity: None,
+        agent: shellfirm::AgentConfig::default(),
+        llm: shellfirm::LlmConfig::default(),
     }
 }
 
@@ -175,6 +171,7 @@ fn scenario_to_project_policy(sp: &ScenarioPolicy) -> ProjectPolicy {
         .collect();
 
     ProjectPolicy {
+        version: 1,
         deny: sp.deny.clone(),
         overrides,
         ..Default::default()
@@ -239,10 +236,7 @@ fn test_decision_matrix() {
         let runtime_context = context::detect(&env, &settings.context);
 
         // Build policy
-        let project_policy = scenario
-            .policy
-            .as_ref()
-            .map(scenario_to_project_policy);
+        let project_policy = scenario.policy.as_ref().map(scenario_to_project_policy);
         let merged_policy = if let Some(ref pp) = project_policy {
             policy::merge_into_settings(&settings, pp, runtime_context.git_branch.as_deref())
         } else {
@@ -309,7 +303,11 @@ fn test_decision_matrix() {
                 "FAILED [{}]: alternative '{}' not shown (got {:?})",
                 scenario.name,
                 expected_alt,
-                display.alternatives.iter().map(|a| &a.suggestion).collect::<Vec<_>>()
+                display
+                    .alternatives
+                    .iter()
+                    .map(|a| &a.suggestion)
+                    .collect::<Vec<_>>()
             );
         }
     }

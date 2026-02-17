@@ -162,12 +162,15 @@ fn test_escalate_cannot_lower() {
 fn default_settings() -> shellfirm::Settings {
     shellfirm::Settings {
         challenge: Challenge::Math,
-        includes: vec!["base".into(), "fs".into(), "git".into()],
+        enabled_groups: vec!["base".into(), "fs".into(), "git".into()],
+        disabled_groups: vec![],
         ignores_patterns_ids: vec![],
         deny_patterns_ids: vec![],
         context: context::ContextConfig::default(),
         audit_enabled: false,
         min_severity: None,
+        agent: shellfirm::AgentConfig::default(),
+        llm: shellfirm::LlmConfig::default(),
     }
 }
 
@@ -175,6 +178,7 @@ fn default_settings() -> shellfirm::Settings {
 fn test_policy_merge_adds_deny() {
     let settings = default_settings();
     let policy = ProjectPolicy {
+        version: 1,
         deny: vec!["git:force_push".into()],
         ..Default::default()
     };
@@ -187,6 +191,7 @@ fn test_policy_merge_adds_deny() {
 fn test_policy_merge_escalates_challenge() {
     let settings = default_settings();
     let policy = ProjectPolicy {
+        version: 1,
         overrides: vec![Override {
             id: "git:force_push".into(),
             challenge: Some(Challenge::Yes),
@@ -205,6 +210,7 @@ fn test_policy_merge_escalates_challenge() {
 fn test_policy_cannot_weaken() {
     let settings = default_settings();
     let policy = ProjectPolicy {
+        version: 1,
         overrides: vec![Override {
             id: "git:reset".into(),
             challenge: Some(Challenge::Enter), // tries to weaken from Yes to Enter
@@ -224,6 +230,7 @@ fn test_policy_cannot_weaken() {
 fn test_policy_branch_specific_override() {
     let settings = default_settings();
     let policy = ProjectPolicy {
+        version: 1,
         overrides: vec![Override {
             id: "git:reset".into(),
             challenge: Some(Challenge::Yes),

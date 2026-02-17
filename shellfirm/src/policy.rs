@@ -24,8 +24,7 @@ pub const POLICY_FILENAME: &str = ".shellfirm.yaml";
 /// A project-level policy loaded from `.shellfirm.yaml`.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ProjectPolicy {
-    /// Schema version (currently `1`).
-    #[serde(default = "default_version")]
+    /// Schema version (currently `1`). Required field.
     pub version: u32,
     /// Additional check patterns specific to this project.
     #[serde(default)]
@@ -39,10 +38,6 @@ pub struct ProjectPolicy {
     /// Project-specific context configuration (merged with global).
     #[serde(default)]
     pub context: Option<ContextConfig>,
-}
-
-const fn default_version() -> u32 {
-    1
 }
 
 /// A severity override for a single pattern in this project.
@@ -146,14 +141,12 @@ impl MergedPolicy {
     /// additive-only rule. Returns the stricter of: base challenge,
     /// context-escalated challenge, or policy override.
     #[must_use]
-    pub fn effective_challenge(
-        &self,
-        pattern_id: &str,
-        base: &Challenge,
-    ) -> Challenge {
+    pub fn effective_challenge(&self, pattern_id: &str, base: &Challenge) -> Challenge {
         self.challenge_overrides
             .get(pattern_id)
-            .map_or(*base, |&override_ch| checks::max_challenge(*base, override_ch))
+            .map_or(*base, |&override_ch| {
+                checks::max_challenge(*base, override_ch)
+            })
     }
 
     /// Check if a pattern ID is in the project deny list.
@@ -287,14 +280,18 @@ deny:
     fn test_merge_adds_deny() {
         let settings = Settings {
             challenge: Challenge::Math,
-            includes: vec![],
+            enabled_groups: vec![],
+            disabled_groups: vec![],
             ignores_patterns_ids: vec![],
             deny_patterns_ids: vec![],
             context: crate::context::ContextConfig::default(),
             audit_enabled: false,
             min_severity: None,
+            agent: crate::config::AgentConfig::default(),
+            llm: crate::config::LlmConfig::default(),
         };
         let policy = ProjectPolicy {
+            version: 1,
             deny: vec!["git:force_push".into()],
             ..Default::default()
         };
@@ -336,14 +333,18 @@ deny:
     fn test_branch_specific_override() {
         let settings = Settings {
             challenge: Challenge::Math,
-            includes: vec![],
+            enabled_groups: vec![],
+            disabled_groups: vec![],
             ignores_patterns_ids: vec![],
             deny_patterns_ids: vec![],
             context: crate::context::ContextConfig::default(),
             audit_enabled: false,
             min_severity: None,
+            agent: crate::config::AgentConfig::default(),
+            llm: crate::config::LlmConfig::default(),
         };
         let policy = ProjectPolicy {
+            version: 1,
             overrides: vec![Override {
                 id: "git:reset".into(),
                 challenge: Some(Challenge::Yes),

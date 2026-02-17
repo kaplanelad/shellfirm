@@ -26,13 +26,13 @@ pub fn run(
     let config_path = config.setting_file_path.display();
 
     // Active groups
-    let groups = if settings.includes.is_empty() {
+    let groups = if settings.enabled_groups.is_empty() {
         "(none)".to_string()
     } else {
         format!(
             "{} ({})",
-            settings.includes.join(", "),
-            settings.includes.len()
+            settings.enabled_groups.join(", "),
+            settings.enabled_groups.len()
         )
     };
 
@@ -66,6 +66,27 @@ pub fn run(
         None => "not found".to_string(),
     };
 
+    // MCP feature status
+    let mcp_status = if cfg!(feature = "mcp") {
+        "available (run `shellfirm mcp` to start)"
+    } else {
+        "not compiled (build with --features mcp)"
+    };
+
+    // LLM feature status
+    let llm_status = if cfg!(feature = "llm") {
+        let has_key = env.var("SHELLFIRM_LLM_API_KEY").is_some()
+            || env.var("ANTHROPIC_API_KEY").is_some()
+            || env.var("OPENAI_API_KEY").is_some();
+        if has_key {
+            format!("available (provider: {})", settings.llm.provider)
+        } else {
+            "available (no API key configured)".to_string()
+        }
+    } else {
+        "not compiled (build with --features llm)".to_string()
+    };
+
     let output = format!(
         "\
 shellfirm v{version}
@@ -86,7 +107,12 @@ Context (current environment):
   Risk level:          {risk_level:?}
 
 Policy:
-  .shellfirm.yaml:     {policy_status}",
+  .shellfirm.yaml:     {policy_status}
+
+AI Features:
+  Agent guardrails:    auto-deny >= {auto_deny_sev}
+  MCP server:          {mcp_status}
+  LLM analysis:        {llm_status}",
         challenge = settings.challenge,
         audit = if settings.audit_enabled {
             "enabled"
@@ -94,6 +120,7 @@ Policy:
             "disabled"
         },
         risk_level = runtime_ctx.risk_level,
+        auto_deny_sev = settings.agent.auto_deny_severity,
     );
 
     println!("{output}");
