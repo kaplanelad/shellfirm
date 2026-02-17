@@ -36,6 +36,7 @@ fn default_settings() -> Settings {
         deny_patterns_ids: vec![],
         context: ContextConfig::default(),
         audit_enabled: false,
+        blast_radius: true,
         min_severity: None,
         agent: shellfirm::AgentConfig::default(),
         llm: shellfirm::LlmConfig::default(),
@@ -125,6 +126,7 @@ fn run_pipeline(
         &merged_policy,
         &settings.context.escalation,
         prompter,
+        &[],
     )
     .unwrap();
 
@@ -382,6 +384,8 @@ fn test_audit_log_written_to_temp_dir() {
         severity: shellfirm::checks::Severity::High,
         agent_name: None,
         agent_session_id: None,
+        blast_radius_scope: None,
+        blast_radius_detail: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();
@@ -411,6 +415,8 @@ fn test_audit_clear() {
         severity: shellfirm::checks::Severity::Critical,
         agent_name: None,
         agent_session_id: None,
+        blast_radius_scope: None,
+        blast_radius_detail: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();

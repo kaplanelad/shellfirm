@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod audit;
+pub mod blast_radius;
 pub mod checks;
 mod config;
 pub mod context;

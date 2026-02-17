@@ -443,6 +443,8 @@ impl<'a> McpServer<'a> {
             "alternatives": assessment.alternatives,
             "explanation": explanation_parts.join("\n"),
             "denial_reason": assessment.denial_reason,
+            "blast_radius_scope": assessment.blast_radius_scope,
+            "blast_radius_detail": assessment.blast_radius_detail,
         });
 
         Ok(serde_json::to_string_pretty(&explanation)?)
@@ -464,6 +466,7 @@ mod tests {
             deny_patterns_ids: vec![],
             context: crate::context::ContextConfig::default(),
             audit_enabled: false,
+            blast_radius: true,
             min_severity: None,
             agent: AgentConfig::default(),
             llm: crate::config::LlmConfig::default(),

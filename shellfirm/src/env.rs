@@ -5,9 +5,9 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::Read as _,
+    io::{BufReader, Read as _},
     path::{Path, PathBuf},
-    process,
+    process, thread,
     time::Duration,
 };
 
@@ -81,23 +81,32 @@ impl Environment for RealEnvironment {
             .spawn()
             .ok()?;
 
+        // Read stdout in a separate thread to prevent pipe buffer deadlock.
+        // Without this, processes producing >64KB of stdout (e.g. `find` on
+        // large directories) block on write, causing wait_timeout to fire
+        // even though the process hasn't finished computing.
+        let stdout = child.stdout.take()?;
+        let reader_handle = thread::spawn(move || {
+            let mut output = String::new();
+            let mut reader = BufReader::new(stdout);
+            let _ = reader.read_to_string(&mut output);
+            output
+        });
+
         let timeout = Duration::from_millis(timeout_ms);
         match child.wait_timeout(timeout) {
             Ok(Some(status)) if status.success() => {
-                let mut output = String::new();
-                if let Some(ref mut stdout) = child.stdout {
-                    stdout.read_to_string(&mut output).ok()?;
-                }
-                Some(output.trim().to_string())
+                reader_handle.join().ok().map(|o| o.trim().to_string())
             }
             Ok(Some(_)) => {
                 // Process exited with non-success status
                 None
             }
             Ok(None) => {
-                // Timeout — kill the child process
+                // Timeout — kill the child (closes pipe, unblocks reader)
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = reader_handle.join();
                 None
             }
             Err(_) => None,

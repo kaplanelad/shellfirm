@@ -153,6 +153,7 @@ fn default_settings() -> Settings {
         deny_patterns_ids: vec![],
         context: ContextConfig::default(),
         audit_enabled: false,
+        blast_radius: true,
         min_severity: None,
         agent: shellfirm::AgentConfig::default(),
         llm: shellfirm::LlmConfig::default(),
@@ -252,6 +253,7 @@ fn test_decision_matrix() {
             &merged_policy,
             &settings.context.escalation,
             &prompter,
+            &[],
         )
         .unwrap();
 

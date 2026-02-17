@@ -243,7 +243,9 @@ fn run_install_all() -> shellfirm::CmdExit {
         |rc| {
             format!(
                 "\n  To activate, run:\n\n    {}\n",
-                style(format!("source {}", rc.display())).bold().underlined()
+                style(format!("source {}", rc.display()))
+                    .bold()
+                    .underlined()
             )
         },
     );
@@ -406,7 +408,9 @@ fn install_hook(shell: &str) -> Result<shellfirm::CmdExit> {
             "\n  {} hook added to {}\n\n  To activate, run:\n\n    {}\n",
             style("shellfirm").green().bold(),
             style(rc_path.display().to_string()).cyan(),
-            style(format!("source {}", rc_path.display())).bold().underlined(),
+            style(format!("source {}", rc_path.display()))
+                .bold()
+                .underlined(),
         )),
     })
 }

@@ -45,6 +45,8 @@ pub struct DisplayContext {
     pub escalation_note: Option<String>,
     /// The highest severity among the matched checks.
     pub severity_label: Option<String>,
+    /// Blast radius label, e.g. `[PROJECT] — Deletes 347 files (12.4 MB) in ./src`.
+    pub blast_radius_label: Option<String>,
 }
 
 /// A safer-alternative suggestion.
@@ -87,6 +89,15 @@ impl Prompter for TerminalPrompter {
         // Severity label
         if let Some(ref sev) = display.severity_label {
             eprintln!("{}", style(format!("  Severity: [{sev}]")).red().bold());
+        }
+
+        // Blast radius
+        if let Some(ref br) = display.blast_radius_label {
+            eprintln!(
+                "  {} {}",
+                style("Blast radius:").red().bold(),
+                style(br).dim()
+            );
         }
 
         // Context labels

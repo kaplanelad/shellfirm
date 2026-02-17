@@ -58,6 +58,12 @@ pub struct AuditEvent {
     /// Session ID of the AI agent (if any).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_id: Option<String>,
+    /// Blast radius scope (e.g. "PROJECT", "MACHINE").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blast_radius_scope: Option<String>,
+    /// Blast radius detail description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blast_radius_detail: Option<String>,
 }
 
 /// Append an audit event to the log file as a JSON line.
@@ -162,6 +168,8 @@ mod tests {
             severity: Severity::High,
             agent_name: None,
             agent_session_id: None,
+            blast_radius_scope: None,
+            blast_radius_detail: None,
         };
 
         log_event(&path, &event).unwrap();
@@ -192,6 +200,8 @@ mod tests {
             severity: Severity::Critical,
             agent_name: None,
             agent_session_id: None,
+            blast_radius_scope: None,
+            blast_radius_detail: None,
         };
 
         log_event(&path, &event).unwrap();
@@ -217,6 +227,8 @@ mod tests {
             severity: Severity::Critical,
             agent_name: None,
             agent_session_id: None,
+            blast_radius_scope: None,
+            blast_radius_detail: None,
         };
 
         log_event(&path, &event).unwrap();
@@ -249,6 +261,8 @@ mod tests {
             severity: Severity::Critical,
             agent_name: None,
             agent_session_id: None,
+            blast_radius_scope: None,
+            blast_radius_detail: None,
         };
 
         log_event(&path, &event).unwrap();

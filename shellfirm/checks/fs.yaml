@@ -25,7 +25,7 @@
     - type: PathExists
       value: 1
 - from: fs
-  test: chmod\s{1,}(-R|--recursive)\s{1,}(\*|\.{1,}|/)
+  test: chmod\s{1,}(-R|--recursive)\s+(?:\S+\s+)*(\*|\.{1,}|/)
   description: "Change permission to all root files can brake your some thinks like SSH keys."
   id: fs:recursively_chmod
   severity: Critical
