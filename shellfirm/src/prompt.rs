@@ -183,12 +183,12 @@ impl Prompter for MockPrompter {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy public functions (kept for backward compat with existing callers)
+// Challenge implementations (used by TerminalPrompter)
 // ---------------------------------------------------------------------------
 
 /// Show math challenge to the user.
 #[must_use]
-pub fn math_challenge() -> bool {
+fn math_challenge() -> bool {
     let mut rng = rand::rng();
     let num_a = rng.random_range(0..10);
     let num_b = rng.random_range(0..10);
@@ -218,7 +218,7 @@ pub fn math_challenge() -> bool {
 
 /// Show enter challenge to the user.
 #[must_use]
-pub fn enter_challenge() -> bool {
+fn enter_challenge() -> bool {
     eprintln!("{} {}", SOLVE_ENTER_TEXT, get_cancel_string());
     loop {
         let answer = show_stdin_prompt();
@@ -232,7 +232,7 @@ pub fn enter_challenge() -> bool {
 
 /// Show yes challenge to the user.
 #[must_use]
-pub fn yes_challenge() -> bool {
+fn yes_challenge() -> bool {
     eprintln!("{} {}", SOLVE_YES_TEXT, get_cancel_string());
     loop {
         if show_stdin_prompt().trim() == "yes" {
@@ -241,15 +241,6 @@ pub fn yes_challenge() -> bool {
         eprintln!("{WRONG_ANSWER}");
     }
     true
-}
-
-/// Deny function will loop FOREVER until the user kill the process ^C.
-/// it mean that the use command will never executed
-pub fn deny() {
-    eprintln!("{} type {}", DENIED_TEXT, get_cancel_string());
-    loop {
-        thread::sleep(Duration::from_secs(60));
-    }
 }
 
 /// Catch user stdin and return the user's input.

@@ -10,10 +10,10 @@ use serde_derive::{Deserialize, Serialize};
 use serde_regex;
 
 use crate::{
-    config::Challenge,
+    config::{Challenge, Settings},
     context::{self, RuntimeContext},
     env::Environment,
-    policy::MergedPolicy,
+    policy::{self, MergedPolicy},
     prompt::{AlternativeInfo, ChallengeResult, DisplayContext, Prompter},
 };
 
@@ -105,9 +105,7 @@ pub struct Check {
 /// Subsequent calls return a reference to the cached static slice.
 pub(crate) fn all_checks_cached() -> &'static [Check] {
     static CHECKS: OnceLock<Vec<Check>> = OnceLock::new();
-    CHECKS.get_or_init(|| {
-        serde_yaml::from_str(ALL_CHECKS).expect("built-in checks are valid YAML")
-    })
+    CHECKS.get_or_init(|| serde_yaml::from_str(ALL_CHECKS).expect("built-in checks are valid YAML"))
 }
 
 /// Return all built-in shellfirm check patterns
@@ -217,8 +215,7 @@ pub fn challenge_with_context(
     // Apply per-pattern policy overrides (take the strictest)
     let mut effective = context_escalated;
     for check in checks {
-        let policy_effective =
-            merged_policy.effective_challenge(&check.id, &effective);
+        let policy_effective = merged_policy.effective_challenge(&check.id, &effective);
         effective = max_challenge(effective, policy_effective);
     }
 
@@ -230,10 +227,7 @@ pub fn challenge_with_context(
     };
 
     // Compute highest severity for display
-    let max_severity = checks
-        .iter()
-        .map(|c| c.severity)
-        .max();
+    let max_severity = checks.iter().map(|c| c.severity).max();
     let severity_label = max_severity.map(|s| format!("{s}"));
 
     let display = DisplayContext {
@@ -280,11 +274,7 @@ pub fn run_check_on_command_with_env<'a>(
 /// Evaluate filters using the [`Environment`] trait (testable version).
 ///
 /// Returns `true` when the check should be kept (all filters pass).
-fn check_custom_filter_with_env(
-    check: &Check,
-    command: &str,
-    env: &dyn Environment,
-) -> bool {
+fn check_custom_filter_with_env(check: &Check, command: &str, env: &dyn Environment) -> bool {
     if check.filters.is_empty() {
         return true;
     }
@@ -360,6 +350,176 @@ fn filter_path_exists_with_env(file_path: &str, env: &dyn Environment) -> bool {
 /// Return the stricter of two challenges.
 pub(crate) fn max_challenge(a: Challenge, b: Challenge) -> Challenge {
     a.stricter(b)
+}
+
+/// Merge two vectors of check references, deduplicating by check ID.
+/// Primary matches are kept first; secondary matches are appended only if
+/// their ID has not been seen yet.
+fn dedup_check_matches<'a>(primary: Vec<&'a Check>, secondary: Vec<&'a Check>) -> Vec<&'a Check> {
+    let mut seen_ids = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(primary.len() + secondary.len());
+    for m in primary.into_iter().chain(secondary) {
+        if seen_ids.insert(m.id.as_str()) {
+            result.push(m);
+        }
+    }
+    result
+}
+
+/// The result of running the core analysis pipeline on a command.
+///
+/// This is the shared data structure consumed by both the terminal prompter
+/// (shell hooks) and the MCP/agent JSON response path.
+#[derive(Debug, Clone)]
+pub struct PipelineResult {
+    /// The original command after quote-stripping.
+    pub stripped_command: String,
+    /// The subcommand parts after splitting on shell operators.
+    pub command_parts: Vec<String>,
+    /// Checks that matched and are at or above `min_severity`.
+    pub active_matches: Vec<Check>,
+    /// Checks that matched but are below `min_severity`.
+    pub skipped_matches: Vec<Check>,
+    /// The detected runtime context.
+    pub context: RuntimeContext,
+    /// The highest severity across all matches (active + skipped).
+    pub max_severity: Severity,
+    /// Whether any matched check is on the deny list.
+    pub is_denied: bool,
+    /// Safer alternative suggestions collected from matched checks.
+    pub alternatives: Vec<AlternativeInfo>,
+    /// The merged project policy (if any).
+    pub merged_policy: MergedPolicy,
+}
+
+/// Run the core shellfirm analysis pipeline on a command string.
+///
+/// This is the shared entry point used by both the `pre-command` CLI path
+/// and the MCP server / agent guardrails path. It performs:
+/// 1. Strip quoted strings
+/// 2. Split on shell operators
+/// 3. Pattern matching (parallelized)
+/// 4. Context detection
+/// 5. Policy discovery & merging
+/// 6. Severity filtering
+///
+/// The caller is responsible for the presentation layer (terminal challenge
+/// or structured JSON response).
+///
+/// # Errors
+/// Returns an error if check loading or policy parsing fails.
+pub fn analyze_command(
+    command: &str,
+    settings: &Settings,
+    checks: &[Check],
+    env: &dyn Environment,
+    strip_quotes_re: &Regex,
+) -> Result<PipelineResult> {
+    // 1. Strip quoted strings
+    let stripped = strip_quotes_re.replace_all(command, "").to_string();
+
+    // 2. Split on shell operators
+    let command_parts = split_command(&stripped);
+
+    debug!("analyze_command: parts={command_parts:?}");
+
+    // 3. Pattern matching — each segment independently
+    let segment_matches: Vec<&Check> = command_parts
+        .iter()
+        .flat_map(|c| run_check_on_command_with_env(checks, c, env))
+        .collect();
+
+    // Also match against the full stripped command for cross-operator patterns
+    // (e.g. "history | bash" where the pipe is normally a split point).
+    let matches = if command_parts.len() > 1 {
+        let full_matches = run_check_on_command_with_env(checks, &stripped, env);
+        dedup_check_matches(segment_matches, full_matches)
+    } else {
+        segment_matches
+    };
+
+    debug!("analyze_command: {} matches found", matches.len());
+
+    // 4. Context detection
+    let runtime_context = context::detect(env, &settings.context);
+
+    // 5. Policy discovery & merging
+    let cwd = env.current_dir().unwrap_or_default();
+    let project_policy = policy::discover(env, &cwd);
+    let merged_policy = if let Some(ref pp) = project_policy {
+        policy::merge_into_settings(settings, pp, runtime_context.git_branch.as_deref())
+    } else {
+        MergedPolicy::default()
+    };
+
+    // Merge extra checks from project policy
+    let mut all_matches: Vec<&Check> = matches;
+    if !merged_policy.extra_checks.is_empty() {
+        let extra_segment: Vec<&Check> = command_parts
+            .iter()
+            .flat_map(|c| run_check_on_command_with_env(&merged_policy.extra_checks, c, env))
+            .collect();
+        let extra = if command_parts.len() > 1 {
+            let extra_full =
+                run_check_on_command_with_env(&merged_policy.extra_checks, &stripped, env);
+            dedup_check_matches(extra_segment, extra_full)
+        } else {
+            extra_segment
+        };
+        all_matches.extend(extra);
+    }
+
+    // 6. Severity filtering
+    let (active_refs, skipped_refs): (Vec<&Check>, Vec<&Check>) =
+        if let Some(min_sev) = settings.min_severity {
+            all_matches.into_iter().partition(|c| c.severity >= min_sev)
+        } else {
+            (all_matches, Vec::new())
+        };
+
+    let active_matches: Vec<Check> = active_refs.into_iter().cloned().collect();
+    let skipped_matches: Vec<Check> = skipped_refs.into_iter().cloned().collect();
+
+    // Compute max severity across all matches
+    let max_severity = active_matches
+        .iter()
+        .chain(skipped_matches.iter())
+        .map(|c| c.severity)
+        .max()
+        .unwrap_or_default();
+
+    // Check deny lists
+    let is_denied = active_matches
+        .iter()
+        .any(|c| settings.deny_patterns_ids.contains(&c.id) || merged_policy.is_denied(&c.id));
+
+    // Collect alternatives
+    let mut alternatives = Vec::new();
+    for check in &active_matches {
+        if let Some(ref alt) = check.alternative {
+            let already_has = alternatives
+                .iter()
+                .any(|a: &AlternativeInfo| a.suggestion == *alt);
+            if !already_has {
+                alternatives.push(AlternativeInfo {
+                    suggestion: alt.clone(),
+                    explanation: check.alternative_info.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(PipelineResult {
+        stripped_command: stripped,
+        command_parts,
+        active_matches,
+        skipped_matches,
+        context: runtime_context,
+        max_severity,
+        is_denied,
+        alternatives,
+        merged_policy,
+    })
 }
 
 /// Split a command string into parts by shell operators.
@@ -458,7 +618,7 @@ mod test_checks {
 
         let check = Check {
             id: "id".to_string(),
-            test: Regex::new(".*>(.*)").unwrap(),
+            test: Regex::new("(?:^|[^>])>([^>].*)").unwrap(),
             description: "some description".to_string(),
             from: "test".to_string(),
             challenge: Challenge::default(),
@@ -484,7 +644,11 @@ mod test_checks {
             existing_paths: existing,
             ..Default::default()
         };
-        assert_debug_snapshot!(check_custom_filter_with_env(&check, command, &env_with_file));
+        assert_debug_snapshot!(check_custom_filter_with_env(
+            &check,
+            command,
+            &env_with_file
+        ));
     }
 
     #[test]
@@ -505,7 +669,11 @@ mod test_checks {
 
         let env = crate::env::MockEnvironment::default();
         assert_debug_snapshot!(check_custom_filter_with_env(&check, "delete", &env));
-        assert_debug_snapshot!(check_custom_filter_with_env(&check, "delete --dry-run", &env));
+        assert_debug_snapshot!(check_custom_filter_with_env(
+            &check,
+            "delete --dry-run",
+            &env
+        ));
     }
 
     #[test]
@@ -526,9 +694,17 @@ mod test_checks {
 
         let env = crate::env::MockEnvironment::default();
         // Without --force the filter suppresses the check
-        assert!(!check_custom_filter_with_env(&check, "git push origin main", &env));
+        assert!(!check_custom_filter_with_env(
+            &check,
+            "git push origin main",
+            &env
+        ));
         // With --force the filter keeps the check
-        assert!(check_custom_filter_with_env(&check, "git push --force origin main", &env));
+        assert!(check_custom_filter_with_env(
+            &check,
+            "git push --force origin main",
+            &env
+        ));
     }
 
     #[test]
@@ -576,11 +752,23 @@ mod test_checks {
         // Both absent → check fires
         assert!(check_custom_filter_with_env(&check, "delete", &env));
         // --dry-run present → suppressed
-        assert!(!check_custom_filter_with_env(&check, "delete --dry-run", &env));
+        assert!(!check_custom_filter_with_env(
+            &check,
+            "delete --dry-run",
+            &env
+        ));
         // --check present → suppressed
-        assert!(!check_custom_filter_with_env(&check, "delete --check", &env));
+        assert!(!check_custom_filter_with_env(
+            &check,
+            "delete --check",
+            &env
+        ));
         // Both present → suppressed
-        assert!(!check_custom_filter_with_env(&check, "delete --dry-run --check", &env));
+        assert!(!check_custom_filter_with_env(
+            &check,
+            "delete --dry-run --check",
+            &env
+        ));
     }
 
     #[test]

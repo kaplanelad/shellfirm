@@ -36,6 +36,9 @@
 - test: "git rm ."
   description: "match command"
   expect_ids: ["git:delete_all"]
+- test: "git rm README.md"
+  description: "negative: removing a specific file should not match"
+  expect_ids: []
 - test: "gitt rm"
   description: "invalid command"
   expect_ids: []
@@ -79,9 +82,18 @@
 - test: "git push --force"
   description: "match force push with long option"
   expect_ids: ["git:force_push"]
-- test: "git push --force-with-lease"
-  description: "match force push with lease"
+- test: "git push origin --force"
+  description: "match force push with remote before flag"
   expect_ids: ["git:force_push"]
+- test: "git push origin main --force"
+  description: "match force push with remote and branch before flag"
+  expect_ids: ["git:force_push"]
+- test: "git push origin -f"
+  description: "match force push with remote before short flag"
+  expect_ids: ["git:force_push"]
+- test: "git push --force-with-lease"
+  description: "force push with lease is the safe alternative and should not match"
+  expect_ids: []
 
 # -- git:gc_prune --
 - test: "git gc --prune=now"
@@ -148,6 +160,12 @@
 - test: "git add -A"
   description: "match add all files with -A"
   expect_ids: ["git-strict:add_all"]
+- test: "git add --all"
+  description: "match add all files with --all"
+  expect_ids: ["git-strict:add_all"]
+- test: "git add README.md"
+  description: "negative: adding a specific file should not match"
+  expect_ids: []
 - test: "git status"
   description: "negative: status command should not match add pattern"
   expect_ids: []
@@ -164,6 +182,12 @@
   expect_ids: ["git-strict:commit_all"]
 - test: "git commit -m 'test'"
   description: "negative: commit with only -m (no -a) should not match"
+  expect_ids: []
+- test: "git commit --amend"
+  description: "negative: amend should not match commit-all check"
+  expect_ids: []
+- test: "git commit --author='someone'"
+  description: "negative: author flag should not match commit-all check"
   expect_ids: []
 
 # -- git-strict:create_tag --

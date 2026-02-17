@@ -124,9 +124,7 @@ pub fn detect(env: &dyn Environment, config: &ContextConfig) -> RuntimeContext {
     }
 
     // Root user
-    ctx.is_root = env
-        .var("EUID")
-        .is_some_and(|v| v == "0");
+    ctx.is_root = env.var("EUID").is_some_and(|v| v == "0");
     if ctx.is_root {
         ctx.labels.push("root=true".into());
     }

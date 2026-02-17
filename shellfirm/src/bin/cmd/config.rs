@@ -1,135 +1,74 @@
 use anyhow::{anyhow, Result};
-use clap::{Arg, ArgMatches, Command};
-use shellfirm::{checks::Severity, dialog, Challenge, Config, Settings};
-use strum::IntoEnumIterator;
-
-const ALL_GROUP_CHECKS: &[&str] = &include!(concat!(env!("OUT_DIR"), "/all_the_files.rs"));
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use shellfirm::{
+    format_yaml_value, known_enum_values, validate_config_key, value_get, value_list_paths,
+    value_set, Config, Settings,
+};
 
 pub fn command() -> Command {
     Command::new("config")
         .about("Manage shellfirm configuration")
         .arg_required_else_help(true)
-        .subcommand(
-            Command::new("update-groups")
-                .about("Enable or disable check groups (fs, git, kubernetes, etc.)")
-                .arg(Arg::new("check-group").help("Check group")),
-        )
         .subcommand(Command::new("reset").about("Reset configuration"))
         .subcommand(
-            Command::new("challenge")
-                .about("Change the default challenge type (Math, Enter, Yes)")
+            Command::new("set")
+                .about("Set any configuration value by dot-notation key")
                 .arg(
-                    Arg::new("type")
-                        .help("Challenge type: Math, Enter, or Yes")
-                        .value_parser(["Math", "Enter", "Yes"]),
-                ),
-        )
-        .subcommand(
-            Command::new("ignore")
-                .about("Skip challenge for specific pattern IDs")
+                    Arg::new("list")
+                        .long("list")
+                        .short('l')
+                        .help("List all configuration keys and their current values")
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(Arg::new("key").help("Configuration key (dot-notation, e.g. llm.model)"))
                 .arg(
-                    Arg::new("patterns")
-                        .help("Pattern IDs to ignore (e.g. fs:recursively_delete git:force_push)")
+                    Arg::new("value")
+                        .help("Value to set (parsed as YAML)")
                         .num_args(1..),
                 ),
         )
         .subcommand(
-            Command::new("deny")
-                .about("Block commands matching specific pattern IDs (no challenge, always denied)")
+            Command::new("get")
+                .about("Get a configuration value by dot-notation key")
                 .arg(
-                    Arg::new("patterns")
-                        .help("Pattern IDs to deny (e.g. git:force_push)")
-                        .num_args(1..),
+                    Arg::new("key")
+                        .help("Configuration key (dot-notation, e.g. llm.model)")
+                        .required(true),
                 ),
         )
         .subcommand(
-            Command::new("severity")
-                .about("Set the minimum severity threshold (checks below this level are skipped)")
-                .arg(
-                    Arg::new("level")
-                        .help("Minimum severity: Info, Low, Medium, High, Critical, or None to disable")
-                        .value_parser(["Info", "Low", "Medium", "High", "Critical", "None"]),
-                ),
+            Command::new("edit").about("Open settings.yaml in $EDITOR with post-save validation"),
         )
-        .subcommand(Command::new("show").about("Display current shellfirm configuration"))
 }
 
-pub fn run(
-    matches: &ArgMatches,
-    config: &Config,
-    settings: &Settings,
-) -> Result<shellfirm::CmdExit> {
+pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
     match matches.subcommand() {
         None => Err(anyhow!("command not found")),
         Some(tup) => match tup {
-            ("update-groups", _subcommand_matches) => {
-                run_update_groups(config, &config.get_settings_from_file()?, None)
-            }
             ("reset", _subcommand_matches) => Ok(run_reset(config, None)),
-            ("challenge", subcommand_matches) => {
-                let challenge = subcommand_matches
-                    .get_one::<String>("type")
-                    .map(|s| Challenge::from_string(s))
-                    .transpose()?;
-                run_challenge(config, challenge)
+            ("set", subcommand_matches) => {
+                if subcommand_matches.get_flag("list") {
+                    run_set_list(config)
+                } else {
+                    let key = subcommand_matches.get_one::<String>("key").ok_or_else(|| {
+                        anyhow!("missing <key> argument (use --list to see all keys)")
+                    })?;
+                    let value_str: String = subcommand_matches
+                        .get_many::<String>("value")
+                        .ok_or_else(|| anyhow!("missing <value> argument"))?
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    run_set_key_value(config, key, &value_str)
+                }
             }
-            ("ignore", subcommand_matches) => {
-                let patterns: Option<Vec<String>> = subcommand_matches
-                    .get_many::<String>("patterns")
-                    .map(|vals| vals.cloned().collect());
-                run_ignore(config, settings, patterns)
+            ("get", subcommand_matches) => {
+                let key = subcommand_matches.get_one::<String>("key").unwrap();
+                run_get_key(config, key)
             }
-            ("deny", subcommand_matches) => {
-                let patterns: Option<Vec<String>> = subcommand_matches
-                    .get_many::<String>("patterns")
-                    .map(|vals| vals.cloned().collect());
-                run_deny(config, settings, patterns)
-            }
-            ("severity", subcommand_matches) => {
-                let level = subcommand_matches
-                    .get_one::<String>("level")
-                    .map(String::as_str);
-                run_severity(config, settings, level)
-            }
-            ("show", _subcommand_matches) => run_show(config, settings),
+            ("edit", _subcommand_matches) => run_edit(config),
             _ => unreachable!(),
         },
-    }
-}
-
-pub fn run_update_groups(
-    config: &Config,
-    settings: &Settings,
-    groups: Option<Vec<String>>,
-) -> Result<shellfirm::CmdExit> {
-    let check_groups = if let Some(groups) = groups {
-        groups
-    } else {
-        let all_groups = ALL_GROUP_CHECKS.iter().map(|f| (*f).to_string()).collect();
-        dialog::multi_choice(
-            "select checks",
-            all_groups,
-            settings.get_active_groups().clone(),
-            100,
-        )?
-    };
-
-    match config.update_check_groups(check_groups.clone()) {
-        Ok(()) => Ok(shellfirm::CmdExit {
-            code: exitcode::OK,
-            message: Some(format!(
-                "Check groups updated successfully: {}",
-                if check_groups.is_empty() {
-                    "(none)".to_string()
-                } else {
-                    check_groups.join(", ")
-                }
-            )),
-        }),
-        Err(e) => Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(format!("Could not update checks group. error: {e}")),
-        }),
     }
 }
 
@@ -146,231 +85,153 @@ pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::
     }
 }
 
-pub fn run_challenge(config: &Config, challenge: Option<Challenge>) -> Result<shellfirm::CmdExit> {
-    let selection_challenge = if let Some(c) = challenge {
-        c
-    } else {
-        let challenges = Challenge::iter().map(|c| c.to_string()).collect::<Vec<_>>();
-        Challenge::from_string(&dialog::select("change shellfirm challenge", &challenges)?)?
-    };
-
-    match config.update_challenge(selection_challenge) {
-        Ok(()) => Ok(shellfirm::CmdExit {
-            code: exitcode::OK,
-            message: Some(format!("Challenge type changed to {selection_challenge}.")),
-        }),
-        Err(e) => Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(format!("change challenge error: {e:?}")),
-        }),
-    }
-}
-
-pub fn run_ignore(
+pub fn run_set_key_value(
     config: &Config,
-    settings: &Settings,
-    force_ignore: Option<Vec<String>>,
+    key: &str,
+    value_str: &str,
 ) -> Result<shellfirm::CmdExit> {
-    let all_check_ids: Vec<String> = settings
-        .get_active_checks()?
-        .iter()
-        .map(|c| c.id.clone())
-        .collect();
-
-    let selected = if let Some(force_ignore) = force_ignore {
-        force_ignore
-    } else {
-        dialog::multi_choice(
-            "select checks",
-            all_check_ids,
-            settings.ignores_patterns_ids.clone(),
-            100,
-        )?
-    };
-
-    let count = selected.len();
-    match config.update_ignores_pattern_ids(selected) {
-        Ok(()) => Ok(shellfirm::CmdExit {
-            code: exitcode::OK,
-            message: Some(format!("Ignore list updated ({count} patterns).")),
-        }),
-        Err(e) => Ok(shellfirm::CmdExit {
+    // Validate key before doing anything
+    if let Err(e) = validate_config_key(key) {
+        return Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("update ignore patterns error: {e:?}")),
-        }),
+            message: Some(e),
+        });
     }
-}
 
-pub fn run_deny(
-    config: &Config,
-    settings: &Settings,
-    force_ignore: Option<Vec<String>>,
-) -> Result<shellfirm::CmdExit> {
-    let all_check_ids: Vec<String> = settings
-        .get_active_checks()?
-        .iter()
-        .map(|c| c.id.clone())
-        .collect();
-
-    let selected = if let Some(force_ignore) = force_ignore {
-        force_ignore
-    } else {
-        dialog::multi_choice(
-            "select checks",
-            all_check_ids,
-            settings.deny_patterns_ids.clone(),
-            100,
-        )?
-    };
-
-    let count = selected.len();
-    match config.update_deny_pattern_ids(selected) {
-        Ok(()) => Ok(shellfirm::CmdExit {
-            code: exitcode::OK,
-            message: Some(format!("Deny list updated ({count} patterns).")),
-        }),
-        Err(e) => Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(format!("update deny patterns error: {e:?}")),
-        }),
-    }
-}
-
-fn parse_severity(s: &str) -> Option<Severity> {
-    match s {
-        "Info" => Some(Severity::Info),
-        "Low" => Some(Severity::Low),
-        "Medium" => Some(Severity::Medium),
-        "High" => Some(Severity::High),
-        "Critical" => Some(Severity::Critical),
-        _ => None,
-    }
-}
-
-pub fn run_severity(
-    config: &Config,
-    settings: &Settings,
-    level: Option<&str>,
-) -> Result<shellfirm::CmdExit> {
-    let min_severity = if let Some(level_str) = level {
-        if level_str == "None" {
-            None
-        } else {
-            Some(parse_severity(level_str).ok_or_else(|| {
-                anyhow!("Invalid severity level: {level_str}")
-            })?)
-        }
-    } else {
-        // Interactive selection
-        let options = vec![
-            "None (all checks trigger)".to_string(),
-            "Info".to_string(),
-            "Low".to_string(),
-            "Medium".to_string(),
-            "High".to_string(),
-            "Critical".to_string(),
-        ];
-        let current = settings.min_severity.map_or_else(
-            || "None (all checks trigger)".to_string(),
-            |s| format!("{s}"),
-        );
-        let selected = dialog::select(
-            &format!("Set minimum severity (current: {current})"),
-            &options,
-        )?;
-        if selected.starts_with("None") {
-            None
-        } else {
-            Some(parse_severity(&selected).ok_or_else(|| {
-                anyhow!("Invalid severity level: {selected}")
-            })?)
+    let new_value: serde_yaml::Value = match serde_yaml::from_str(value_str) {
+        Ok(v) => v,
+        Err(e) => {
+            return Ok(shellfirm::CmdExit {
+                code: exitcode::CONFIG,
+                message: Some(format!("failed to parse value as YAML: {e}")),
+            });
         }
     };
-
-    match config.update_min_severity(min_severity) {
-        Ok(()) => {
-            let label = min_severity.map_or_else(
-                || "disabled (all checks trigger)".to_string(),
-                |s| format!("{s}"),
-            );
-            Ok(shellfirm::CmdExit {
-                code: exitcode::OK,
-                message: Some(format!("Minimum severity set to: {label}")),
-            })
-        }
-        Err(e) => Ok(shellfirm::CmdExit {
+    let mut root = config.read_config_as_value()?;
+    value_set(&mut root, key, new_value)?;
+    if let Err(e) = config.save_config_from_value(&root) {
+        let enum_hint = known_enum_values()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, vals)| format!("\n\n  Valid values: {}", vals.join(", ")));
+        let hint = enum_hint.unwrap_or_default();
+        return Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
-            message: Some(format!("Failed to update severity: {e:?}")),
-        }),
+            message: Some(format!(
+                "invalid value '{value_str}' for '{key}': {e}{hint}"
+            )),
+        });
     }
+    let display = value_get(&root, key).map_or_else(|| value_str.to_string(), format_yaml_value);
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{key} = {display}")),
+    })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn run_show(config: &Config, settings: &Settings) -> Result<shellfirm::CmdExit> {
-    let groups = if settings.includes.is_empty() {
-        "(none)".to_string()
-    } else {
-        settings.includes.join(", ")
-    };
-
-    let ignored = if settings.ignores_patterns_ids.is_empty() {
-        "(none)".to_string()
-    } else {
-        settings.ignores_patterns_ids.join(", ")
-    };
-
-    let denied = if settings.deny_patterns_ids.is_empty() {
-        "(none)".to_string()
-    } else {
-        settings.deny_patterns_ids.join(", ")
-    };
-
-    let active_checks = settings
-        .get_active_checks()
-        .map(|c| c.len())
-        .unwrap_or(0);
-
-    let protected_branches = if settings.context.protected_branches.is_empty() {
-        "(none)".to_string()
-    } else {
-        settings.context.protected_branches.join(", ")
-    };
-
-    let min_severity = settings.min_severity.map_or_else(
-        || "disabled (all checks trigger)".to_string(),
-        |s| format!("{s}"),
-    );
-
-    let config_path = config.setting_file_path.display();
-
-    let output = format!(
-        "\
-Config path:         {config_path}
-Challenge:           {challenge}
-Active groups:       {groups}
-Active checks:       {active_checks}
-Ignored patterns:    {ignored}
-Denied patterns:     {denied}
-Min severity:        {min_severity}
-Audit:               {audit}
-Protected branches:  {protected_branches}
-Escalation:          elevated={elevated}, critical={critical}",
-        config_path = config_path,
-        challenge = settings.challenge,
-        audit = if settings.audit_enabled {
-            "enabled"
-        } else {
-            "disabled"
-        },
-        elevated = settings.context.escalation.elevated,
-        critical = settings.context.escalation.critical,
-    );
-
-    println!("{output}");
+pub fn run_set_list(config: &Config) -> Result<shellfirm::CmdExit> {
+    let user_root = config.read_config_as_value()?;
+    let default_root = serde_yaml::to_value(Settings::default())
+        .map_err(|e| anyhow!("failed to serialize defaults: {e}"))?;
+    let merged = merge_for_display(&default_root, &user_root);
+    let paths = value_list_paths(&merged);
+    let enum_map = known_enum_values();
+    let max_key_len = paths.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    for (key, value) in &paths {
+        let hint = enum_map
+            .iter()
+            .find(|(k, _)| *k == key.as_str())
+            .map(|(_, vals)| format!("  (valid: {})", vals.join(", ")))
+            .unwrap_or_default();
+        println!("{key:<width$}  {value}{hint}", width = max_key_len);
+    }
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
         message: None,
     })
+}
+
+/// Recursively merge `overrides` on top of `base`.
+/// Keys in `overrides` replace keys in `base`; both must be mappings at the
+/// top level.
+fn merge_for_display(base: &serde_yaml::Value, overrides: &serde_yaml::Value) -> serde_yaml::Value {
+    match (base, overrides) {
+        (serde_yaml::Value::Mapping(b), serde_yaml::Value::Mapping(o)) => {
+            let mut result = b.clone();
+            for (k, v) in o {
+                let merged = if let Some(base_v) = b.get(k) {
+                    merge_for_display(base_v, v)
+                } else {
+                    v.clone()
+                };
+                result.insert(k.clone(), merged);
+            }
+            serde_yaml::Value::Mapping(result)
+        }
+        (_, override_val) => override_val.clone(),
+    }
+}
+
+pub fn run_get_key(config: &Config, key: &str) -> Result<shellfirm::CmdExit> {
+    let root = config.read_config_as_value()?;
+    match value_get(&root, key) {
+        Some(v) => {
+            let display = format_yaml_value(v);
+            println!("{display}");
+            Ok(shellfirm::CmdExit {
+                code: exitcode::OK,
+                message: None,
+            })
+        }
+        None => Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some(format!(
+                "key not found: {key}\n\nUse 'config set --list' to see valid keys."
+            )),
+        }),
+    }
+}
+
+pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
+    // Ensure file exists before opening editor
+    if !config.setting_file_path.exists() {
+        config.reset_config(Some(0))?;
+    }
+    let original = config.read_config_file()?;
+    let editor = std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    let status = std::process::Command::new(&editor)
+        .arg(&config.setting_file_path)
+        .status()
+        .map_err(|e| anyhow!("failed to launch editor '{editor}': {e}"))?;
+
+    if !status.success() {
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some(format!("editor exited with status: {status}")),
+        });
+    }
+
+    // Validate the edited file
+    match config.get_settings_from_file() {
+        Ok(_) => Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: Some("Configuration updated successfully.".to_string()),
+        }),
+        Err(e) => {
+            // Restore original on validation failure
+            let mut file = std::fs::File::create(&config.setting_file_path)?;
+            std::io::Write::write_all(&mut file, original.as_bytes())?;
+            Ok(shellfirm::CmdExit {
+                code: exitcode::CONFIG,
+                message: Some(format!(
+                    "Invalid configuration, changes discarded: {e}\n\nRun 'config edit' to try again."
+                )),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -382,48 +243,28 @@ mod test_config_cli_command {
     use tempfile::TempDir;
 
     use super::*;
+    use shellfirm::Challenge;
 
     fn initialize_config_folder(temp_dir: &TempDir) -> Config {
         let temp_dir = temp_dir.path().join("app");
-        Config::new(Some(&temp_dir.display().to_string())).unwrap()
-    }
-
-    #[test]
-    fn can_run_update_groups() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(run_update_groups(
-            &config,
-            &config.get_settings_from_file().unwrap(),
-            Some(vec!["test-1".to_string()])
-        ));
-        assert_debug_snapshot!(config.get_settings_from_file());
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_run_update_groups_with_error() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        fs::remove_file(&config.setting_file_path).unwrap();
-        with_settings!({filters => vec![
-            (r"error:.+", "error message"),
-        ]}, {
-            assert_debug_snapshot!(run_update_groups(
-            &config,
-            &settings,
-            Some(vec!["test-1".to_string()])
-        ));
-        });
-        temp_dir.close().unwrap();
+        let config = Config::new(Some(&temp_dir.display().to_string())).unwrap();
+        config.reset_config(Some(0)).unwrap();
+        config
     }
 
     #[test]
     fn can_run_reset() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        config.update_challenge(Challenge::Yes).unwrap();
+        // Change challenge via generic value_set so reset has something to restore
+        let mut root = config.read_config_as_value().unwrap();
+        value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        config.save_config_from_value(&root).unwrap();
         assert_debug_snapshot!(run_reset(&config, Some(1)));
         assert_debug_snapshot!(config.get_settings_from_file());
         temp_dir.close().unwrap();
@@ -443,101 +284,188 @@ mod test_config_cli_command {
     }
 
     #[test]
-    fn can_run_challenge() {
+    fn can_run_set_scalar() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        assert_debug_snapshot!(run_challenge(&config, Some(Challenge::Yes)));
-        assert_debug_snapshot!(
-            config.get_settings_from_file().unwrap().challenge != settings.challenge
+        let result = run_set_key_value(&config, "challenge", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Yes
         );
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_run_challenge_with_err() {
+    fn can_run_set_bool() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        fs::remove_file(&config.setting_file_path).unwrap();
-
-        with_settings!({filters => vec![
-            (r"error:.+", "error message"),
-        ]}, {
-            assert_debug_snapshot!(run_challenge(&config, Some(Challenge::Yes)));
-        });
+        assert!(config.get_settings_from_file().unwrap().audit_enabled);
+        let result = run_set_key_value(&config, "audit_enabled", "false").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert!(!config.get_settings_from_file().unwrap().audit_enabled);
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_run_ignore() {
+    fn can_run_set_nested() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        assert_debug_snapshot!(run_ignore(
-            &config,
-            &settings,
-            Some(vec!["id-1".to_string(), "id-2".to_string()])
-        ));
-        assert_debug_snapshot!(
+        let result = run_set_key_value(&config, "llm.model", "gpt-4").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert_eq!(config.get_settings_from_file().unwrap().llm.model, "gpt-4");
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_set_deep_nested() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_key_value(&config, "context.escalation.elevated", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert_eq!(
             config
                 .get_settings_from_file()
                 .unwrap()
-                .ignores_patterns_ids
+                .context
+                .escalation
+                .elevated,
+            Challenge::Yes
         );
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_run_deny() {
+    fn can_run_set_list_value() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        assert_debug_snapshot!(run_deny(
-            &config,
-            &settings,
-            Some(vec!["id-1".to_string(), "id-2".to_string()])
-        ));
-        assert_debug_snapshot!(config.get_settings_from_file().unwrap().deny_patterns_ids);
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_run_severity_set_high() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        assert!(settings.min_severity.is_none());
-
-        let result = run_severity(&config, &settings, Some("High")).unwrap();
+        let result =
+            run_set_key_value(&config, "context.protected_branches", "[main, develop]").unwrap();
         assert_eq!(result.code, exitcode::OK);
-        assert!(result.message.unwrap().contains("HIGH"));
-
-        let updated = config.get_settings_from_file().unwrap();
-        assert_eq!(updated.min_severity, Some(Severity::High));
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_run_severity_set_none() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-
-        // First set to High
-        let settings = config.get_settings_from_file().unwrap();
-        run_severity(&config, &settings, Some("High")).unwrap();
         assert_eq!(
-            config.get_settings_from_file().unwrap().min_severity,
-            Some(Severity::High)
+            config
+                .get_settings_from_file()
+                .unwrap()
+                .context
+                .protected_branches,
+            vec!["main", "develop"]
         );
+        temp_dir.close().unwrap();
+    }
 
-        // Then clear it
-        let settings = config.get_settings_from_file().unwrap();
-        let result = run_severity(&config, &settings, Some("None")).unwrap();
+    #[test]
+    fn set_rejects_invalid_value() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let original = config.get_settings_from_file().unwrap().challenge;
+        let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        assert!(result.message.as_ref().unwrap().contains("invalid value"));
+        // Original value is unchanged
+        assert_eq!(config.get_settings_from_file().unwrap().challenge, original);
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn set_rejects_wrong_type() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_key_value(&config, "audit_enabled", "not_a_bool").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        // Original value is unchanged
+        assert!(config.get_settings_from_file().unwrap().audit_enabled);
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_set_list_flag() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_list(&config).unwrap();
         assert_eq!(result.code, exitcode::OK);
-        assert!(result.message.unwrap().contains("disabled"));
+        temp_dir.close().unwrap();
+    }
 
-        let updated = config.get_settings_from_file().unwrap();
-        assert!(updated.min_severity.is_none());
+    #[test]
+    fn can_run_get_scalar() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_get_key(&config, "challenge").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn can_run_get_nested() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_get_key(&config, "context.escalation.critical").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn get_nonexistent_returns_error() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_get_key(&config, "nonexistent.key").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        assert!(result.message.unwrap().contains("key not found"));
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn set_rejects_unknown_key() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_key_value(&config, "challange", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        let msg = result.message.unwrap();
+        assert!(msg.contains("unknown configuration key: 'challange'"));
+        assert!(msg.contains("Did you mean 'challenge'?"));
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn set_rejects_completely_unknown_key() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_key_value(&config, "zzz_nonexistent_zzz", "true").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        let msg = result.message.unwrap();
+        assert!(msg.contains("unknown configuration key"));
+        assert!(!msg.contains("Did you mean"));
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn set_on_fresh_install_creates_sparse_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().join("fresh");
+        let config = Config::new(Some(&temp_path.display().to_string())).unwrap();
+        // No reset_config — simulates fresh install with no file
+        assert!(!config.setting_file_path.exists());
+        let result = run_set_key_value(&config, "challenge", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        // File should be sparse — only contains the key we set
+        let content = config.read_config_file().unwrap();
+        assert!(content.contains("challenge"));
+        assert!(!content.contains("enabled_groups"));
+        // Settings still load correctly with defaults
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.challenge, Challenge::Yes);
+        assert!(!settings.enabled_groups.is_empty());
+        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn set_invalid_value_shows_enum_hint() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        let msg = result.message.unwrap();
+        assert!(msg.contains("Valid values: Math, Enter, Yes"));
         temp_dir.close().unwrap();
     }
 }

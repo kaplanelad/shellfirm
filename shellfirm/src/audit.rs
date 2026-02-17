@@ -22,6 +22,9 @@ pub enum AuditOutcome {
     /// The check matched but was skipped because its severity was below
     /// the configured `min_severity` threshold.
     Skipped,
+    /// Written before the challenge prompt. If the process is killed (Ctrl+C)
+    /// during the challenge, this is the only entry that survives.
+    Cancelled,
 }
 
 impl std::fmt::Display for AuditOutcome {
@@ -30,6 +33,7 @@ impl std::fmt::Display for AuditOutcome {
             Self::Allowed => write!(f, "ALLOWED"),
             Self::Denied => write!(f, "DENIED"),
             Self::Skipped => write!(f, "SKIPPED"),
+            Self::Cancelled => write!(f, "CANCELLED"),
         }
     }
 }
@@ -37,6 +41,9 @@ impl std::fmt::Display for AuditOutcome {
 /// A single audit log entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {
+    /// Unique identifier that correlates pre-challenge (`Cancelled`) and
+    /// post-challenge (`Allowed`/`Denied`) entries for the same prompt.
+    pub event_id: String,
     pub timestamp: String,
     pub command: String,
     pub matched_ids: Vec<String>,
@@ -45,6 +52,12 @@ pub struct AuditEvent {
     pub context_labels: Vec<String>,
     /// The highest severity among the matched checks.
     pub severity: Severity,
+    /// Name of the AI agent that originated this command (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    /// Session ID of the AI agent (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_session_id: Option<String>,
 }
 
 /// Append an audit event to the log file as a JSON line.
@@ -109,9 +122,7 @@ pub fn now_timestamp() -> String {
 
     // Approximate date from epoch days (good enough for logging)
     let (year, month, day) = epoch_days_to_date(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z"
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
 }
 
 /// Convert epoch days to (year, month, day). Simplified algorithm.
@@ -141,6 +152,7 @@ mod tests {
         let path = temp.path().join("audit.log");
 
         let event = AuditEvent {
+            event_id: "test-event-1".into(),
             timestamp: "2026-02-15T10:00:00Z".into(),
             command: "git push -f".into(),
             matched_ids: vec!["git:force_push".into()],
@@ -148,12 +160,15 @@ mod tests {
             outcome: AuditOutcome::Allowed,
             context_labels: vec!["branch=main".into()],
             severity: Severity::High,
+            agent_name: None,
+            agent_session_id: None,
         };
 
         log_event(&path, &event).unwrap();
         let content = read_log(&path).unwrap();
         // JSON lines format: each line is a valid JSON object
         let parsed: AuditEvent = serde_json::from_str(content.trim()).unwrap();
+        assert_eq!(parsed.event_id, "test-event-1");
         assert_eq!(parsed.command, "git push -f");
         assert_eq!(parsed.outcome, AuditOutcome::Allowed);
         assert_eq!(parsed.matched_ids, vec!["git:force_push"]);
@@ -167,6 +182,7 @@ mod tests {
         let path = temp.path().join("audit.log");
 
         let event = AuditEvent {
+            event_id: "test-event-2".into(),
             timestamp: "2026-02-15T10:00:00Z".into(),
             command: "cat file | grep pattern | rm -rf /".into(),
             matched_ids: vec!["fs:recursively_delete".into()],
@@ -174,6 +190,8 @@ mod tests {
             outcome: AuditOutcome::Allowed,
             context_labels: vec![],
             severity: Severity::Critical,
+            agent_name: None,
+            agent_session_id: None,
         };
 
         log_event(&path, &event).unwrap();
@@ -189,6 +207,7 @@ mod tests {
         let path = temp.path().join("audit.log");
 
         let event = AuditEvent {
+            event_id: "test-event-3".into(),
             timestamp: "2026-02-15T10:00:00Z".into(),
             command: "rm -rf /".into(),
             matched_ids: vec!["fs:recursively_delete".into()],
@@ -196,6 +215,8 @@ mod tests {
             outcome: AuditOutcome::Denied,
             context_labels: vec![],
             severity: Severity::Critical,
+            agent_name: None,
+            agent_session_id: None,
         };
 
         log_event(&path, &event).unwrap();
@@ -210,6 +231,32 @@ mod tests {
         let path = PathBuf::from("/tmp/nonexistent-audit-test.log");
         let result = read_log(&path).unwrap();
         assert!(result.contains("No audit events"));
+    }
+
+    #[test]
+    fn test_cancelled_outcome_serialization() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("audit.log");
+
+        let event = AuditEvent {
+            event_id: "cancel-test-1".into(),
+            timestamp: "2026-02-15T10:00:00Z".into(),
+            command: "rm -rf /".into(),
+            matched_ids: vec!["fs:recursively_delete".into()],
+            challenge_type: "Math".into(),
+            outcome: AuditOutcome::Cancelled,
+            context_labels: vec![],
+            severity: Severity::Critical,
+            agent_name: None,
+            agent_session_id: None,
+        };
+
+        log_event(&path, &event).unwrap();
+        let content = read_log(&path).unwrap();
+        let parsed: AuditEvent = serde_json::from_str(content.trim()).unwrap();
+        assert_eq!(parsed.outcome, AuditOutcome::Cancelled);
+        assert_eq!(parsed.event_id, "cancel-test-1");
+        assert_eq!(format!("{}", parsed.outcome), "CANCELLED");
     }
 
     #[test]

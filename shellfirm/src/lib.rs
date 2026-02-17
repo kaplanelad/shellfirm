@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod audit;
 pub mod checks;
 mod config;
@@ -5,7 +6,14 @@ pub mod context;
 mod data;
 pub mod dialog;
 pub mod env;
+#[cfg(feature = "llm")]
+pub mod llm;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod policy;
 pub mod prompt;
-pub use config::{Challenge, Config, Settings};
+pub use config::{
+    format_yaml_value, known_enum_values, valid_config_keys, validate_config_key, value_get,
+    value_list_paths, value_set, AgentConfig, Challenge, Config, LlmConfig, Settings,
+};
 pub use data::CmdExit;

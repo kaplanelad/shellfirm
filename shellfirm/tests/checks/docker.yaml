@@ -1,13 +1,22 @@
 ---
 # -- docker:compose_down_volumes --
 - test: "docker-compose down -v"
-  description: "match compose down with short -v flag"
+  description: "match compose down with short -v flag (hyphen syntax)"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v"
+  description: "match compose down with short -v flag (space syntax)"
   expect_ids: ["docker:compose_down_volumes"]
 - test: "docker-compose down --volumes"
   description: "match compose down with long --volumes flag"
   expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down --volumes"
+  description: "match compose down with long --volumes flag (space syntax)"
+  expect_ids: ["docker:compose_down_volumes"]
 - test: "docker-compose down"
   description: "negative: compose down without -v or --volumes should not match"
+  expect_ids: []
+- test: "docker compose down"
+  description: "negative: compose down without -v or --volumes should not match (space syntax)"
   expect_ids: []
 
 # -- docker:force_remove_all_containers --

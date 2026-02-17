@@ -1,5 +1,5 @@
 - from: fs
-  test: 'rm\s{1,}(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(\*|\.{1,}|/)\s*$'
+  test: 'rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(\*|\.{1,}|/)\s*$'
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
   severity: Critical
@@ -17,7 +17,7 @@
     - type: PathExists
       value: 1
 - from: fs
-  test: .*>(.*)
+  test: (?:^|[^>])>([^>].*)
   description: "The above command is used to flush the content of a file."
   id: fs:flush_file_content
   severity: High
@@ -25,12 +25,12 @@
     - type: PathExists
       value: 1
 - from: fs
-  test: chmod\s{1,}(-R|--recursive)\s{1}(\*|\.{2,}|/)
+  test: chmod\s{1,}(-R|--recursive)\s{1,}(\*|\.{1,}|/)
   description: "Change permission to all root files can brake your some thinks like SSH keys."
   id: fs:recursively_chmod
   severity: Critical
 - from: fs
-  test: find\s.*-delete
+  test: find\s.*\s-delete(\s|$)
   description: "Did you -delete flag in the wrong order? find -delete going to delete all the file under your current path."
   id: fs:delete_find_files
   severity: Critical
@@ -107,7 +107,7 @@
   id: fs-strict:change_permissions
   severity: Medium
 - from: fs
-  test: ^rm\s{1,}(?:-Rf|-rf|-fR|-fr|-r|-R|-f)?\s*(.*)\r?
+  test: ^(?:sudo\s+)?rm\s{1,}(?:-Rf|-rf|-fR|-fr|-r|-R|-f)?\s*(.*)\r?
   description: "Are you sure you want to continue with deletion?"
   id: fs-strict:any_deletion
   severity: Medium

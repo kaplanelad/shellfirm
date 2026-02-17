@@ -18,6 +18,11 @@ fn main() {
         .subcommand(cmd::completions_cmd::command())
         .subcommand(cmd::status_cmd::command());
 
+    #[cfg(feature = "mcp")]
+    {
+        app = app.subcommand(cmd::mcp_cmd::command());
+    }
+
     let matches = app.clone().get_matches();
 
     // Handle completions command early (doesn't need config)
@@ -100,17 +105,20 @@ fn main() {
             ("pre-command", subcommand_matches) => {
                 cmd::command::run(subcommand_matches, &settings, &checks, &config)
             }
-            ("config", subcommand_matches) => {
-                cmd::config::run(subcommand_matches, &config, &settings)
-            }
-            ("audit", subcommand_matches) => {
-                cmd::audit_cmd::run(subcommand_matches, &config)
-            }
+            ("config", subcommand_matches) => cmd::config::run(subcommand_matches, &config),
+            ("audit", subcommand_matches) => cmd::audit_cmd::run(subcommand_matches, &config),
             ("check", subcommand_matches) => {
                 cmd::check_cmd::run(subcommand_matches, &settings, &checks)
             }
-            ("status", subcommand_matches) => {
-                Ok(cmd::status_cmd::run(subcommand_matches, &config, &settings, &checks))
+            ("status", subcommand_matches) => Ok(cmd::status_cmd::run(
+                subcommand_matches,
+                &config,
+                &settings,
+                &checks,
+            )),
+            #[cfg(feature = "mcp")]
+            ("mcp", subcommand_matches) => {
+                cmd::mcp_cmd::run(subcommand_matches, &settings, &checks, &config)
             }
             _ => unreachable!(),
         },

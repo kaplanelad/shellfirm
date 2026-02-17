@@ -13,9 +13,7 @@ fn main() -> Result<()> {
 
     writeln!(&mut groups_names, r"[",)?;
 
-    let mut paths: Vec<_> = fs::read_dir("./checks")?
-        .filter_map(Result::ok)
-        .collect();
+    let mut paths: Vec<_> = fs::read_dir("./checks")?.filter_map(Result::ok).collect();
     paths.sort_by_key(std::fs::DirEntry::path);
 
     let mut all_group_checks = String::new();

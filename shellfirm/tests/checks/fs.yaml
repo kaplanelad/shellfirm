@@ -147,16 +147,13 @@
   expect_ids: ["fs:dd_block_device"]
 
 # -- fs:delete_find_files --
-- test: "find . | -delete"
+- test: "find . -delete"
   description: "match command"
   expect_ids: ["fs:delete_find_files"]
-- test: "find / | -delete"
+- test: "find / -delete"
   description: "match command"
   expect_ids: ["fs:delete_find_files"]
-- test: "find   /    |   -delete"
-  description: "match command with spaves"
-  expect_ids: ["fs:delete_find_files"]
-- test: "findd / | -delete"
+- test: "findd / -delete"
   description: "invalid command"
   expect_ids: []
 - test: "find   .   -delete"
@@ -198,6 +195,9 @@
 - test: "find . -type f -size +100M -delete"
   description: "match command with size condition"
   expect_ids: ["fs:delete_find_files"]
+- test: "find . -name 'my-delete-script' -print"
+  description: "negative: -delete in filename should not match"
+  expect_ids: []
 
 # -- fs:encryption_operations --
 - test: "cryptsetup luksFormat /dev/sda1"
@@ -354,8 +354,8 @@
   description: "flush content with spaces"
   expect_ids: ["fs:flush_file_content"]
 - test: 'cat "test" >> file.txt'
-  description: "TODO: regex should differentiate >> (append) from > (overwrite); currently matches both"
-  expect_ids: ["fs:flush_file_content"]
+  description: "append redirect should not match (only single > triggers)"
+  expect_ids: []
 
 # -- fs:gdisk_disk_modify --
 - test: "gdisk /dev/sda"
@@ -909,6 +909,9 @@
 - test: "chmod -R *"
   description: "change root path permissions"
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+- test: "chmod -R ."
+  description: "change current directory permissions"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R .."
   description: "change parent folder"
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
@@ -920,10 +923,10 @@
   expect_ids: ["fs-strict:change_permissions"]
 - test: "chmod   -R   /"
   description: "match command with extra spaces"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod   --recursive   /"
   description: "match command with extra spaces"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "sudo chmod -R /"
   description: "match command with sudo"
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
@@ -994,10 +997,10 @@
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "sudo rm -rf /"
   description: "match command with sudo"
-  expect_ids: ["fs:recursively_delete"]
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "sudo rm -r /"
   description: "match command with sudo"
-  expect_ids: ["fs:recursively_delete"]
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "rm -rf --force /"
   description: "match command with long force flag"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
@@ -1012,6 +1015,12 @@
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "rm -rf --preserve-root /"
   description: "match command with preserve-root flag"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -r -f /"
+  description: "match separate -r and -f flags"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -f *"
+  description: "match force delete all files"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 
 # -- fs:sfdisk_disk_modify --

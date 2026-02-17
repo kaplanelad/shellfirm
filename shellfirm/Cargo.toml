@@ -30,9 +30,12 @@ env_logger = "0.11"
 console = "0.16"
 exitcode = "1.1"
 requestty = "0.6"
-strum = { version = "0.27", features = ["derive"] }
 wait-timeout = "0.2"
 serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], optional = true }
+tokio = { version = "1", features = ["rt", "macros", "time", "io-std", "io-util"], optional = true }
+uuid = { version = "1", features = ["v4"] }
+strsim = "0.11"
 
 [dev-dependencies]
 insta = { version = "1.46", features = ["filters"] }
@@ -42,9 +45,12 @@ tempfile = "3"
 anyhow = "1.0"
 
 [features]
-default = ["cli"]
-# list optionals here:
+default = ["all"]
 cli = ["clap", "clap_complete", "clap_complete_nushell"]
+llm = ["reqwest"]
+mcp = ["tokio"]
+ai = ["mcp", "llm"]
+all = ["cli", "llm", "mcp", "ai"]
 
 [[bin]]
 name = "shellfirm"

@@ -9,18 +9,99 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::{checks, checks::Severity, context::ContextConfig, dialog};
 use anyhow::{bail, Result as AnyResult};
 use log::debug;
 use serde_derive::{Deserialize, Serialize};
-use strum::EnumIter;
 
-use crate::{checks, checks::Severity, context::ContextConfig, dialog};
+/// Configuration for the optional LLM-powered command analysis.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct LlmConfig {
+    /// LLM provider name: "anthropic" or "openai-compatible".
+    #[serde(default = "default_llm_provider")]
+    pub provider: String,
+    /// Model ID to use (e.g. "claude-sonnet-4-20250514").
+    #[serde(default = "default_llm_model")]
+    pub model: String,
+    /// Custom base URL for openai-compatible providers.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Request timeout in milliseconds.
+    #[serde(default = "default_llm_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Max tokens in the LLM response.
+    #[serde(default = "default_llm_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_llm_provider() -> String {
+    "anthropic".into()
+}
+
+fn default_llm_model() -> String {
+    "claude-sonnet-4-20250514".into()
+}
+
+const fn default_llm_timeout_ms() -> u64 {
+    5000
+}
+
+const fn default_llm_max_tokens() -> u32 {
+    512
+}
+
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            provider: default_llm_provider(),
+            model: default_llm_model(),
+            base_url: None,
+            timeout_ms: default_llm_timeout_ms(),
+            max_tokens: default_llm_max_tokens(),
+        }
+    }
+}
+
+/// Configuration for AI agent guardrails.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AgentConfig {
+    /// Auto-deny commands at or above this severity when running in agent mode.
+    #[serde(default = "default_auto_deny_severity")]
+    pub auto_deny_severity: Severity,
+    /// Require human approval for agent-denied commands (reserved for future use).
+    #[serde(default)]
+    pub require_human_approval: bool,
+}
+
+const fn default_auto_deny_severity() -> Severity {
+    Severity::High
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            auto_deny_severity: default_auto_deny_severity(),
+            require_human_approval: false,
+        }
+    }
+}
 
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
 pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
 
-pub const DEFAULT_INCLUDE_CHECKS: [&str; 12] = [
+fn default_enabled_groups() -> Vec<String> {
+    DEFAULT_ENABLED_GROUPS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
+}
+
+const fn default_audit_enabled() -> bool {
+    true
+}
+
+pub const DEFAULT_ENABLED_GROUPS: [&str; 12] = [
     "aws",
     "azure",
     "base",
@@ -36,7 +117,7 @@ pub const DEFAULT_INCLUDE_CHECKS: [&str; 12] = [
 ];
 
 /// The user challenge when user need to confirm the command.
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, EnumIter)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 pub enum Challenge {
     /// Math challenge.
     Math,
@@ -59,24 +140,37 @@ pub struct Config {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Settings {
     /// Type of the challenge.
+    #[serde(default)]
     pub challenge: Challenge,
-    /// List of all include files
-    pub includes: Vec<String>,
+    /// Whitelist of check groups to enable (default: all 12 groups).
+    #[serde(default = "default_enabled_groups")]
+    pub enabled_groups: Vec<String>,
+    /// Blacklist of check groups to disable (applied after whitelist).
+    #[serde(default)]
+    pub disabled_groups: Vec<String>,
     /// List of all ignore checks
+    #[serde(default)]
     pub ignores_patterns_ids: Vec<String>,
     /// List of pattens id to prevent
+    #[serde(default)]
     pub deny_patterns_ids: Vec<String>,
     /// Context-aware protection configuration.
     #[serde(default)]
     pub context: ContextConfig,
     /// Enable audit trail (log intercepted commands).
-    #[serde(default)]
+    #[serde(default = "default_audit_enabled")]
     pub audit_enabled: bool,
     /// Minimum severity for a check to trigger a challenge.
     /// When `None`, all severities trigger. When set, checks below this
     /// threshold are skipped (but still logged to audit as `Skipped`).
     #[serde(default)]
     pub min_severity: Option<Severity>,
+    /// AI agent guardrail configuration.
+    #[serde(default)]
+    pub agent: AgentConfig,
+    /// LLM-powered analysis configuration (requires `llm` feature).
+    #[serde(default)]
+    pub llm: LlmConfig,
 }
 
 impl fmt::Display for Challenge {
@@ -126,6 +220,23 @@ impl Challenge {
     }
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            challenge: DEFAULT_CHALLENGE,
+            enabled_groups: default_enabled_groups(),
+            disabled_groups: vec![],
+            ignores_patterns_ids: vec![],
+            deny_patterns_ids: vec![],
+            context: ContextConfig::default(),
+            audit_enabled: default_audit_enabled(),
+            min_severity: None,
+            agent: AgentConfig::default(),
+            llm: LlmConfig::default(),
+        }
+    }
+}
+
 impl Config {
     /// Get application  setting config.
     ///
@@ -137,21 +248,8 @@ impl Config {
 
         let config_folder = match path {
             Some(p) => PathBuf::from(p),
-            None => match dirs::home_dir() {
-                Some(p) => {
-                    // The project started with $HOME path to save the config file. In order the
-                    // requests to use $XDG_CACHE_HOME and keep backward
-                    // compatibility if the folder $HOME/.shellfirm exists, shillfirm
-                    // continue work with that folder. If the folder does not exists, the default
-                    // use config dir
-                    let homedir = p.join(format!(".{package_name}"));
-                    let conf_dir = dirs::config_dir().unwrap_or_else(|| homedir.clone());
-                    if homedir.is_dir() {
-                        homedir
-                    } else {
-                        conf_dir.join(package_name)
-                    }
-                }
+            None => match dirs::config_dir() {
+                Some(conf_dir) => conf_dir.join(package_name),
                 None => bail!("could not get directory path"),
             },
         };
@@ -162,8 +260,6 @@ impl Config {
             setting_file_path,
         };
 
-        setting_config.create_config_folder()?;
-        setting_config.manage_setting_file()?;
         debug!("configuration settings: {setting_config:?}");
         Ok(setting_config)
     }
@@ -186,55 +282,13 @@ impl Config {
     ///
     /// Will return `Err` has an error when loading the config file
     pub fn get_settings_from_file(&self) -> AnyResult<Settings> {
-        Ok(serde_yaml::from_str(&self.read_config_file()?)?)
-    }
-
-    /// Manage setting folder & file.
-    /// * Create config folder if not exists.
-    /// * Create default config yaml file if not exists.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` file could not created or loaded
-    pub fn manage_setting_file(&self) -> AnyResult<()> {
-        if fs::metadata(&self.setting_file_path).is_err() {
-            debug!("setting file file not found: {}", &self.setting_file_path.display());
-            self.create_default_settings_file()?;
+        match self.read_config_file() {
+            Ok(content) => Ok(serde_yaml::from_str(&content)?),
+            Err(_) if !self.setting_file_path.exists() => Ok(Settings::default()),
+            Err(e) => Err(e),
         }
-        debug!("setting file: {:?}", &self.get_settings_from_file()?);
-        Ok(())
     }
 
-    /// Update check groups to the given list (replaces existing groups).
-    ///
-    /// # Arguments
-    ///
-    /// * `check_groups` - The full list of check groups to enable.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` if the config file cannot be loaded or saved.
-    pub fn update_check_groups(&self, check_groups: Vec<String>) -> AnyResult<()> {
-        let mut settings = self.get_settings_from_file()?;
-        settings.includes = check_groups;
-        self.save_settings_file_from_struct(&settings)
-    }
-
-    /// Update default user challenge.
-    ///
-    /// # Arguments
-    ///
-    /// * `challenge` - new challenge to update
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` error return on load/save config
-    pub fn update_challenge(&self, challenge: Challenge) -> AnyResult<()> {
-        let mut settings = self.get_settings_from_file()?;
-        settings.challenge = challenge;
-        self.save_settings_file_from_struct(&settings)?;
-        Ok(())
-    }
     /// Reset user configuration to the default app.
     ///
     /// # Errors
@@ -259,32 +313,24 @@ impl Config {
     }
 
     /// Create config folder (and parent directories) if not exists.
-    fn create_config_folder(&self) -> AnyResult<()> {
+    fn ensure_config_dir(&self) -> AnyResult<()> {
         if let Err(err) = fs::create_dir_all(&self.root_folder) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
                 bail!("could not create folder: {err}");
             }
             debug!("configuration folder found: {}", self.root_folder.display());
         } else {
-            debug!("configuration created in path: {}", self.root_folder.display());
+            debug!(
+                "configuration created in path: {}",
+                self.root_folder.display()
+            );
         }
         Ok(())
     }
 
     /// Create config file from default template.
     fn create_default_settings_file(&self) -> AnyResult<()> {
-        self.save_settings_file_from_struct(&Settings {
-            challenge: DEFAULT_CHALLENGE,
-            includes: DEFAULT_INCLUDE_CHECKS
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect::<_>(),
-            ignores_patterns_ids: vec![],
-            deny_patterns_ids: vec![],
-            context: ContextConfig::default(),
-            audit_enabled: false,
-            min_severity: None,
-        })
+        self.save_settings_file_from_struct(&Settings::default())
     }
 
     /// Convert the given config to YAML format and the file.
@@ -293,22 +339,59 @@ impl Config {
     ///
     /// * `settings` - Config struct
     fn save_settings_file_from_struct(&self, settings: &Settings) -> AnyResult<()> {
+        self.ensure_config_dir()?;
         let content = serde_yaml::to_string(settings)?;
         let mut file = fs::File::create(&self.setting_file_path)?;
         file.write_all(content.as_bytes())?;
         debug!(
             "settings file crated in path: {}. config data: {:?}",
-            self.setting_file_path.display(), settings
+            self.setting_file_path.display(),
+            settings
         );
         Ok(())
     }
 
     /// Return config content.
-    fn read_config_file(&self) -> AnyResult<String> {
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the config file cannot be opened or read.
+    pub fn read_config_file(&self) -> AnyResult<String> {
         let mut file = std::fs::File::open(&self.setting_file_path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
         Ok(content)
+    }
+
+    /// Load settings as a raw [`serde_yaml::Value`] tree.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the config file cannot be read or parsed.
+    pub fn read_config_as_value(&self) -> AnyResult<serde_yaml::Value> {
+        match self.read_config_file() {
+            Ok(content) => Ok(serde_yaml::from_str(&content)?),
+            Err(_) if !self.setting_file_path.exists() => {
+                Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::default()))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Validate a [`serde_yaml::Value`] tree by round-tripping through
+    /// [`Settings`] deserialization, then save the YAML to disk.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if validation fails or the file cannot be written.
+    pub fn save_config_from_value(&self, value: &serde_yaml::Value) -> AnyResult<()> {
+        self.ensure_config_dir()?;
+        let yaml_str = serde_yaml::to_string(value)?;
+        // Validate: round-trip through Settings deserialization
+        let _settings: Settings = serde_yaml::from_str(&yaml_str)?;
+        let mut file = fs::File::create(&self.setting_file_path)?;
+        file.write_all(yaml_str.as_bytes())?;
+        Ok(())
     }
 
     fn backup(&self) -> AnyResult<PathBuf> {
@@ -320,51 +403,6 @@ impl Config {
         fs::rename(&self.setting_file_path, &backup_to)?;
         Ok(backup_to)
     }
-
-    /// Update patterns ids to ignore
-    ///
-    /// # Arguments
-    /// * `ignores_patterns_ids` - Full list of patterns ids
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` when could not load/save config
-    pub fn update_ignores_pattern_ids(&self, ignores_patterns_ids: Vec<String>) -> AnyResult<()> {
-        let mut settings = self.get_settings_from_file()?;
-        settings.ignores_patterns_ids = ignores_patterns_ids;
-        self.save_settings_file_from_struct(&settings)?;
-        Ok(())
-    }
-
-    /// Update patterns ids to deny
-    ///
-    /// # Arguments
-    /// * `deny_patterns_ids` - Full list of patterns ids
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` when could not load/save config
-    pub fn update_deny_pattern_ids(&self, deny_patterns_ids: Vec<String>) -> AnyResult<()> {
-        let mut settings = self.get_settings_from_file()?;
-        settings.deny_patterns_ids = deny_patterns_ids;
-        self.save_settings_file_from_struct(&settings)?;
-        Ok(())
-    }
-
-    /// Update the minimum severity threshold.
-    ///
-    /// # Arguments
-    /// * `min_severity` - The new minimum severity, or `None` to disable filtering.
-    ///
-    /// # Errors
-    ///
-    /// Will return `Err` when could not load/save config
-    pub fn update_min_severity(&self, min_severity: Option<Severity>) -> AnyResult<()> {
-        let mut settings = self.get_settings_from_file()?;
-        settings.min_severity = min_severity;
-        self.save_settings_file_from_struct(&settings)?;
-        Ok(())
-    }
 }
 
 impl Settings {
@@ -374,27 +412,216 @@ impl Settings {
     ///
     /// Will return `Err` when could not load config file
     pub fn get_active_checks(&self) -> AnyResult<Vec<checks::Check>> {
-        let includes: HashSet<&str> = self.includes.iter().map(String::as_str).collect();
-        let ignores: HashSet<&str> =
-            self.ignores_patterns_ids.iter().map(String::as_str).collect();
+        let enabled: HashSet<&str> = self.enabled_groups.iter().map(String::as_str).collect();
+        let disabled: HashSet<&str> = self.disabled_groups.iter().map(String::as_str).collect();
+        let ignores: HashSet<&str> = self
+            .ignores_patterns_ids
+            .iter()
+            .map(String::as_str)
+            .collect();
         Ok(checks::get_all()?
             .into_iter()
-            .filter(|c| includes.contains(c.from.as_str()))
+            .filter(|c| enabled.contains(c.from.as_str()))
+            .filter(|c| !disabled.contains(c.from.as_str()))
             .filter(|c| !ignores.contains(c.id.as_str()))
             .collect())
     }
 
     #[must_use]
     pub const fn get_active_groups(&self) -> &Vec<String> {
-        &self.includes
+        &self.enabled_groups
     }
+}
+
+/// Navigate a [`serde_yaml::Value`] tree by dot-notation path.
+///
+/// Returns `None` if any segment is missing.
+#[must_use]
+pub fn value_get<'a>(root: &'a serde_yaml::Value, path: &str) -> Option<&'a serde_yaml::Value> {
+    let mut current = root;
+    for segment in path.split('.') {
+        current = current.get(segment)?;
+    }
+    Some(current)
+}
+
+/// Set a value at a dot-notation path, creating intermediate mappings as
+/// needed.
+///
+/// # Errors
+///
+/// Will return `Err` if an intermediate value exists but is not a mapping.
+pub fn value_set(
+    root: &mut serde_yaml::Value,
+    path: &str,
+    new_value: serde_yaml::Value,
+) -> AnyResult<()> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let mut current = root;
+
+    for (i, segment) in segments.iter().enumerate() {
+        if i == segments.len() - 1 {
+            // Final segment — set the value
+            let map = current
+                .as_mapping_mut()
+                .ok_or_else(|| anyhow::anyhow!("expected a mapping at parent of '{path}'"))?;
+            map.insert(serde_yaml::Value::String((*segment).to_string()), new_value);
+            return Ok(());
+        }
+        // Intermediate segment — descend or create
+        let key = serde_yaml::Value::String((*segment).to_string());
+        if !current.as_mapping().is_some_and(|m| m.contains_key(&key)) {
+            let map = current
+                .as_mapping_mut()
+                .ok_or_else(|| anyhow::anyhow!("expected a mapping at '{segment}'"))?;
+            map.insert(
+                key.clone(),
+                serde_yaml::Value::Mapping(serde_yaml::Mapping::default()),
+            );
+        }
+        current = current
+            .get_mut(segment)
+            .ok_or_else(|| anyhow::anyhow!("failed to descend into '{segment}'"))?;
+    }
+    Ok(())
+}
+
+/// Recursively collect all `(key_path, display_value)` leaf pairs from a
+/// [`serde_yaml::Value`] tree.
+#[must_use]
+pub fn value_list_paths(root: &serde_yaml::Value) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    collect_paths(root, &mut String::new(), &mut result);
+    result
+}
+
+fn collect_paths(
+    value: &serde_yaml::Value,
+    prefix: &mut String,
+    result: &mut Vec<(String, String)>,
+) {
+    if let Some(mapping) = value.as_mapping() {
+        for (k, v) in mapping {
+            let key_str = k
+                .as_str()
+                .map_or_else(|| format!("{k:?}"), ToString::to_string);
+            let old_len = prefix.len();
+            if !prefix.is_empty() {
+                prefix.push('.');
+            }
+            prefix.push_str(&key_str);
+            collect_paths(v, prefix, result);
+            prefix.truncate(old_len);
+        }
+    } else {
+        result.push((prefix.clone(), format_yaml_value(value)));
+    }
+}
+
+/// Format a [`serde_yaml::Value`] for human-readable display.
+#[must_use]
+pub fn format_yaml_value(value: &serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::Null => "null".to_string(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        serde_yaml::Value::String(s) => s.clone(),
+        serde_yaml::Value::Sequence(seq) => {
+            let items: Vec<String> = seq.iter().map(format_yaml_value).collect();
+            format!("[{}]", items.join(", "))
+        }
+        serde_yaml::Value::Mapping(_) => {
+            serde_yaml::to_string(value).unwrap_or_else(|_| "<mapping>".to_string())
+        }
+        serde_yaml::Value::Tagged(tagged) => format_yaml_value(&tagged.value),
+    }
+}
+
+/// Return all valid dot-notation key paths derived from `Settings::default()`.
+///
+/// # Panics
+///
+/// Panics if `Settings::default()` cannot be serialized to a YAML value,
+/// which should never happen.
+#[must_use]
+pub fn valid_config_keys() -> Vec<String> {
+    let default_value =
+        serde_yaml::to_value(Settings::default()).expect("Settings::default() must serialize");
+    let paths = value_list_paths(&default_value);
+    let mut keys: Vec<String> = paths.into_iter().map(|(k, _)| k).collect();
+    // Also include intermediate mapping paths (e.g. "context", "context.escalation")
+    let mut intermediates = std::collections::BTreeSet::new();
+    for key in &keys {
+        let parts: Vec<&str> = key.split('.').collect();
+        for i in 1..parts.len() {
+            intermediates.insert(parts[..i].join("."));
+        }
+    }
+    for intermediate in intermediates {
+        if !keys.contains(&intermediate) {
+            keys.push(intermediate);
+        }
+    }
+    keys
+}
+
+/// Validate that a key is a known configuration path.
+///
+/// Returns `Ok(())` if valid, or `Err` with an error message including a
+/// "did you mean?" suggestion when a close match is found.
+///
+/// # Errors
+///
+/// Returns `Err(String)` when the key is not a known configuration path.
+pub fn validate_config_key(key: &str) -> Result<(), String> {
+    let valid = valid_config_keys();
+    if valid.iter().any(|k| k == key) {
+        return Ok(());
+    }
+
+    // Find closest match via Levenshtein distance
+    let threshold = (key.len() / 2).max(3);
+    let mut best: Option<(&str, usize)> = None;
+    for valid_key in &valid {
+        let dist = strsim::levenshtein(key, valid_key);
+        if dist <= threshold && best.is_none_or(|(_, d)| dist < d) {
+            best = Some((valid_key, dist));
+        }
+    }
+
+    let mut msg = format!("unknown configuration key: '{key}'");
+    if let Some((suggestion, _)) = best {
+        use std::fmt::Write;
+        let _ = write!(msg, "\n\n  Did you mean '{suggestion}'?");
+    }
+    msg.push_str("\n\nRun 'shellfirm config set --list' to see all valid keys.");
+    Err(msg)
+}
+
+/// Return known enum fields and their valid values.
+///
+/// This is used to show helpful hints when a user provides an invalid value.
+#[must_use]
+pub fn known_enum_values() -> Vec<(&'static str, &'static [&'static str])> {
+    vec![
+        ("challenge", &["Math", "Enter", "Yes"]),
+        (
+            "min_severity",
+            &["null", "Info", "Low", "Medium", "High", "Critical"],
+        ),
+        ("context.escalation.elevated", &["Math", "Enter", "Yes"]),
+        ("context.escalation.critical", &["Math", "Enter", "Yes"]),
+        (
+            "agent.auto_deny_severity",
+            &["Info", "Low", "Medium", "High", "Critical"],
+        ),
+    ]
 }
 
 #[cfg(test)]
 mod test_config {
     use std::fs::read_dir;
 
-    use insta::assert_debug_snapshot;
     use tempfile::TempDir;
 
     use super::*;
@@ -404,102 +631,45 @@ mod test_config {
         Config::new(Some(&temp_dir.display().to_string())).unwrap()
     }
 
-    #[test]
-    fn can_crate_new_config() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert_debug_snapshot!(config.root_folder.is_dir());
-        assert_debug_snapshot!(config.setting_file_path.is_file());
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn cat_get_settings_from_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-
-        assert_debug_snapshot!(config.get_settings_from_file().is_ok());
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_manage_config_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let mut config = initialize_config_folder(&temp_dir);
-
-        config.setting_file_path = temp_dir
-            .path()
-            .join("app")
-            .join("new-file.yaml");
-
-        assert_debug_snapshot!(config.setting_file_path.is_file());
-        config.manage_setting_file().unwrap();
-        assert_debug_snapshot!(config.setting_file_path.is_file());
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_add_check_groups() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let settings = config.get_settings_from_file().unwrap();
-        assert_eq!(settings.includes.len(), 12); // default: all groups
+    fn initialize_config_folder_with_file(temp_dir: &TempDir) -> Config {
+        let config = initialize_config_folder(temp_dir);
+        config.reset_config(Some(0)).unwrap();
         config
-            .update_check_groups(vec!["group-1".to_string(), "group-2".to_string()])
-            .unwrap();
-        let updated = config.get_settings_from_file().unwrap();
-        assert_eq!(updated.includes, vec!["group-1", "group-2"]);
+    }
+
+    #[test]
+    fn new_config_does_not_create_files() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        assert!(!config.root_folder.is_dir());
+        assert!(!config.setting_file_path.is_file());
         temp_dir.close().unwrap();
     }
 
     #[test]
-    fn can_update_challenge() {
+    fn get_settings_returns_defaults_without_file() {
         let temp_dir = tempfile::tempdir().unwrap();
         let config = initialize_config_folder(&temp_dir);
-
         let settings = config.get_settings_from_file().unwrap();
-        assert_eq!(settings.challenge, Challenge::Math);
-        config.update_challenge(Challenge::Yes).unwrap();
-        let updated = config.get_settings_from_file().unwrap();
-        assert_eq!(updated.challenge, Challenge::Yes);
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_update_ignores() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-
-        let settings = config.get_settings_from_file().unwrap();
-        assert!(settings.ignores_patterns_ids.is_empty());
-        config
-            .update_ignores_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
-            .unwrap();
-        let updated = config.get_settings_from_file().unwrap();
-        assert_eq!(updated.ignores_patterns_ids, vec!["id-1", "id-2"]);
-        temp_dir.close().unwrap();
-    }
-
-    #[test]
-    fn can_update_deny() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-
-        let settings = config.get_settings_from_file().unwrap();
-        assert!(settings.deny_patterns_ids.is_empty());
-        config
-            .update_deny_pattern_ids(vec!["id-1".to_string(), "id-2".to_string()])
-            .unwrap();
-        let updated = config.get_settings_from_file().unwrap();
-        assert_eq!(updated.deny_patterns_ids, vec!["id-1", "id-2"]);
+        assert_eq!(settings.challenge, DEFAULT_CHALLENGE);
+        assert_eq!(settings.enabled_groups, default_enabled_groups());
+        assert!(settings.audit_enabled);
         temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_reset_config_with_override() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        config.update_challenge(Challenge::Yes).unwrap();
+        let config = initialize_config_folder_with_file(&temp_dir);
+        // Change challenge via generic value_set
+        let mut root = config.read_config_as_value().unwrap();
+        value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        config.save_config_from_value(&root).unwrap();
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
@@ -516,8 +686,16 @@ mod test_config {
     #[test]
     fn can_reset_config_with_with_backup() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        config.update_challenge(Challenge::Yes).unwrap();
+        let config = initialize_config_folder_with_file(&temp_dir);
+        // Change challenge via generic value_set
+        let mut root = config.read_config_as_value().unwrap();
+        value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        config.save_config_from_value(&root).unwrap();
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
@@ -530,40 +708,164 @@ mod test_config {
         assert_eq!(read_dir(&config.root_folder).unwrap().count(), 2);
         temp_dir.close().unwrap();
     }
+
+    #[test]
+    fn value_get_simple_key() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str("challenge: Math\naudit_enabled: true").unwrap();
+        assert_eq!(
+            value_get(&yaml, "challenge").and_then(|v| v.as_str()),
+            Some("Math")
+        );
+    }
+
+    #[test]
+    fn value_get_nested_key() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str("context:\n  escalation:\n    elevated: Enter").unwrap();
+        assert_eq!(
+            value_get(&yaml, "context.escalation.elevated").and_then(|v| v.as_str()),
+            Some("Enter")
+        );
+    }
+
+    #[test]
+    fn value_get_missing_key() {
+        let yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
+        assert!(value_get(&yaml, "nonexistent").is_none());
+        assert!(value_get(&yaml, "a.b.c").is_none());
+    }
+
+    #[test]
+    fn value_set_simple() {
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
+        value_set(
+            &mut yaml,
+            "challenge",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            value_get(&yaml, "challenge").and_then(|v| v.as_str()),
+            Some("Yes")
+        );
+    }
+
+    #[test]
+    fn value_set_nested() {
+        let mut yaml: serde_yaml::Value =
+            serde_yaml::from_str("context:\n  escalation:\n    elevated: Enter").unwrap();
+        value_set(
+            &mut yaml,
+            "context.escalation.elevated",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            value_get(&yaml, "context.escalation.elevated").and_then(|v| v.as_str()),
+            Some("Yes")
+        );
+    }
+
+    #[test]
+    fn value_set_creates_intermediate() {
+        let mut yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
+        value_set(
+            &mut yaml,
+            "new.nested.key",
+            serde_yaml::Value::String("hello".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            value_get(&yaml, "new.nested.key").and_then(|v| v.as_str()),
+            Some("hello")
+        );
+    }
+
+    #[test]
+    fn value_list_paths_collects_all_leaves() {
+        let yaml: serde_yaml::Value =
+            serde_yaml::from_str("challenge: Math\ncontext:\n  escalation:\n    elevated: Enter")
+                .unwrap();
+        let paths = value_list_paths(&yaml);
+        let keys: Vec<&str> = paths.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(keys.contains(&"challenge"));
+        assert!(keys.contains(&"context.escalation.elevated"));
+    }
+
+    #[test]
+    fn validate_config_key_accepts_known_keys() {
+        assert!(validate_config_key("challenge").is_ok());
+        assert!(validate_config_key("llm.model").is_ok());
+        assert!(validate_config_key("context.escalation.elevated").is_ok());
+        assert!(validate_config_key("agent.auto_deny_severity").is_ok());
+        assert!(validate_config_key("audit_enabled").is_ok());
+    }
+
+    #[test]
+    fn validate_config_key_accepts_intermediate_paths() {
+        assert!(validate_config_key("context").is_ok());
+        assert!(validate_config_key("context.escalation").is_ok());
+        assert!(validate_config_key("llm").is_ok());
+        assert!(validate_config_key("agent").is_ok());
+    }
+
+    #[test]
+    fn validate_config_key_rejects_unknown_with_suggestion() {
+        let err = validate_config_key("challange").unwrap_err();
+        assert!(err.contains("unknown configuration key: 'challange'"));
+        assert!(err.contains("Did you mean 'challenge'?"));
+    }
+
+    #[test]
+    fn validate_config_key_rejects_completely_unknown() {
+        let err = validate_config_key("zzz_nonexistent_zzz").unwrap_err();
+        assert!(err.contains("unknown configuration key"));
+        assert!(!err.contains("Did you mean"));
+    }
+
+    #[test]
+    fn sparse_config_on_fresh_install() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config = initialize_config_folder(&temp_dir);
+        // initialize_config_folder does not create any files — fresh install
+        assert!(!config.setting_file_path.exists());
+        // read_config_as_value should return empty mapping
+        let root = config.read_config_as_value().unwrap();
+        assert!(root.as_mapping().unwrap().is_empty());
+        // Setting a value and saving should produce a sparse file
+        let mut root = root;
+        value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::Value::String("Yes".into()),
+        )
+        .unwrap();
+        config.save_config_from_value(&root).unwrap();
+        let content = config.read_config_file().unwrap();
+        assert!(content.contains("challenge"));
+        assert!(!content.contains("enabled_groups"));
+        // Settings should still load with defaults filled in
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.challenge, Challenge::Yes);
+        assert_eq!(settings.enabled_groups, default_enabled_groups());
+        temp_dir.close().unwrap();
+    }
 }
 
 #[cfg(test)]
 mod test_settings {
-    use tempfile::TempDir;
-
     use super::*;
-
-    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let temp_dir = temp_dir.path().join("app");
-        Config::new(Some(&temp_dir.display().to_string())).unwrap()
-    }
 
     #[test]
     fn can_get_active_checks() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        assert!(config
-            .get_settings_from_file()
-            .unwrap()
-            .get_active_checks()
-            .is_ok());
-        temp_dir.close().unwrap();
+        // Uses Settings::default() — no file needed
+        assert!(Settings::default().get_active_checks().is_ok());
     }
 
     #[test]
     fn can_get_settings_from_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let config = initialize_config_folder(&temp_dir);
-        let groups = config
-            .get_settings_from_file()
-            .unwrap()
-            .get_active_groups()
-            .clone();
+        let groups = Settings::default().get_active_groups().clone();
         assert_eq!(
             groups,
             vec![
@@ -581,6 +883,58 @@ mod test_settings {
                 "terraform",
             ]
         );
-        temp_dir.close().unwrap();
+    }
+
+    #[test]
+    fn settings_yaml_roundtrip_preserves_enabled_groups() {
+        let original = Settings::default();
+        let yaml = serde_yaml::to_string(&original).unwrap();
+        let restored: Settings = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(restored.enabled_groups, original.enabled_groups);
+        assert!(
+            !restored.enabled_groups.is_empty(),
+            "enabled_groups must not be empty after roundtrip"
+        );
+    }
+
+    #[test]
+    fn default_settings_produce_nonempty_active_checks() {
+        let checks = Settings::default().get_active_checks().unwrap();
+        assert!(
+            !checks.is_empty(),
+            "Settings::default() must produce active checks"
+        );
+        let groups: std::collections::HashSet<&str> =
+            checks.iter().map(|c| c.from.as_str()).collect();
+        assert!(groups.contains("fs"), "fs group must be active");
+        assert!(groups.contains("git"), "git group must be active");
+    }
+
+    #[test]
+    fn settings_file_roundtrip_produces_matches() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        config.reset_config(Some(0)).unwrap();
+        let settings = config.get_settings_from_file().unwrap();
+        let checks = settings.get_active_checks().unwrap();
+        assert!(
+            !checks.is_empty(),
+            "Active checks must not be empty after file roundtrip"
+        );
+        let matches = crate::checks::run_check_on_command(&checks, "git push --force origin main");
+        assert!(
+            !matches.is_empty(),
+            "git push --force must match after file roundtrip"
+        );
+    }
+
+    #[test]
+    fn old_includes_field_falls_back_to_default_enabled_groups() {
+        let old_yaml = "challenge: Math\nincludes:\n  - base\n  - fs\n  - git\n";
+        let settings: Settings = serde_yaml::from_str(old_yaml).unwrap();
+        // Old `includes` is unknown → ignored; enabled_groups gets serde default
+        assert_eq!(settings.enabled_groups, default_enabled_groups());
+        let checks = settings.get_active_checks().unwrap();
+        assert!(!checks.is_empty());
     }
 }

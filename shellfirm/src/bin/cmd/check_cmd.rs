@@ -81,7 +81,11 @@ fn run_check(command: &str, checks: &[Check]) -> shellfirm::CmdExit {
     let mut output = String::new();
     let _ = writeln!(output, "{} risky pattern(s) matched:", matches.len());
     for m in &matches {
-        let _ = write!(output, "\n  [{}] [{}] {}\n", m.id, m.severity, m.description);
+        let _ = write!(
+            output,
+            "\n  [{}] [{}] {}\n",
+            m.id, m.severity, m.description
+        );
         if let Some(ref alt) = m.alternative {
             let _ = write!(output, "    > Safe alternative: {alt}");
             if let Some(ref info) = m.alternative_info {
@@ -141,7 +145,7 @@ fn run_list(
     let mut output = format!(
         "{} active check(s) (groups: {}):\n\n",
         checks_to_show.len(),
-        settings.includes.join(", ")
+        settings.enabled_groups.join(", ")
     );
     for c in &checks_to_show {
         let _ = writeln!(
