@@ -110,6 +110,8 @@ fn execute(
                     .unwrap_or_default(),
                 agent_name: None,
                 agent_session_id: None,
+                blast_radius_scope: None,
+                blast_radius_detail: None,
             };
             if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
                 log::warn!("Failed to write audit log: {e}");
@@ -119,6 +121,18 @@ fn execute(
         // Only run the challenge if there are active (non-skipped) matches
         if !pipeline.active_matches.is_empty() {
             let active_refs: Vec<&checks::Check> = pipeline.active_matches.iter().collect();
+
+            // Compute blast radius audit fields from the highest-scope entry
+            let br_scope = pipeline
+                .blast_radii
+                .iter()
+                .max_by_key(|(_, br)| br.scope)
+                .map(|(_, br)| format!("{}", br.scope));
+            let br_detail = pipeline
+                .blast_radii
+                .iter()
+                .max_by_key(|(_, br)| br.scope)
+                .map(|(_, br)| br.description.clone());
 
             // Write a pre-challenge Cancelled entry so that if the process is
             // killed (Ctrl+C) during the prompt, we still have a record.
@@ -139,6 +153,8 @@ fn execute(
                     severity: pipeline.max_severity,
                     agent_name: None,
                     agent_session_id: None,
+                    blast_radius_scope: br_scope.clone(),
+                    blast_radius_detail: br_detail.clone(),
                 };
                 if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
                     log::warn!("Failed to write audit log: {e}");
@@ -154,6 +170,7 @@ fn execute(
                 &pipeline.merged_policy,
                 &settings.context.escalation,
                 prompter,
+                &pipeline.blast_radii,
             )?;
 
             // Post-challenge audit with the same event_id
@@ -177,6 +194,8 @@ fn execute(
                     severity: pipeline.max_severity,
                     agent_name: None,
                     agent_session_id: None,
+                    blast_radius_scope: br_scope,
+                    blast_radius_detail: br_detail,
                 };
                 if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
                     log::warn!("Failed to write audit log: {e}");

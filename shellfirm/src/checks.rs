@@ -10,6 +10,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_regex;
 
 use crate::{
+    blast_radius::{self, BlastRadiusInfo, BlastScope},
     config::{Challenge, Settings},
     context::{self, RuntimeContext},
     env::Environment,
@@ -169,6 +170,7 @@ pub fn validate_checks(checks: &[Check]) -> Vec<String> {
 ///
 /// # Errors
 /// Returns an error if the prompter fails.
+#[allow(clippy::too_many_arguments)]
 pub fn challenge_with_context(
     base_challenge: &Challenge,
     checks: &[&Check],
@@ -177,6 +179,7 @@ pub fn challenge_with_context(
     merged_policy: &MergedPolicy,
     escalation_config: &context::EscalationConfig,
     prompter: &dyn Prompter,
+    blast_radii: &[(String, BlastRadiusInfo)],
 ) -> Result<ChallengeResult> {
     let mut descriptions: Vec<String> = Vec::new();
     let mut alternatives: Vec<AlternativeInfo> = Vec::new();
@@ -230,6 +233,12 @@ pub fn challenge_with_context(
     let max_severity = checks.iter().map(|c| c.severity).max();
     let severity_label = max_severity.map(|s| format!("{s}"));
 
+    // Build blast radius label from the highest-scope entry
+    let blast_radius_label = blast_radii
+        .iter()
+        .max_by_key(|(_, br)| br.scope)
+        .map(|(_, br)| format!("[{}] — {}", br.scope, br.description));
+
     let display = DisplayContext {
         is_denied: should_deny_command,
         descriptions,
@@ -238,6 +247,7 @@ pub fn challenge_with_context(
         effective_challenge: effective,
         escalation_note,
         severity_label,
+        blast_radius_label,
     };
 
     Ok(prompter.run_challenge(&display))
@@ -390,6 +400,10 @@ pub struct PipelineResult {
     pub alternatives: Vec<AlternativeInfo>,
     /// The merged project policy (if any).
     pub merged_policy: MergedPolicy,
+    /// Runtime-computed blast radius for matched checks (`check_id`, info).
+    pub blast_radii: Vec<(String, BlastRadiusInfo)>,
+    /// The widest blast scope across all computed blast radii.
+    pub max_blast_scope: Option<BlastScope>,
 }
 
 /// Run the core shellfirm analysis pipeline on a command string.
@@ -509,6 +523,14 @@ pub fn analyze_command(
         }
     }
 
+    // 7. Blast radius computation (only for active matches, when enabled)
+    let blast_radii = if settings.blast_radius {
+        blast_radius::compute_for_matches(&active_matches, &command_parts, &stripped, env)
+    } else {
+        Vec::new()
+    };
+    let max_blast_scope = blast_radii.iter().map(|(_, br)| br.scope).max();
+
     Ok(PipelineResult {
         stripped_command: stripped,
         command_parts,
@@ -519,6 +541,8 @@ pub fn analyze_command(
         is_denied,
         alternatives,
         merged_policy,
+        blast_radii,
+        max_blast_scope,
     })
 }
 

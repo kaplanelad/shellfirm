@@ -168,6 +168,7 @@ fn default_settings() -> shellfirm::Settings {
         deny_patterns_ids: vec![],
         context: context::ContextConfig::default(),
         audit_enabled: false,
+        blast_radius: true,
         min_severity: None,
         agent: shellfirm::AgentConfig::default(),
         llm: shellfirm::LlmConfig::default(),

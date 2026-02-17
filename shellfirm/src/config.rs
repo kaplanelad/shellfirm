@@ -101,6 +101,10 @@ const fn default_audit_enabled() -> bool {
     true
 }
 
+const fn default_blast_radius() -> bool {
+    true
+}
+
 pub const DEFAULT_ENABLED_GROUPS: [&str; 12] = [
     "aws",
     "azure",
@@ -160,6 +164,9 @@ pub struct Settings {
     /// Enable audit trail (log intercepted commands).
     #[serde(default = "default_audit_enabled")]
     pub audit_enabled: bool,
+    /// Enable blast radius computation (shows impact details for risky commands).
+    #[serde(default = "default_blast_radius")]
+    pub blast_radius: bool,
     /// Minimum severity for a check to trigger a challenge.
     /// When `None`, all severities trigger. When set, checks below this
     /// threshold are skipped (but still logged to audit as `Skipped`).
@@ -230,6 +237,7 @@ impl Default for Settings {
             deny_patterns_ids: vec![],
             context: ContextConfig::default(),
             audit_enabled: default_audit_enabled(),
+            blast_radius: default_blast_radius(),
             min_severity: None,
             agent: AgentConfig::default(),
             llm: LlmConfig::default(),

@@ -3,6 +3,7 @@ use std::fmt::Write;
 use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use shellfirm::{
+    blast_radius,
     checks::{self, Check},
     env::RealEnvironment,
     Settings,
@@ -86,6 +87,18 @@ fn run_check(command: &str, checks: &[Check]) -> shellfirm::CmdExit {
             "\n  [{}] [{}] {}\n",
             m.id, m.severity, m.description
         );
+        // Blast radius
+        let segment = splitted
+            .iter()
+            .find(|seg| m.test.is_match(seg))
+            .map_or(command, String::as_str);
+        if let Some(br) = blast_radius::compute(&m.id, &m.test, segment, &env) {
+            let _ = writeln!(
+                output,
+                "    Blast radius: [{}] — {}",
+                br.scope, br.description
+            );
+        }
         if let Some(ref alt) = m.alternative {
             let _ = write!(output, "    > Safe alternative: {alt}");
             if let Some(ref info) = m.alternative_info {

@@ -159,7 +159,9 @@ fn merge_for_display(base: &serde_yaml::Value, overrides: &serde_yaml::Value) ->
         (serde_yaml::Value::Mapping(b), serde_yaml::Value::Mapping(o)) => {
             let mut result = b.clone();
             for (k, v) in o {
-                let merged = b.get(k).map_or_else(|| v.clone(), |base_v| merge_for_display(base_v, v));
+                let merged = b
+                    .get(k)
+                    .map_or_else(|| v.clone(), |base_v| merge_for_display(base_v, v));
                 result.insert(k.clone(), merged);
             }
             serde_yaml::Value::Mapping(result)

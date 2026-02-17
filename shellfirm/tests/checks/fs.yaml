@@ -935,13 +935,13 @@
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R --verbose /"
   description: "match command with verbose flag"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R --changes /"
   description: "match command with changes flag"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R --quiet /"
   description: "match command with quiet flag"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R /home"
   description: "match command with home directory"
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
@@ -953,13 +953,13 @@
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R 777 /"
   description: "match command with octal mode"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R a+rwx /"
   description: "match command with symbolic mode"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod -R u=rwx,g=rx,o=rx /"
   description: "match command with detailed symbolic mode"
-  expect_ids: ["fs-strict:change_permissions"]
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 
 # -- fs:recursively_delete --
 - test: "rm -rf /"

@@ -57,6 +57,12 @@ pub struct MatchedRule {
     pub description: String,
     pub severity: Severity,
     pub group: String,
+    /// Runtime-computed blast radius scope (e.g. "RESOURCE", "PROJECT", "MACHINE").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blast_radius_scope: Option<String>,
+    /// Runtime-computed blast radius detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blast_radius_detail: Option<String>,
 }
 
 /// A safer alternative suggestion.
@@ -97,6 +103,12 @@ pub struct RiskAssessment {
     /// Reason for denial (if denied).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub denial_reason: Option<String>,
+    /// Blast radius scope of the highest-scope matched check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blast_radius_scope: Option<String>,
+    /// Blast radius detail of the highest-scope matched check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blast_radius_detail: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -125,11 +137,16 @@ fn build_assessment(pipeline: &PipelineResult, agent_config: &AgentConfig) -> Ri
     let matched_rules: Vec<MatchedRule> = pipeline
         .active_matches
         .iter()
-        .map(|c| MatchedRule {
-            id: c.id.clone(),
-            description: c.description.clone(),
-            severity: c.severity,
-            group: c.from.clone(),
+        .map(|c| {
+            let br = pipeline.blast_radii.iter().find(|(id, _)| id == &c.id);
+            MatchedRule {
+                id: c.id.clone(),
+                description: c.description.clone(),
+                severity: c.severity,
+                group: c.from.clone(),
+                blast_radius_scope: br.map(|(_, info)| format!("{}", info.scope)),
+                blast_radius_detail: br.map(|(_, info)| info.description.clone()),
+            }
         })
         .collect();
 
@@ -171,6 +188,8 @@ fn build_assessment(pipeline: &PipelineResult, agent_config: &AgentConfig) -> Ri
         (true, None)
     };
 
+    let br_top = pipeline.blast_radii.iter().max_by_key(|(_, br)| br.scope);
+
     RiskAssessment {
         allowed,
         risk_level: format!("{:?}", pipeline.context.risk_level),
@@ -181,6 +200,8 @@ fn build_assessment(pipeline: &PipelineResult, agent_config: &AgentConfig) -> Ri
         explanation: None,
         requires_human_approval: agent_config.require_human_approval && !allowed,
         denial_reason,
+        blast_radius_scope: br_top.map(|(_, info)| format!("{}", info.scope)),
+        blast_radius_detail: br_top.map(|(_, info)| info.description.clone()),
     }
 }
 
@@ -205,6 +226,7 @@ mod tests {
             deny_patterns_ids: vec![],
             context: crate::context::ContextConfig::default(),
             audit_enabled: false,
+            blast_radius: true,
             min_severity: None,
             agent: AgentConfig::default(),
             llm: crate::config::LlmConfig::default(),
@@ -359,6 +381,8 @@ mod tests {
                 description: "Recursive delete".into(),
                 severity: Severity::High,
                 group: "fs".into(),
+                blast_radius_scope: Some("MACHINE".into()),
+                blast_radius_detail: Some("Deletes ~347 files (12.4 MB)".into()),
             }],
             alternatives: vec![Alternative {
                 command: "rm -ri /path".into(),
@@ -372,6 +396,8 @@ mod tests {
             explanation: None,
             requires_human_approval: false,
             denial_reason: Some("Severity HIGH meets threshold".into()),
+            blast_radius_scope: Some("MACHINE".into()),
+            blast_radius_detail: Some("Deletes ~347 files (12.4 MB)".into()),
         };
         let json = serde_json::to_string_pretty(&assessment).unwrap();
         assert!(json.contains("\"allowed\": false"));

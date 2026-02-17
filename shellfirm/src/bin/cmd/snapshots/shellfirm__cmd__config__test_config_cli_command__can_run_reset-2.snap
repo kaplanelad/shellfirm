@@ -1,7 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
-assertion_line: 211
 expression: config.get_settings_from_file()
+snapshot_kind: text
 ---
 Ok(
     Settings {
@@ -48,6 +48,7 @@ Ok(
             },
         },
         audit_enabled: true,
+        blast_radius: true,
         min_severity: None,
         agent: AgentConfig {
             auto_deny_severity: High,
