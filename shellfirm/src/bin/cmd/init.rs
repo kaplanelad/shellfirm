@@ -79,7 +79,7 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
                 };
                 uninstall_hook(shell_name)
             }
-            None => run_uninstall_all(),
+            None => Ok(run_uninstall_all()),
         };
     }
 
@@ -115,9 +115,9 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
         // `shellfirm init` — install for ALL detected shells
         None => {
             if dry_run {
-                run_dry_run_all()
+                Ok(run_dry_run_all())
             } else {
-                run_install_all()
+                Ok(run_install_all())
             }
         }
     }
@@ -166,13 +166,13 @@ fn validate_shell_name(shell: Option<&str>) -> std::result::Result<&str, shellfi
 // --all: install hooks for every detected shell
 // ---------------------------------------------------------------------------
 
-fn run_install_all() -> Result<shellfirm::CmdExit> {
+fn run_install_all() -> shellfirm::CmdExit {
     let detected = detect_installed_shells();
     if detected.is_empty() {
-        return Ok(shellfirm::CmdExit {
+        return shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("No supported shells detected on this system.".to_string()),
-        });
+        };
     }
 
     println!(
@@ -238,26 +238,27 @@ fn run_install_all() -> Result<shellfirm::CmdExit> {
     };
 
     // Build a clear activation hint for the user's current shell
-    let activate_hint = detect_current_shell_rc()
-        .map(|rc| {
+    let activate_hint = detect_current_shell_rc().map_or_else(
+        || "\n  Restart your shells to activate.\n".to_string(),
+        |rc| {
             format!(
                 "\n  To activate, run:\n\n    {}\n",
                 style(format!("source {}", rc.display())).bold().underlined()
             )
-        })
-        .unwrap_or_else(|| "\n  Restart your shells to activate.\n".to_string());
+        },
+    );
 
-    Ok(shellfirm::CmdExit {
+    shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some(format!("{counts}{activate_hint}")),
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
 // --dry-run --all: preview all shells
 // ---------------------------------------------------------------------------
 
-fn run_dry_run_all() -> Result<shellfirm::CmdExit> {
+fn run_dry_run_all() -> shellfirm::CmdExit {
     let detected = detect_installed_shells();
 
     println!(
@@ -279,10 +280,10 @@ fn run_dry_run_all() -> Result<shellfirm::CmdExit> {
         }
     }
 
-    Ok(shellfirm::CmdExit {
+    shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some("\nNo changes made. Run without --dry-run to apply.".to_string()),
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +420,7 @@ fn is_already_installed(rc_path: &std::path::Path) -> bool {
 // Uninstall: remove shellfirm hooks from rc files
 // ---------------------------------------------------------------------------
 
-fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
+fn run_uninstall_all() -> shellfirm::CmdExit {
     println!(
         "\n{}",
         style("shellfirm — removing hooks from all shells").bold()
@@ -459,10 +460,10 @@ fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
     println!();
 
     if removed == 0 && errors == 0 {
-        return Ok(shellfirm::CmdExit {
+        return shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("No shellfirm hooks found in any shell.".to_string()),
-        });
+        };
     }
 
     let summary = if errors > 0 {
@@ -471,10 +472,10 @@ fn run_uninstall_all() -> Result<shellfirm::CmdExit> {
         format!("Removed hooks from {removed} shell(s).\nRestart your shells to deactivate.")
     };
 
-    Ok(shellfirm::CmdExit {
+    shellfirm::CmdExit {
         code: exitcode::OK,
         message: Some(summary),
-    })
+    }
 }
 
 enum UninstallOutcome {
@@ -661,6 +662,7 @@ shellfirm-pre-command() {
 zle -N accept-line shellfirm-pre-command"#
 }
 
+#[allow(clippy::literal_string_with_formatting_args)]
 const fn bash_hook() -> &'static str {
     r#"# shellfirm hook for bash — intercepts commands before execution via DEBUG trap
 _shellfirm_hook() {

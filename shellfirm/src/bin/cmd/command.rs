@@ -56,6 +56,7 @@ pub fn run(
     )
 }
 
+#[allow(clippy::too_many_lines)]
 fn execute(
     command: &str,
     settings: &Settings,

@@ -189,6 +189,7 @@ impl<'a> McpServer<'a> {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn handle_initialize(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
         let result = InitializeResult {
             protocol_version: "2024-11-05".into(),
@@ -209,6 +210,7 @@ impl<'a> McpServer<'a> {
         }
     }
 
+    #[allow(clippy::unused_self)]
     fn handle_tools_list(&self, request: &JsonRpcRequest) -> JsonRpcResponse {
         let tools = vec![
             ToolDefinition {
@@ -290,7 +292,7 @@ impl<'a> McpServer<'a> {
         let arguments = params
             .and_then(|p| p.get("arguments"))
             .cloned()
-            .unwrap_or(Value::Object(serde_json::Map::new()));
+            .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
 
         let result = match tool_name {
             "check_command" => self.tool_check_command(&arguments),

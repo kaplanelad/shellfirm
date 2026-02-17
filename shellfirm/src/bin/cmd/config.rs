@@ -143,7 +143,7 @@ pub fn run_set_list(config: &Config) -> Result<shellfirm::CmdExit> {
             .find(|(k, _)| *k == key.as_str())
             .map(|(_, vals)| format!("  (valid: {})", vals.join(", ")))
             .unwrap_or_default();
-        println!("{key:<width$}  {value}{hint}", width = max_key_len);
+        println!("{key:<max_key_len$}  {value}{hint}");
     }
     Ok(shellfirm::CmdExit {
         code: exitcode::OK,
@@ -159,11 +159,7 @@ fn merge_for_display(base: &serde_yaml::Value, overrides: &serde_yaml::Value) ->
         (serde_yaml::Value::Mapping(b), serde_yaml::Value::Mapping(o)) => {
             let mut result = b.clone();
             for (k, v) in o {
-                let merged = if let Some(base_v) = b.get(k) {
-                    merge_for_display(base_v, v)
-                } else {
-                    v.clone()
-                };
+                let merged = b.get(k).map_or_else(|| v.clone(), |base_v| merge_for_display(base_v, v));
                 result.insert(k.clone(), merged);
             }
             serde_yaml::Value::Mapping(result)
@@ -174,22 +170,24 @@ fn merge_for_display(base: &serde_yaml::Value, overrides: &serde_yaml::Value) ->
 
 pub fn run_get_key(config: &Config, key: &str) -> Result<shellfirm::CmdExit> {
     let root = config.read_config_as_value()?;
-    match value_get(&root, key) {
-        Some(v) => {
+    value_get(&root, key).map_or_else(
+        || {
+            Ok(shellfirm::CmdExit {
+                code: exitcode::CONFIG,
+                message: Some(format!(
+                    "key not found: {key}\n\nUse 'config set --list' to see valid keys."
+                )),
+            })
+        },
+        |v| {
             let display = format_yaml_value(v);
             println!("{display}");
             Ok(shellfirm::CmdExit {
                 code: exitcode::OK,
                 message: None,
             })
-        }
-        None => Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(format!(
-                "key not found: {key}\n\nUse 'config set --list' to see valid keys."
-            )),
-        }),
-    }
+        },
+    )
 }
 
 pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {

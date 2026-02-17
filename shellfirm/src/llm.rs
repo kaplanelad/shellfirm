@@ -38,6 +38,9 @@ pub struct LlmAlternative {
 /// Trait for LLM providers — enables testing with mocks.
 pub trait LlmProvider: Send + Sync {
     /// Analyze a command for risks beyond what regex patterns detect.
+    ///
+    /// # Errors
+    /// Returns an error if the LLM API call fails.
     fn analyze_command(
         &self,
         command: &str,
@@ -46,9 +49,15 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<LlmAnalysis>;
 
     /// Suggest safer alternatives to a risky command.
+    ///
+    /// # Errors
+    /// Returns an error if the LLM API call fails.
     fn suggest_alternatives(&self, command: &str, risk: &str) -> Result<Vec<LlmAlternative>>;
 
     /// Generate a detailed risk explanation.
+    ///
+    /// # Errors
+    /// Returns an error if the LLM API call fails.
     fn explain_risk(
         &self,
         command: &str,
@@ -188,7 +197,7 @@ impl LlmProvider for AnthropicProvider {
         );
 
         let response = self.call_api(system, &user)?;
-        parse_analysis_response(&response)
+        Ok(parse_analysis_response(&response))
     }
 
     fn suggest_alternatives(&self, command: &str, risk: &str) -> Result<Vec<LlmAlternative>> {
@@ -198,7 +207,7 @@ impl LlmProvider for AnthropicProvider {
 
         let user = format!("Risky command: {command}\nRisk: {risk}");
         let response = self.call_api(system, &user)?;
-        parse_alternatives_response(&response)
+        Ok(parse_alternatives_response(&response))
     }
 
     fn explain_risk(
@@ -229,7 +238,7 @@ impl LlmProvider for AnthropicProvider {
 // OpenAiCompatibleProvider — calls /v1/chat/completions
 // ---------------------------------------------------------------------------
 
-/// Provider that calls any OpenAI-compatible API (OpenAI, local models, etc.).
+/// Provider that calls any `OpenAI`-compatible API (`OpenAI`, local models, etc.).
 pub struct OpenAiCompatibleProvider {
     api_key: String,
     model: String,
@@ -321,7 +330,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         );
 
         let response = self.call_api(system, &user)?;
-        parse_analysis_response(&response)
+        Ok(parse_analysis_response(&response))
     }
 
     fn suggest_alternatives(&self, command: &str, risk: &str) -> Result<Vec<LlmAlternative>> {
@@ -331,7 +340,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
 
         let user = format!("Risky command: {command}\nRisk: {risk}");
         let response = self.call_api(system, &user)?;
-        parse_alternatives_response(&response)
+        Ok(parse_alternatives_response(&response))
     }
 
     fn explain_risk(
@@ -468,30 +477,30 @@ pub fn create_provider(config: &LlmConfig, env: &dyn Environment) -> Box<dyn Llm
 // Response parsing helpers
 // ---------------------------------------------------------------------------
 
-fn parse_analysis_response(response: &str) -> Result<LlmAnalysis> {
+fn parse_analysis_response(response: &str) -> LlmAnalysis {
     // Try to extract JSON from the response (LLMs sometimes wrap in markdown)
     let json_str = extract_json(response);
     match serde_json::from_str::<LlmAnalysis>(json_str) {
-        Ok(analysis) => Ok(analysis),
+        Ok(analysis) => analysis,
         Err(e) => {
             log::warn!("Failed to parse LLM analysis response: {e}");
-            Ok(LlmAnalysis {
+            LlmAnalysis {
                 is_risky: false,
                 risk_score: 0.0,
                 explanation: String::new(),
                 additional_risks: vec![],
-            })
+            }
         }
     }
 }
 
-fn parse_alternatives_response(response: &str) -> Result<Vec<LlmAlternative>> {
+fn parse_alternatives_response(response: &str) -> Vec<LlmAlternative> {
     let json_str = extract_json(response);
     match serde_json::from_str::<Vec<LlmAlternative>>(json_str) {
-        Ok(alts) => Ok(alts),
+        Ok(alts) => alts,
         Err(e) => {
             log::warn!("Failed to parse LLM alternatives response: {e}");
-            Ok(vec![])
+            vec![]
         }
     }
 }
@@ -583,14 +592,14 @@ mod tests {
     #[test]
     fn test_parse_analysis_response_valid() {
         let json = r#"{"is_risky": true, "risk_score": 0.8, "explanation": "bad", "additional_risks": ["x"]}"#;
-        let result = parse_analysis_response(json).unwrap();
+        let result = parse_analysis_response(json);
         assert!(result.is_risky);
         assert_eq!(result.risk_score, 0.8);
     }
 
     #[test]
     fn test_parse_analysis_response_invalid_falls_back() {
-        let result = parse_analysis_response("not json at all").unwrap();
+        let result = parse_analysis_response("not json at all");
         assert!(!result.is_risky);
         assert_eq!(result.risk_score, 0.0);
     }
@@ -598,7 +607,7 @@ mod tests {
     #[test]
     fn test_parse_alternatives_response_valid() {
         let json = r#"[{"command": "rm -i /path", "explanation": "interactive mode"}]"#;
-        let result = parse_alternatives_response(json).unwrap();
+        let result = parse_alternatives_response(json);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].command, "rm -i /path");
     }
