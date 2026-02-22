@@ -470,6 +470,7 @@ mod tests {
             min_severity: None,
             agent: AgentConfig::default(),
             llm: crate::config::LlmConfig::default(),
+            wrappers: crate::config::WrappersConfig::default(),
         }
     }
 

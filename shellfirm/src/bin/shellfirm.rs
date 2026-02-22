@@ -7,6 +7,7 @@ use shellfirm::{CmdExit, Config};
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let mut app = cmd::default::command()
         .subcommand(cmd::command::command())
@@ -21,6 +22,11 @@ fn main() {
     #[cfg(feature = "mcp")]
     {
         app = app.subcommand(cmd::mcp_cmd::command());
+    }
+
+    #[cfg(feature = "wrap")]
+    {
+        app = app.subcommand(cmd::wrap_cmd::command());
     }
 
     let matches = app.clone().get_matches();
@@ -119,6 +125,10 @@ fn main() {
             #[cfg(feature = "mcp")]
             ("mcp", subcommand_matches) => {
                 cmd::mcp_cmd::run(subcommand_matches, &settings, &checks, &config)
+            }
+            #[cfg(feature = "wrap")]
+            ("wrap", subcommand_matches) => {
+                cmd::wrap_cmd::run(subcommand_matches, &settings, &checks, &config)
             }
             _ => unreachable!(),
         },

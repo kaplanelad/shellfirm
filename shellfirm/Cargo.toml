@@ -36,6 +36,8 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], opt
 tokio = { version = "1", features = ["rt", "macros", "time", "io-std", "io-util"], optional = true }
 uuid = { version = "1", features = ["v4"] }
 strsim = "0.11"
+nix = { version = "0.29", features = ["term", "signal", "process", "poll", "fs"], optional = true }
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 insta = { version = "1.46", features = ["filters"] }
@@ -50,7 +52,8 @@ cli = ["clap", "clap_complete", "clap_complete_nushell"]
 llm = ["reqwest"]
 mcp = ["tokio"]
 ai = ["mcp", "llm"]
-all = ["cli", "llm", "mcp", "ai"]
+wrap = ["nix", "libc"]
+all = ["cli", "llm", "mcp", "ai", "wrap"]
 
 [[bin]]
 name = "shellfirm"

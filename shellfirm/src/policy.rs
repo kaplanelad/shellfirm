@@ -290,6 +290,7 @@ deny:
             min_severity: None,
             agent: crate::config::AgentConfig::default(),
             llm: crate::config::LlmConfig::default(),
+            wrappers: crate::config::WrappersConfig::default(),
         };
         let policy = ProjectPolicy {
             version: 1,
@@ -344,6 +345,7 @@ deny:
             min_severity: None,
             agent: crate::config::AgentConfig::default(),
             llm: crate::config::LlmConfig::default(),
+            wrappers: crate::config::WrappersConfig::default(),
         };
         let policy = ProjectPolicy {
             version: 1,

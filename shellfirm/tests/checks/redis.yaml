@@ -1,0 +1,58 @@
+---
+# -- redis:flushall --
+- test: "redis-cli FLUSHALL"
+  description: "FLUSHALL deletes all data across all Redis databases"
+  expect_ids: ["redis:flushall"]
+- test: "redis-cli flushall"
+  description: "lowercase flushall"
+  expect_ids: ["redis:flushall"]
+- test: "redis-cli  FLUSHALL"
+  description: "extra spaces in redis-cli FLUSHALL still matches"
+  expect_ids: ["redis:flushall"]
+- test: "redis-cli GET mykey"
+  description: "redis-cli GET should not trigger flushall check"
+  expect_ids: []
+
+# -- redis:flushdb --
+- test: "redis-cli FLUSHDB"
+  description: "FLUSHDB deletes all data in the current Redis database"
+  expect_ids: ["redis:flushdb"]
+- test: "redis-cli flushdb"
+  description: "lowercase flushdb"
+  expect_ids: ["redis:flushdb"]
+- test: "redis-cli  FLUSHDB"
+  description: "extra spaces in redis-cli FLUSHDB still matches"
+  expect_ids: ["redis:flushdb"]
+- test: "redis-cli SET mykey value"
+  description: "redis-cli SET should not trigger flushdb check"
+  expect_ids: []
+
+# -- redis:interactive_flushall --
+- test: "FLUSHALL"
+  description: "interactive FLUSHALL deletes all data across all Redis databases"
+  expect_ids: ["redis:interactive_flushall"]
+- test: "  flushall  "
+  description: "interactive flushall with whitespace and lowercase"
+  expect_ids: ["redis:interactive_flushall"]
+- test: "FLUSHALL extra args"
+  description: "FLUSHALL with trailing text should not match interactive pattern"
+  expect_ids: []
+
+# -- redis:interactive_flushdb --
+- test: "FLUSHDB"
+  description: "interactive FLUSHDB deletes all data in current Redis database"
+  expect_ids: ["redis:interactive_flushdb"]
+- test: "  flushdb  "
+  description: "interactive flushdb with whitespace and lowercase"
+  expect_ids: ["redis:interactive_flushdb"]
+
+# -- redis:interactive_shutdown --
+- test: "SHUTDOWN"
+  description: "interactive SHUTDOWN stops the Redis server"
+  expect_ids: ["redis:interactive_shutdown"]
+- test: "SHUTDOWN NOSAVE"
+  description: "interactive SHUTDOWN NOSAVE stops Redis without saving"
+  expect_ids: ["redis:interactive_shutdown"]
+- test: "  shutdown  "
+  description: "interactive shutdown with whitespace and lowercase"
+  expect_ids: ["base:shutdown_machine", "redis:interactive_shutdown"]

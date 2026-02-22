@@ -2,14 +2,14 @@
 //! configuration
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     env, fmt, fs,
     io::{Read, Write},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{checks, checks::Severity, context::ContextConfig, dialog};
+use crate::{checks, checks::Severity, context::ContextConfig, prompt};
 use anyhow::{bail, Result as AnyResult};
 use log::debug;
 use serde_derive::{Deserialize, Serialize};
@@ -86,6 +86,38 @@ impl Default for AgentConfig {
     }
 }
 
+/// Configuration for the `shellfirm wrap` PTY proxy.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct WrappersConfig {
+    /// Per-tool overrides keyed by program name (e.g. "psql", "redis-cli").
+    #[serde(default)]
+    pub tools: HashMap<String, WrapperToolConfig>,
+}
+
+/// Per-tool configuration for the `shellfirm wrap` proxy.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WrapperToolConfig {
+    /// Statement delimiter: ";" for SQL tools, "\n" for line-oriented tools.
+    #[serde(default = "default_wrap_delimiter")]
+    pub delimiter: String,
+    /// Override which check groups are active (empty = use global setting).
+    #[serde(default)]
+    pub check_groups: Vec<String>,
+}
+
+fn default_wrap_delimiter() -> String {
+    ";".into()
+}
+
+impl Default for WrapperToolConfig {
+    fn default() -> Self {
+        Self {
+            delimiter: default_wrap_delimiter(),
+            check_groups: vec![],
+        }
+    }
+}
+
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
 pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
@@ -105,7 +137,7 @@ const fn default_blast_radius() -> bool {
     true
 }
 
-pub const DEFAULT_ENABLED_GROUPS: [&str; 12] = [
+pub const DEFAULT_ENABLED_GROUPS: [&str; 16] = [
     "aws",
     "azure",
     "base",
@@ -116,7 +148,11 @@ pub const DEFAULT_ENABLED_GROUPS: [&str; 12] = [
     "git",
     "heroku",
     "kubernetes",
+    "mongodb",
+    "mysql",
     "network",
+    "psql",
+    "redis",
     "terraform",
 ];
 
@@ -178,6 +214,9 @@ pub struct Settings {
     /// LLM-powered analysis configuration (requires `llm` feature).
     #[serde(default)]
     pub llm: LlmConfig,
+    /// PTY wrapper configuration (requires `wrap` feature).
+    #[serde(default)]
+    pub wrappers: WrappersConfig,
 }
 
 impl fmt::Display for Challenge {
@@ -241,6 +280,7 @@ impl Default for Settings {
             min_severity: None,
             agent: AgentConfig::default(),
             llm: LlmConfig::default(),
+            wrappers: WrappersConfig::default(),
         }
     }
 }
@@ -306,7 +346,7 @@ impl Config {
         let selected = if let Some(force_selection) = force_selection {
             force_selection
         } else {
-            dialog::reset_config()?
+            prompt::reset_config()?
         };
 
         match selected {
@@ -887,7 +927,11 @@ mod test_settings {
                 "git",
                 "heroku",
                 "kubernetes",
+                "mongodb",
+                "mysql",
                 "network",
+                "psql",
+                "redis",
                 "terraform",
             ]
         );
