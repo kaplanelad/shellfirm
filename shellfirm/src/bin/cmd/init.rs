@@ -55,9 +55,7 @@ impl Shell {
     /// Detect the user's current shell from the `$SHELL` environment variable.
     fn current() -> Option<Self> {
         let shell_path = std::env::var("SHELL").ok()?;
-        let binary = std::path::Path::new(&shell_path)
-            .file_name()?
-            .to_str()?;
+        let binary = std::path::Path::new(&shell_path).file_name()?.to_str()?;
         Self::ALL
             .iter()
             .copied()

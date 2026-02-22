@@ -284,9 +284,7 @@ fn get_cancel_string() -> String {
 pub fn reset_config() -> anyhow::Result<usize> {
     let answer = requestty::prompt_one(
         requestty::Question::raw_select("reset")
-            .message(
-                "Rest configuration will reset all checks settings. Select how to continue...",
-            )
+            .message("Rest configuration will reset all checks settings. Select how to continue...")
             .choices(vec![
                 "Yes, i want to override the current configuration".into(),
                 "Override and backup the existing file".into(),
