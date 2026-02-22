@@ -11,10 +11,13 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::warn;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize, PtySystem};
-use windows_sys::Win32::System::Console::{
-    GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
-    ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use windows_sys::Win32::{
+    Foundation::HANDLE,
+    System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+        ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_INPUT_HANDLE,
+    },
 };
 
 use crate::{
@@ -35,7 +38,7 @@ use super::common::{
 
 /// RAII guard that restores console mode on drop.
 struct WinRawModeGuard {
-    handle: isize,
+    handle: HANDLE,
     original_mode: u32,
 }
 
@@ -43,7 +46,7 @@ impl WinRawModeGuard {
     /// Enter raw mode on the console stdin handle.
     fn enter() -> Result<Self> {
         let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-        if handle == 0 || handle == -1_isize {
+        if handle.is_null() || handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
             anyhow::bail!("GetStdHandle failed");
         }
 
@@ -89,6 +92,10 @@ impl WinRawModeGuard {
         Ok(())
     }
 }
+
+// SAFETY: HANDLE is a raw pointer but Windows console handles are
+// process-global and safe to send across threads.
+unsafe impl Send for WinRawModeGuard {}
 
 impl Drop for WinRawModeGuard {
     fn drop(&mut self) {
