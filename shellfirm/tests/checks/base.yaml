@@ -70,7 +70,7 @@
 # -- base:shutdown_machine --
 - test: "shutdown"
   description: "match command"
-  expect_ids: ["base:shutdown_machine"]
+  expect_ids: ["base:shutdown_machine", "redis:interactive_shutdown"]
 - test: "shutdown -r"
   description: "match command with flag"
   expect_ids: ["base:shutdown_machine"]
@@ -85,7 +85,7 @@
   expect_ids: ["base:shutdown_machine"]
 - test: "shutdown"
   description: "match command with spaces"
-  expect_ids: ["base:shutdown_machine"]
+  expect_ids: ["base:shutdown_machine", "redis:interactive_shutdown"]
 - test: "shutdownn"
   description: "not match"
   expect_ids: []

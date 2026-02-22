@@ -271,3 +271,48 @@ fn show_stdin_prompt() -> String {
 fn get_cancel_string() -> String {
     format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic())
 }
+
+// ---------------------------------------------------------------------------
+// Interactive selection helpers (requestty-based)
+// ---------------------------------------------------------------------------
+
+/// Prompt the user to confirm or cancel a configuration reset.
+///
+/// # Errors
+///
+/// Will return `Err` when the interactive prompt fails.
+pub fn reset_config() -> anyhow::Result<usize> {
+    let answer = requestty::prompt_one(
+        requestty::Question::raw_select("reset")
+            .message("Rest configuration will reset all checks settings. Select how to continue...")
+            .choices(vec![
+                "Yes, i want to override the current configuration".into(),
+                "Override and backup the existing file".into(),
+                requestty::DefaultSeparator,
+                "Cancel Or ^C".into(),
+            ])
+            .build(),
+    )?;
+    match answer.as_list_item() {
+        Some(a) => Ok(a.index),
+        _ => anyhow::bail!("select option is empty"),
+    }
+}
+
+/// Present a select prompt and return the chosen index.
+///
+/// # Errors
+///
+/// Will return `Err` when the interactive prompt fails.
+pub fn select_with_default(message: &str, items: &[&str], default: usize) -> anyhow::Result<usize> {
+    let question = requestty::Question::select("select")
+        .message(message)
+        .choices(items.iter().copied())
+        .default(default)
+        .build();
+    let answer = requestty::prompt_one(question)?;
+    match answer.as_list_item() {
+        Some(a) => Ok(a.index),
+        _ => anyhow::bail!("select option is empty"),
+    }
+}

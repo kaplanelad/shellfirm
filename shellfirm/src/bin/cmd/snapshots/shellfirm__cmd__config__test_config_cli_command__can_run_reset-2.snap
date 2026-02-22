@@ -17,7 +17,11 @@ Ok(
             "git",
             "heroku",
             "kubernetes",
+            "mongodb",
+            "mysql",
             "network",
+            "psql",
+            "redis",
             "terraform",
         ],
         disabled_groups: [],
@@ -60,6 +64,9 @@ Ok(
             base_url: None,
             timeout_ms: 5000,
             max_tokens: 512,
+        },
+        wrappers: WrappersConfig {
+            tools: {},
         },
     },
 )

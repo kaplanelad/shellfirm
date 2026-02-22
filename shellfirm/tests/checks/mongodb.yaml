@@ -1,0 +1,30 @@
+---
+# -- mongodb:drop --
+- test: "mongosh --eval db.users.drop()"
+  description: "executing drop operations via MongoDB shell"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_collection"]
+- test: "mongosh  --eval  db.orders.drop()"
+  description: "extra spaces in mongosh drop command still matches"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_collection"]
+- test: "mongosh --eval db.users.find()"
+  description: "mongosh find operation should not trigger drop check"
+  expect_ids: []
+
+# -- mongodb:interactive_drop_collection --
+- test: "db.users.drop()"
+  description: "interactive MongoDB drop collection"
+  expect_ids: ["mongodb:interactive_drop_collection"]
+- test: "db.orders.drop()"
+  description: "interactive MongoDB drop orders collection"
+  expect_ids: ["mongodb:interactive_drop_collection"]
+- test: "db.users.find()"
+  description: "interactive MongoDB find should not trigger drop check"
+  expect_ids: []
+
+# -- mongodb:interactive_drop_database --
+- test: "db.dropDatabase()"
+  description: "interactive MongoDB drop database"
+  expect_ids: ["mongodb:interactive_drop_database"]
+- test: "DB.DROPDATABASE()"
+  description: "interactive MongoDB drop database uppercase"
+  expect_ids: ["mongodb:interactive_drop_database"]

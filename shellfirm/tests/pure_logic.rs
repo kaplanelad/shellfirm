@@ -172,6 +172,7 @@ fn default_settings() -> shellfirm::Settings {
         min_severity: None,
         agent: shellfirm::AgentConfig::default(),
         llm: shellfirm::LlmConfig::default(),
+        wrappers: shellfirm::WrappersConfig::default(),
     }
 }
 

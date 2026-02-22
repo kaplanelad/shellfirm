@@ -9,3 +9,5 @@ pub mod init;
 pub mod mcp_cmd;
 pub mod policy_cmd;
 pub mod status_cmd;
+#[cfg(feature = "wrap")]
+pub mod wrap_cmd;

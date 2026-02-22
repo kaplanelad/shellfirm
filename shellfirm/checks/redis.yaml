@@ -1,0 +1,30 @@
+- from: redis
+  test: (?i)redis-cli\s+FLUSHALL
+  description: "FLUSHALL will delete all data across all Redis databases."
+  id: redis:flushall
+  severity: Critical
+  alternative: "redis-cli FLUSHDB"
+  alternative_info: "FLUSHDB only clears the current database, not all databases."
+- from: redis
+  test: (?i)redis-cli\s+FLUSHDB
+  description: "FLUSHDB will delete all data in the current Redis database."
+  id: redis:flushdb
+  severity: High
+# Interactive session patterns (for shellfirm wrap)
+- from: redis
+  test: (?i)^\s*FLUSHALL\s*$
+  id: redis:interactive_flushall
+  severity: Critical
+  description: "FLUSHALL will delete all data across all Redis databases."
+  alternative: "FLUSHDB"
+  alternative_info: "FLUSHDB only clears the current database."
+- from: redis
+  test: (?i)^\s*FLUSHDB\s*$
+  id: redis:interactive_flushdb
+  severity: High
+  description: "FLUSHDB will delete all data in the current Redis database."
+- from: redis
+  test: (?i)^\s*SHUTDOWN\s*(NOSAVE)?\s*$
+  id: redis:interactive_shutdown
+  severity: Critical
+  description: "SHUTDOWN will stop the Redis server."
