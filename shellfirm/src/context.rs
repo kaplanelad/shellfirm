@@ -3,8 +3,8 @@
 //! Detects environment signals (SSH, root, git branch, k8s context, etc.)
 //! and computes a [`RiskLevel`] used to escalate challenge severity.
 
-use log::debug;
 use serde_derive::{Deserialize, Serialize};
+use tracing::debug;
 
 use crate::{checks, config::Challenge, env::Environment};
 

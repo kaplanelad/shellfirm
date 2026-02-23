@@ -6,7 +6,7 @@
 
 use std::io::{self, BufRead, Write};
 
-use anyhow::Result;
+use crate::error::Result;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -299,7 +299,9 @@ impl<'a> McpServer<'a> {
             "suggest_alternative" => self.tool_suggest_alternative(&arguments),
             "get_policy" => self.tool_get_policy(),
             "explain_risk" => self.tool_explain_risk(&arguments),
-            _ => Err(anyhow::anyhow!("Unknown tool: {tool_name}")),
+            _ => Err(crate::error::Error::Mcp(format!(
+                "Unknown tool: {tool_name}"
+            ))),
         };
 
         match result {
@@ -344,7 +346,7 @@ impl<'a> McpServer<'a> {
         let command = args
             .get("command")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+            .ok_or_else(|| crate::error::Error::Mcp("Missing 'command' parameter".into()))?;
 
         let assessment = agent::assess_command(
             command,
@@ -361,7 +363,7 @@ impl<'a> McpServer<'a> {
         let command = args
             .get("command")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+            .ok_or_else(|| crate::error::Error::Mcp("Missing 'command' parameter".into()))?;
 
         let assessment = agent::assess_command(
             command,
@@ -406,7 +408,7 @@ impl<'a> McpServer<'a> {
         let command = args
             .get("command")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
+            .ok_or_else(|| crate::error::Error::Mcp("Missing 'command' parameter".into()))?;
 
         let assessment = agent::assess_command(
             command,

@@ -2,10 +2,10 @@ use std::fs;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use console::style;
 use shellfirm::checks::Severity;
+use shellfirm::error::Result;
 use shellfirm::{Challenge, Config};
 
 const MARKER: &str = "# Added by shellfirm init";
@@ -1068,8 +1068,10 @@ mod tests {
 
     #[test]
     fn install_to_temp_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let rc = dir.path().join(".zshrc");
+        let dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let rc = dir.root.join(".zshrc");
 
         let snippet = Shell::Zsh.rc_snippet();
         let block = format!("\n{MARKER}\n{snippet}\n");
@@ -1082,8 +1084,10 @@ mod tests {
 
     #[test]
     fn idempotent_install_detection() {
-        let dir = tempfile::tempdir().unwrap();
-        let rc = dir.path().join(".zshrc");
+        let dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let rc = dir.root.join(".zshrc");
 
         let content = format!("# existing config\n{MARKER}\neval \"$(shellfirm init zsh)\"\n");
         fs::write(&rc, &content).unwrap();

@@ -5,14 +5,14 @@ use std::os::{
     unix::process::CommandExt,
 };
 
-use anyhow::{bail, Context, Result};
-use log::warn;
+use crate::error::{Error, Result};
 use nix::{
     poll::{PollFd, PollFlags, PollTimeout},
     pty::openpty,
     sys::termios::{self, SetArg, Termios},
     unistd::{self, Pid},
 };
+use tracing::warn;
 
 use crate::{
     checks::Check,
@@ -39,17 +39,21 @@ struct RawModeGuard {
 impl RawModeGuard {
     /// Enter raw mode on stdin. Returns a guard that restores on drop.
     fn enter() -> Result<Self> {
-        let fd = unistd::dup(std::io::stdin().as_fd())?;
-        let original = termios::tcgetattr(&fd)?;
+        let fd = unistd::dup(std::io::stdin().as_fd())
+            .map_err(|e| Error::Wrap(format!("dup stdin: {e}")))?;
+        let original =
+            termios::tcgetattr(&fd).map_err(|e| Error::Wrap(format!("tcgetattr: {e}")))?;
         let mut raw = original.clone();
         termios::cfmakeraw(&mut raw);
-        termios::tcsetattr(&fd, SetArg::TCSANOW, &raw)?;
+        termios::tcsetattr(&fd, SetArg::TCSANOW, &raw)
+            .map_err(|e| Error::Wrap(format!("tcsetattr raw: {e}")))?;
         Ok(Self { fd, original })
     }
 
     /// Temporarily restore cooked mode for challenge prompts.
     fn restore_cooked(&self) -> Result<()> {
-        termios::tcsetattr(&self.fd, SetArg::TCSANOW, &self.original)?;
+        termios::tcsetattr(&self.fd, SetArg::TCSANOW, &self.original)
+            .map_err(|e| Error::Wrap(format!("tcsetattr cooked: {e}")))?;
         Ok(())
     }
 
@@ -57,7 +61,8 @@ impl RawModeGuard {
     fn re_enter_raw(&self) -> Result<()> {
         let mut raw = self.original.clone();
         termios::cfmakeraw(&mut raw);
-        termios::tcsetattr(&self.fd, SetArg::TCSANOW, &raw)?;
+        termios::tcsetattr(&self.fd, SetArg::TCSANOW, &raw)
+            .map_err(|e| Error::Wrap(format!("tcsetattr re-raw: {e}")))?;
         Ok(())
     }
 }
@@ -101,13 +106,16 @@ impl PtyProxy<'_> {
     /// Returns an error if PTY creation, fork, or exec fails.
     pub fn run(&self, program: &str, args: &[String]) -> Result<i32> {
         // Open PTY pair
-        let pty = openpty(None, None).context("failed to open PTY")?;
+        let pty =
+            openpty(None, None).map_err(|e| Error::Wrap(format!("failed to open PTY: {e}")))?;
         let master_fd = pty.master;
         let slave_fd = pty.slave;
 
         // Dup slave for stdout/stderr (stdin consumes the original)
-        let slave_stdout = unistd::dup(slave_fd.as_fd())?;
-        let slave_stderr = unistd::dup(slave_fd.as_fd())?;
+        let slave_stdout = unistd::dup(slave_fd.as_fd())
+            .map_err(|e| Error::Wrap(format!("dup slave stdout: {e}")))?;
+        let slave_stderr = unistd::dup(slave_fd.as_fd())
+            .map_err(|e| Error::Wrap(format!("dup slave stderr: {e}")))?;
 
         let mut cmd = std::process::Command::new(program);
         cmd.args(args)
@@ -127,18 +135,24 @@ impl PtyProxy<'_> {
             });
         }
 
-        let child = cmd.spawn().context("failed to spawn child")?;
-        let child_pid = Pid::from_raw(i32::try_from(child.id()).context("invalid pid")?);
+        let child = cmd
+            .spawn()
+            .map_err(|e| Error::Wrap(format!("failed to spawn child: {e}")))?;
+        let child_pid = Pid::from_raw(
+            i32::try_from(child.id()).map_err(|e| Error::Wrap(format!("invalid pid: {e}")))?,
+        );
 
         sync_term_size(master_fd.as_fd());
-        let guard = RawModeGuard::enter().context("failed to enter raw mode")?;
+        let guard = RawModeGuard::enter()
+            .map_err(|e| Error::Wrap(format!("failed to enter raw mode: {e}")))?;
         let exit_code = self.event_loop(&master_fd, child_pid, &guard);
         drop(guard);
 
         if let Some(code) = exit_code {
             Ok(code)
         } else {
-            let status = nix::sys::wait::waitpid(child_pid, None).context("waitpid failed")?;
+            let status = nix::sys::wait::waitpid(child_pid, None)
+                .map_err(|e| Error::Wrap(format!("waitpid failed: {e}")))?;
             match status {
                 nix::sys::wait::WaitStatus::Exited(_, code) => Ok(code),
                 nix::sys::wait::WaitStatus::Signaled(_, sig, _) => Ok(128 + sig as i32),
@@ -244,7 +258,7 @@ impl PtyProxy<'_> {
                                     let _ = write_all_fd(master_borrow, &[byte]);
                                 }
                                 BufferResult::Statement(stmt) => {
-                                    log::debug!(
+                                    tracing::debug!(
                                         "[wrap] statement detected ({} bytes): {:?}",
                                         stmt.len(),
                                         stmt
@@ -332,7 +346,7 @@ fn write_all_fd(fd: BorrowedFd<'_>, data: &[u8]) -> Result<()> {
         match unistd::write(fd, &data[written..]) {
             Ok(n) => written += n,
             Err(nix::errno::Errno::EINTR) => {}
-            Err(e) => bail!("write error: {e}"),
+            Err(e) => return Err(Error::Wrap(format!("write error: {e}"))),
         }
     }
     Ok(())

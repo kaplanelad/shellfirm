@@ -9,7 +9,7 @@ use std::{
     path::Path,
 };
 
-use anyhow::Result;
+use crate::error::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::checks::Severity;
@@ -154,8 +154,10 @@ mod tests {
 
     #[test]
     fn test_log_and_read() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("audit.log");
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let path = temp.root.join("audit.log");
 
         let event = AuditEvent {
             event_id: "test-event-1".into(),
@@ -186,8 +188,10 @@ mod tests {
 
     #[test]
     fn test_log_command_with_pipe_characters() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("audit.log");
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let path = temp.root.join("audit.log");
 
         let event = AuditEvent {
             event_id: "test-event-2".into(),
@@ -213,8 +217,10 @@ mod tests {
 
     #[test]
     fn test_clear_log() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("audit.log");
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let path = temp.root.join("audit.log");
 
         let event = AuditEvent {
             event_id: "test-event-3".into(),
@@ -247,8 +253,10 @@ mod tests {
 
     #[test]
     fn test_cancelled_outcome_serialization() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("audit.log");
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let path = temp.root.join("audit.log");
 
         let event = AuditEvent {
             event_id: "cancel-test-1".into(),

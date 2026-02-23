@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
-use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use regex::Regex;
+use shellfirm::error::Result;
 use shellfirm::{
     audit,
     checks::{self, Check},
@@ -74,7 +74,7 @@ fn execute(
         regex_string_command_replace(),
     )?;
 
-    log::debug!(
+    tracing::debug!(
         "matches found: active={}, skipped={}",
         pipeline.active_matches.len(),
         pipeline.skipped_matches.len()
@@ -114,7 +114,7 @@ fn execute(
                 blast_radius_detail: None,
             };
             if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
-                log::warn!("Failed to write audit log: {e}");
+                tracing::warn!("Failed to write audit log: {e}");
             }
         }
 
@@ -157,7 +157,7 @@ fn execute(
                     blast_radius_detail: br_detail.clone(),
                 };
                 if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
-                    log::warn!("Failed to write audit log: {e}");
+                    tracing::warn!("Failed to write audit log: {e}");
                 }
             }
 
@@ -198,7 +198,7 @@ fn execute(
                     blast_radius_detail: br_detail,
                 };
                 if let Err(e) = audit::log_event(&config.audit_log_path(), &event) {
-                    log::warn!("Failed to write audit log: {e}");
+                    tracing::warn!("Failed to write audit log: {e}");
                 }
             }
         }
@@ -214,18 +214,20 @@ fn execute(
 mod test_command_cli_command {
 
     use shellfirm::Config;
-    use tempfile::TempDir;
+    use tree_fs::Tree;
 
     use super::*;
 
-    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let temp_dir = temp_dir.path().join("app");
+    fn initialize_config_folder(temp_dir: &Tree) -> Config {
+        let temp_dir = temp_dir.root.join("app");
         Config::new(Some(&temp_dir.display().to_string())).unwrap()
     }
 
     #[test]
     fn can_run_pre_command() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let settings = config.get_settings_from_file().unwrap();
         let mut existing = std::collections::HashSet::new();
@@ -251,12 +253,13 @@ mod test_command_cli_command {
             output.contains("fs:recursively_delete"),
             "Expected fs:recursively_delete in dryrun output, got: {output}"
         );
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_pre_command_without_match() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let settings = config.get_settings_from_file().unwrap();
         let env = shellfirm::env::MockEnvironment {
@@ -277,7 +280,6 @@ mod test_command_cli_command {
         assert!(result.is_ok());
         let cmd_exit = result.unwrap();
         assert_eq!(cmd_exit.code, exitcode::OK);
-        temp_dir.close().unwrap();
     }
 
     #[test]

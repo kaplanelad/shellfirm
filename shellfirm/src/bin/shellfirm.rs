@@ -1,8 +1,8 @@
 mod cmd;
 use std::process::exit;
 
-use anyhow::{anyhow, Result};
 use console::{style, Style};
+use shellfirm::error::{Error, Result};
 use shellfirm::{CmdExit, Config};
 
 const DEFAULT_ERR_EXIT_CODE: i32 = 1;
@@ -36,13 +36,12 @@ fn main() {
         shellfirm_exit(Ok(cmd::completions_cmd::run(sub_matches, &mut app)));
     }
 
-    let env = env_logger::Env::default().filter_or(
-        "LOG",
-        matches
-            .get_one::<String>("log")
-            .map_or(log::Level::Info.as_str(), String::as_str),
-    );
-    env_logger::init_from_env(env);
+    let filter = tracing_subscriber::EnvFilter::try_from_env("SHELLFIRM_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("error"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .init();
 
     // Handle init command early (doesn't need config)
     if let Some(("init", sub_matches)) = matches.subcommand() {
@@ -96,17 +95,17 @@ fn main() {
     match shellfirm::checks::load_custom_checks(&custom_checks_dir) {
         Ok(custom) => {
             if !custom.is_empty() {
-                log::info!("Loaded {} custom check(s)", custom.len());
+                tracing::info!("Loaded {} custom check(s)", custom.len());
                 checks.extend(custom);
             }
         }
         Err(e) => {
-            log::warn!("Could not load custom checks: {e}");
+            tracing::warn!("Could not load custom checks: {e}");
         }
     }
 
     let res = matches.subcommand().map_or_else(
-        || Err(anyhow!("command not found")),
+        || Err(Error::Other("command not found".into())),
         |tup| match tup {
             ("pre-command", subcommand_matches) => {
                 cmd::command::run(subcommand_matches, &settings, &checks, &config)
@@ -151,7 +150,7 @@ fn shellfirm_exit(res: Result<CmdExit>) {
             cmd.code
         }
         Err(e) => {
-            log::debug!("{e:?}");
+            tracing::debug!("{e:?}");
             DEFAULT_ERR_EXIT_CODE
         }
     };

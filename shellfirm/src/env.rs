@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use crate::error::Result;
 use wait_timeout::ChildExt;
 
 /// Abstracts all interaction with the operating system.
@@ -173,10 +173,9 @@ impl Environment for MockEnvironment {
     }
 
     fn read_file(&self, path: &Path) -> Result<String> {
-        self.files
-            .get(path)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("mock file not found: {}", path.display()))
+        self.files.get(path).cloned().ok_or_else(|| {
+            crate::error::Error::Other(format!("mock file not found: {}", path.display()))
+        })
     }
 
     fn find_file_upward(&self, start: &Path, filename: &str) -> Option<PathBuf> {

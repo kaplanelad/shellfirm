@@ -1,8 +1,6 @@
 use std::{env, fs, fs::File, io::prelude::*, path::Path};
 
-use anyhow::Result;
-
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=checks/");
 
     let out_dir = env::var("OUT_DIR")?;

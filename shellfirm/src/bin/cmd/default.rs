@@ -10,15 +10,8 @@ pub fn command() -> Command {
                 .long("log")
                 .help("Set logging level")
                 .value_name("LEVEL")
-                .value_parser([
-                    log::LevelFilter::Off.as_str(),
-                    log::LevelFilter::Trace.as_str(),
-                    log::LevelFilter::Debug.as_str(),
-                    log::LevelFilter::Info.as_str(),
-                    log::LevelFilter::Warn.as_str(),
-                    log::LevelFilter::Error.as_str(),
-                ])
-                .default_value(log::Level::Info.as_str())
+                .value_parser(["off", "trace", "debug", "info", "warn", "error"])
+                .default_value("error")
                 .ignore_case(true),
         )
 }

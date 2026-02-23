@@ -9,7 +9,7 @@
 
 use std::sync::OnceLock;
 
-use anyhow::Result;
+use crate::error::Result;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 

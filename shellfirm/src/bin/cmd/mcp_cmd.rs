@@ -1,5 +1,5 @@
-use anyhow::Result;
 use clap::{ArgMatches, Command};
+use shellfirm::error::Result;
 use shellfirm::{checks::Check, env::RealEnvironment, mcp::McpServer, Config, Settings};
 
 pub fn command() -> Command {
@@ -23,7 +23,7 @@ pub fn run(
     let env = RealEnvironment;
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    log::info!("Starting shellfirm MCP server (session: {session_id})");
+    tracing::info!("Starting shellfirm MCP server (session: {session_id})");
 
     let server = McpServer::new(settings, checks, &env, session_id);
     server.run_stdio()?;

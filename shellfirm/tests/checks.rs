@@ -23,7 +23,7 @@ impl shellfirm::env::Environment for AllPathsExistEnv {
     fn var(&self, _key: &str) -> Option<String> {
         None
     }
-    fn current_dir(&self) -> anyhow::Result<PathBuf> {
+    fn current_dir(&self) -> shellfirm::error::Result<PathBuf> {
         Ok(PathBuf::from("/mock"))
     }
     fn path_exists(&self, _path: &std::path::Path) -> bool {
@@ -35,8 +35,8 @@ impl shellfirm::env::Environment for AllPathsExistEnv {
     fn run_command(&self, _cmd: &str, _args: &[&str], _timeout_ms: u64) -> Option<String> {
         None
     }
-    fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<String> {
-        Err(anyhow::anyhow!("not implemented"))
+    fn read_file(&self, _path: &std::path::Path) -> shellfirm::error::Result<String> {
+        Err(shellfirm::error::Error::Other("not implemented".into()))
     }
     fn find_file_upward(&self, _start: &std::path::Path, _filename: &str) -> Option<PathBuf> {
         None

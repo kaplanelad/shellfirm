@@ -342,21 +342,20 @@ fn test_policy_discovery_no_file() {
 
 #[test]
 fn test_custom_checks_loaded_from_temp_dir() {
-    let temp = tempfile::tempdir().unwrap();
-    let checks_dir = temp.path().join("checks");
-    std::fs::create_dir_all(&checks_dir).unwrap();
-    std::fs::write(
-        checks_dir.join("custom.yaml"),
-        r#"
+    let temp = tree_fs::TreeBuilder::default()
+        .add(
+            "checks/custom.yaml",
+            r#"
 - from: custom
   test: my-dangerous-tool deploy
   description: "Custom deploy command is risky."
   id: custom:deploy
 "#,
-    )
-    .unwrap();
+        )
+        .create()
+        .expect("create tree");
 
-    let custom = checks::load_custom_checks(&checks_dir).unwrap();
+    let custom = checks::load_custom_checks(&temp.root.join("checks")).unwrap();
     assert_eq!(custom.len(), 1);
     assert_eq!(custom[0].id, "custom:deploy");
 
@@ -371,8 +370,10 @@ fn test_custom_checks_loaded_from_temp_dir() {
 
 #[test]
 fn test_audit_log_written_to_temp_dir() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("audit.log");
+    let temp = tree_fs::TreeBuilder::default()
+        .create()
+        .expect("create tree");
+    let path = temp.root.join("audit.log");
 
     let event = shellfirm::audit::AuditEvent {
         event_id: "test-integration-1".into(),
@@ -402,8 +403,10 @@ fn test_audit_log_written_to_temp_dir() {
 
 #[test]
 fn test_audit_clear() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("audit.log");
+    let temp = tree_fs::TreeBuilder::default()
+        .create()
+        .expect("create tree");
+    let path = temp.root.join("audit.log");
 
     let event = shellfirm::audit::AuditEvent {
         event_id: "test-integration-2".into(),

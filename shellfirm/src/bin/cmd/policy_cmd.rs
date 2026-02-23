@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
+use shellfirm::error::Result;
 use shellfirm::policy;
 
 pub fn command() -> Command {
