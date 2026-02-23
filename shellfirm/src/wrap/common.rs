@@ -2,8 +2,8 @@
 
 use std::{collections::HashMap, sync::OnceLock};
 
-use log::{debug, warn};
 use regex::Regex;
+use tracing::{debug, warn};
 
 use crate::{
     audit,
@@ -615,8 +615,10 @@ mod tests {
             ..Default::default()
         };
         let prompter = crate::prompt::MockPrompter::passing();
-        let temp = tempfile::tempdir().unwrap();
-        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
 
         let action = handle_statement(
             "SELECT 1", &settings, &checks, &env, &prompter, &config, "psql",
@@ -633,8 +635,10 @@ mod tests {
             ..Default::default()
         };
         let prompter = crate::prompt::MockPrompter::passing();
-        let temp = tempfile::tempdir().unwrap();
-        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
 
         let action = handle_statement(
             "DROP TABLE users",
@@ -663,8 +667,10 @@ mod tests {
         let checks = settings.get_active_checks().unwrap();
         let env = crate::env::MockEnvironment::default();
         let prompter = crate::prompt::MockPrompter::passing();
-        let temp = tempfile::tempdir().unwrap();
-        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
 
         assert_eq!(
             handle_statement("", &settings, &checks, &env, &prompter, &config, "test"),
@@ -692,8 +698,10 @@ mod tests {
             ..Default::default()
         };
         let prompter = crate::prompt::MockPrompter::passing();
-        let temp = tempfile::tempdir().unwrap();
-        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
 
         let action = handle_statement(
             "FLUSHALL",

@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use shellfirm::error::{Error, Result};
 use shellfirm::{
     format_yaml_value, known_enum_values, validate_config_key, value_get, value_list_paths,
     value_set, Config, Settings,
@@ -43,7 +43,7 @@ pub fn command() -> Command {
 
 pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
     match matches.subcommand() {
-        None => Err(anyhow!("command not found")),
+        None => Err(Error::Config("command not found".into())),
         Some(tup) => match tup {
             ("reset", _subcommand_matches) => Ok(run_reset(config, None)),
             ("set", subcommand_matches) => {
@@ -51,11 +51,11 @@ pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> 
                     run_set_list(config)
                 } else {
                     let key = subcommand_matches.get_one::<String>("key").ok_or_else(|| {
-                        anyhow!("missing <key> argument (use --list to see all keys)")
+                        Error::Config("missing <key> argument (use --list to see all keys)".into())
                     })?;
                     let value_str: String = subcommand_matches
                         .get_many::<String>("value")
-                        .ok_or_else(|| anyhow!("missing <value> argument"))?
+                        .ok_or_else(|| Error::Config("missing <value> argument".into()))?
                         .cloned()
                         .collect::<Vec<_>>()
                         .join(" ");
@@ -132,7 +132,7 @@ pub fn run_set_key_value(
 pub fn run_set_list(config: &Config) -> Result<shellfirm::CmdExit> {
     let user_root = config.read_config_as_value()?;
     let default_root = serde_yaml::to_value(Settings::default())
-        .map_err(|e| anyhow!("failed to serialize defaults: {e}"))?;
+        .map_err(|e| Error::Config(format!("failed to serialize defaults: {e}")))?;
     let merged = merge_for_display(&default_root, &user_root);
     let paths = value_list_paths(&merged);
     let enum_map = known_enum_values();
@@ -205,7 +205,7 @@ pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
     let status = std::process::Command::new(&editor)
         .arg(&config.setting_file_path)
         .status()
-        .map_err(|e| anyhow!("failed to launch editor '{editor}': {e}"))?;
+        .map_err(|e| Error::Config(format!("failed to launch editor '{editor}': {e}")))?;
 
     if !status.success() {
         return Ok(shellfirm::CmdExit {
@@ -240,13 +240,13 @@ mod test_config_cli_command {
     use std::fs;
 
     use insta::{assert_debug_snapshot, with_settings};
-    use tempfile::TempDir;
+    use tree_fs::Tree;
 
     use super::*;
     use shellfirm::Challenge;
 
-    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let temp_dir = temp_dir.path().join("app");
+    fn initialize_config_folder(temp_dir: &Tree) -> Config {
+        let temp_dir = temp_dir.root.join("app");
         let config = Config::new(Some(&temp_dir.display().to_string())).unwrap();
         config.reset_config(Some(0)).unwrap();
         config
@@ -254,7 +254,9 @@ mod test_config_cli_command {
 
     #[test]
     fn can_run_reset() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         // Change challenge via generic value_set so reset has something to restore
         let mut root = config.read_config_as_value().unwrap();
@@ -267,12 +269,13 @@ mod test_config_cli_command {
         config.save_config_from_value(&root).unwrap();
         assert_debug_snapshot!(run_reset(&config, Some(1)));
         assert_debug_snapshot!(config.get_settings_from_file());
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_reset_with_error() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         fs::remove_file(&config.setting_file_path).unwrap();
         with_settings!({filters => vec![
@@ -280,12 +283,13 @@ mod test_config_cli_command {
         ]}, {
             assert_debug_snapshot!(run_reset(&config, Some(1)));
         });
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_scalar() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "challenge", "Yes").unwrap();
         assert_eq!(result.code, exitcode::OK);
@@ -293,33 +297,36 @@ mod test_config_cli_command {
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
         );
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_bool() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         assert!(config.get_settings_from_file().unwrap().audit_enabled);
         let result = run_set_key_value(&config, "audit_enabled", "false").unwrap();
         assert_eq!(result.code, exitcode::OK);
         assert!(!config.get_settings_from_file().unwrap().audit_enabled);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_nested() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "llm.model", "gpt-4").unwrap();
         assert_eq!(result.code, exitcode::OK);
         assert_eq!(config.get_settings_from_file().unwrap().llm.model, "gpt-4");
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_deep_nested() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "context.escalation.elevated", "Yes").unwrap();
         assert_eq!(result.code, exitcode::OK);
@@ -332,12 +339,13 @@ mod test_config_cli_command {
                 .elevated,
             Challenge::Yes
         );
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_list_value() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result =
             run_set_key_value(&config, "context.protected_branches", "[main, develop]").unwrap();
@@ -350,12 +358,13 @@ mod test_config_cli_command {
                 .protected_branches,
             vec!["main", "develop"]
         );
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_rejects_invalid_value() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let original = config.get_settings_from_file().unwrap().challenge;
         let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
@@ -363,85 +372,93 @@ mod test_config_cli_command {
         assert!(result.message.as_ref().unwrap().contains("invalid value"));
         // Original value is unchanged
         assert_eq!(config.get_settings_from_file().unwrap().challenge, original);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_rejects_wrong_type() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "audit_enabled", "not_a_bool").unwrap();
         assert_eq!(result.code, exitcode::CONFIG);
         // Original value is unchanged
         assert!(config.get_settings_from_file().unwrap().audit_enabled);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_set_list_flag() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_list(&config).unwrap();
         assert_eq!(result.code, exitcode::OK);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_get_scalar() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_get_key(&config, "challenge").unwrap();
         assert_eq!(result.code, exitcode::OK);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_run_get_nested() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_get_key(&config, "context.escalation.critical").unwrap();
         assert_eq!(result.code, exitcode::OK);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn get_nonexistent_returns_error() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_get_key(&config, "nonexistent.key").unwrap();
         assert_eq!(result.code, exitcode::CONFIG);
         assert!(result.message.unwrap().contains("key not found"));
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_rejects_unknown_key() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "challange", "Yes").unwrap();
         assert_eq!(result.code, exitcode::CONFIG);
         let msg = result.message.unwrap();
         assert!(msg.contains("unknown configuration key: 'challange'"));
         assert!(msg.contains("Did you mean 'challenge'?"));
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_rejects_completely_unknown_key() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "zzz_nonexistent_zzz", "true").unwrap();
         assert_eq!(result.code, exitcode::CONFIG);
         let msg = result.message.unwrap();
         assert!(msg.contains("unknown configuration key"));
         assert!(!msg.contains("Did you mean"));
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_on_fresh_install_creates_sparse_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let temp_path = temp_dir.path().join("fresh");
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let temp_path = temp_dir.root.join("fresh");
         let config = Config::new(Some(&temp_path.display().to_string())).unwrap();
         // No reset_config — simulates fresh install with no file
         assert!(!config.setting_file_path.exists());
@@ -455,17 +472,17 @@ mod test_config_cli_command {
         let settings = config.get_settings_from_file().unwrap();
         assert_eq!(settings.challenge, Challenge::Yes);
         assert!(!settings.enabled_groups.is_empty());
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn set_invalid_value_shows_enum_hint() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
         assert_eq!(result.code, exitcode::CONFIG);
         let msg = result.message.unwrap();
         assert!(msg.contains("Valid values: Math, Enter, Yes"));
-        temp_dir.close().unwrap();
     }
 }

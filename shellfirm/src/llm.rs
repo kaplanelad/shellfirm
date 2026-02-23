@@ -7,7 +7,7 @@
 //! **Safety rule:** LLM analysis can only *increase* risk (flip allowed → denied),
 //! never *decrease* it. LLM failure silently falls back to regex-only results.
 
-use anyhow::Result;
+use crate::error::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::config::LlmConfig;
@@ -161,7 +161,9 @@ impl AnthropicProvider {
         let text = resp.text()?;
 
         if !status.is_success() {
-            anyhow::bail!("Anthropic API error ({status}): {text}");
+            return Err(crate::error::Error::LlmApi(format!(
+                "Anthropic API error ({status}): {text}"
+            )));
         }
 
         // Extract text content from the response
@@ -295,7 +297,9 @@ impl OpenAiCompatibleProvider {
         let text = resp.text()?;
 
         if !status.is_success() {
-            anyhow::bail!("OpenAI API error ({status}): {text}");
+            return Err(crate::error::Error::LlmApi(format!(
+                "OpenAI API error ({status}): {text}"
+            )));
         }
 
         let json: serde_json::Value = serde_json::from_str(&text)?;
@@ -443,7 +447,7 @@ pub fn create_provider(config: &LlmConfig, env: &dyn Environment) -> Box<dyn Llm
         });
 
     let Some(key) = api_key else {
-        log::debug!("No LLM API key found, using NoOpProvider");
+        tracing::debug!("No LLM API key found, using NoOpProvider");
         return Box::new(NoOpProvider);
     };
 
@@ -455,19 +459,19 @@ pub fn create_provider(config: &LlmConfig, env: &dyn Environment) -> Box<dyn Llm
         "anthropic" => match AnthropicProvider::new(key, config) {
             Ok(p) => Box::new(p),
             Err(e) => {
-                log::warn!("Failed to create Anthropic provider: {e}");
+                tracing::warn!("Failed to create Anthropic provider: {e}");
                 Box::new(NoOpProvider)
             }
         },
         "openai-compatible" => match OpenAiCompatibleProvider::new(key, config) {
             Ok(p) => Box::new(p),
             Err(e) => {
-                log::warn!("Failed to create OpenAI-compatible provider: {e}");
+                tracing::warn!("Failed to create OpenAI-compatible provider: {e}");
                 Box::new(NoOpProvider)
             }
         },
         other => {
-            log::warn!("Unknown LLM provider: {other}, using NoOpProvider");
+            tracing::warn!("Unknown LLM provider: {other}, using NoOpProvider");
             Box::new(NoOpProvider)
         }
     }
@@ -483,7 +487,7 @@ fn parse_analysis_response(response: &str) -> LlmAnalysis {
     match serde_json::from_str::<LlmAnalysis>(json_str) {
         Ok(analysis) => analysis,
         Err(e) => {
-            log::warn!("Failed to parse LLM analysis response: {e}");
+            tracing::warn!("Failed to parse LLM analysis response: {e}");
             LlmAnalysis {
                 is_risky: false,
                 risk_score: 0.0,
@@ -499,7 +503,7 @@ fn parse_alternatives_response(response: &str) -> Vec<LlmAlternative> {
     match serde_json::from_str::<Vec<LlmAlternative>>(json_str) {
         Ok(alts) => alts,
         Err(e) => {
-            log::warn!("Failed to parse LLM alternatives response: {e}");
+            tracing::warn!("Failed to parse LLM alternatives response: {e}");
             vec![]
         }
     }

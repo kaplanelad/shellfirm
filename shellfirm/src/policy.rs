@@ -7,9 +7,9 @@
 
 use std::path::Path;
 
-use anyhow::Result;
-use log::debug;
+use crate::error::Result;
 use serde_derive::{Deserialize, Serialize};
+use tracing::{debug, warn};
 
 use crate::{
     checks::{self, Check},
@@ -61,7 +61,7 @@ pub fn discover(env: &dyn Environment, start_dir: &Path) -> Option<ProjectPolicy
     let content = match env.read_file(&path) {
         Ok(c) => c,
         Err(e) => {
-            log::warn!("could not read policy file {}: {}", path.display(), e);
+            warn!("could not read policy file {}: {}", path.display(), e);
             return None;
         }
     };
@@ -69,7 +69,7 @@ pub fn discover(env: &dyn Environment, start_dir: &Path) -> Option<ProjectPolicy
     match parse_policy(&content) {
         Ok(policy) => Some(policy),
         Err(e) => {
-            log::warn!("invalid policy file {}: {}", path.display(), e);
+            warn!("invalid policy file {}: {}", path.display(), e);
             None
         }
     }

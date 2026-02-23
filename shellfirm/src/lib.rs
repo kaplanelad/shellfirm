@@ -6,6 +6,7 @@ mod config;
 pub mod context;
 mod data;
 pub mod env;
+pub mod error;
 #[cfg(feature = "llm")]
 pub mod llm;
 #[cfg(feature = "mcp")]

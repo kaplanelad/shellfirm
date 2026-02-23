@@ -9,9 +9,9 @@ use std::{
     thread,
 };
 
-use anyhow::{Context, Result};
-use log::warn;
+use crate::error::{Error, Result};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use tracing::warn;
 use windows_sys::Win32::{
     Foundation::HANDLE,
     System::Console::{
@@ -47,13 +47,13 @@ impl WinRawModeGuard {
     fn enter() -> Result<Self> {
         let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
         if handle.is_null() || handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-            anyhow::bail!("GetStdHandle failed");
+            return Err(Error::Wrap("GetStdHandle failed".into()));
         }
 
         let mut original_mode: u32 = 0;
         let ok = unsafe { GetConsoleMode(handle, &mut original_mode) };
         if ok == 0 {
-            anyhow::bail!("GetConsoleMode failed");
+            return Err(Error::Wrap("GetConsoleMode failed".into()));
         }
 
         let raw_mode = (original_mode
@@ -62,7 +62,7 @@ impl WinRawModeGuard {
 
         let ok = unsafe { SetConsoleMode(handle, raw_mode) };
         if ok == 0 {
-            anyhow::bail!("SetConsoleMode (raw) failed");
+            return Err(Error::Wrap("SetConsoleMode (raw) failed".into()));
         }
 
         Ok(Self {
@@ -75,7 +75,7 @@ impl WinRawModeGuard {
     fn restore_cooked(&self) -> Result<()> {
         let ok = unsafe { SetConsoleMode(self.handle, self.original_mode) };
         if ok == 0 {
-            anyhow::bail!("SetConsoleMode (cooked) failed");
+            return Err(Error::Wrap("SetConsoleMode (cooked) failed".into()));
         }
         Ok(())
     }
@@ -87,7 +87,7 @@ impl WinRawModeGuard {
             | ENABLE_VIRTUAL_TERMINAL_INPUT;
         let ok = unsafe { SetConsoleMode(self.handle, raw_mode) };
         if ok == 0 {
-            anyhow::bail!("SetConsoleMode (re-raw) failed");
+            return Err(Error::Wrap("SetConsoleMode (re-raw) failed".into()));
         }
         Ok(())
     }
@@ -146,7 +146,9 @@ impl PtyProxy<'_> {
             pixel_height: 0,
         };
 
-        let pair = pty_system.openpty(size).context("failed to open ConPTY")?;
+        let pair = pty_system
+            .openpty(size)
+            .map_err(|e| Error::Wrap(format!("failed to open ConPTY: {e}")))?;
 
         // Build the command
         let mut cmd = CommandBuilder::new(program);
@@ -158,20 +160,21 @@ impl PtyProxy<'_> {
         let mut child = pair
             .slave
             .spawn_command(cmd)
-            .context("failed to spawn child")?;
+            .map_err(|e| Error::Wrap(format!("failed to spawn child: {e}")))?;
 
         // Get reader (child output) and writer (child input)
         let mut pty_reader = pair
             .master
             .try_clone_reader()
-            .context("failed to clone PTY reader")?;
+            .map_err(|e| Error::Wrap(format!("failed to clone PTY reader: {e}")))?;
         let mut pty_writer = pair
             .master
             .take_writer()
-            .context("failed to take PTY writer")?;
+            .map_err(|e| Error::Wrap(format!("failed to take PTY writer: {e}")))?;
 
         // Enter raw mode on the hosting console
-        let guard = WinRawModeGuard::enter().context("failed to enter raw mode")?;
+        let guard = WinRawModeGuard::enter()
+            .map_err(|e| Error::Wrap(format!("failed to enter raw mode: {e}")))?;
 
         // Shared flag to pause output during challenge prompts
         let output_paused = Arc::new(AtomicBool::new(false));
@@ -262,7 +265,7 @@ impl PtyProxy<'_> {
                                 let _ = pty_writer.flush();
                             }
                             BufferResult::Statement(stmt) => {
-                                log::debug!(
+                                tracing::debug!(
                                     "[wrap] statement detected ({} bytes): {:?}",
                                     stmt.len(),
                                     stmt

@@ -1,7 +1,7 @@
 use std::fmt::Write;
 
-use anyhow::Result;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use shellfirm::error::Result;
 use shellfirm::{
     blast_radius,
     checks::{self, Check},

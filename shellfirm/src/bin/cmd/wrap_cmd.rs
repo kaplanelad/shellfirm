@@ -1,5 +1,5 @@
-use anyhow::Result;
 use clap::{Arg, ArgMatches, Command};
+use shellfirm::error::Result;
 use shellfirm::{
     checks::Check,
     env::RealEnvironment,
@@ -56,7 +56,7 @@ pub fn run(
 
     let wrapper_config = WrapperConfig::resolve(&program, cli_delimiter, &settings.wrappers);
 
-    log::info!(
+    tracing::info!(
         "shellfirm wrap: program={}, delimiter={:?}, check_groups={:?}",
         wrapper_config.program,
         wrapper_config.delimiter,

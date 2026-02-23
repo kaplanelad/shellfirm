@@ -11,9 +11,9 @@
 //! permission error, unexpected output) the result is `None`, and the user
 //! simply sees the challenge prompt without the extra line.
 
-use log::debug;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
+use tracing::debug;
 
 use crate::env::Environment;
 

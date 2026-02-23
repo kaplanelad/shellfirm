@@ -9,10 +9,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::error::{Error, Result};
 use crate::{checks, checks::Severity, context::ContextConfig, prompt};
-use anyhow::{bail, Result as AnyResult};
-use log::debug;
 use serde_derive::{Deserialize, Serialize};
+use tracing::debug;
 
 /// Configuration for the optional LLM-powered command analysis.
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -240,12 +240,12 @@ impl Challenge {
     ///
     /// # Errors
     /// when the given challenge string is not supported
-    pub fn from_string(str: &str) -> AnyResult<Self> {
+    pub fn from_string(str: &str) -> Result<Self> {
         match str.to_lowercase().as_str() {
             "math" => Ok(Self::Math),
             "enter" => Ok(Self::Enter),
             "yes" => Ok(Self::Yes),
-            _ => bail!("given challenge name not found"),
+            _ => Err(Error::Config("given challenge name not found".into())),
         }
     }
 
@@ -291,14 +291,14 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` error return on load/save config
-    pub fn new(path: Option<&str>) -> AnyResult<Self> {
+    pub fn new(path: Option<&str>) -> Result<Self> {
         let package_name = env!("CARGO_PKG_NAME");
 
         let config_folder = match path {
             Some(p) => PathBuf::from(p),
             None => match dirs::config_dir() {
                 Some(conf_dir) => conf_dir.join(package_name),
-                None => bail!("could not get directory path"),
+                None => return Err(Error::Config("could not get directory path".into())),
             },
         };
 
@@ -329,7 +329,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` has an error when loading the config file
-    pub fn get_settings_from_file(&self) -> AnyResult<Settings> {
+    pub fn get_settings_from_file(&self) -> Result<Settings> {
         match self.read_config_file() {
             Ok(content) => Ok(serde_yaml::from_str(&content)?),
             Err(_) if !self.setting_file_path.exists() => Ok(Settings::default()),
@@ -342,7 +342,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` create config folder return an error
-    pub fn reset_config(&self, force_selection: Option<usize>) -> AnyResult<()> {
+    pub fn reset_config(&self, force_selection: Option<usize>) -> Result<()> {
         let selected = if let Some(force_selection) = force_selection {
             force_selection
         } else {
@@ -355,16 +355,16 @@ impl Config {
                 self.backup()?;
                 self.create_default_settings_file()?;
             }
-            _ => bail!("unexpected option"),
+            _ => return Err(Error::Config("unexpected option".into())),
         }
         Ok(())
     }
 
     /// Create config folder (and parent directories) if not exists.
-    fn ensure_config_dir(&self) -> AnyResult<()> {
+    fn ensure_config_dir(&self) -> Result<()> {
         if let Err(err) = fs::create_dir_all(&self.root_folder) {
             if err.kind() != std::io::ErrorKind::AlreadyExists {
-                bail!("could not create folder: {err}");
+                return Err(Error::Config(format!("could not create folder: {err}")));
             }
             debug!("configuration folder found: {}", self.root_folder.display());
         } else {
@@ -377,7 +377,7 @@ impl Config {
     }
 
     /// Create config file from default template.
-    fn create_default_settings_file(&self) -> AnyResult<()> {
+    fn create_default_settings_file(&self) -> Result<()> {
         self.save_settings_file_from_struct(&Settings::default())
     }
 
@@ -386,7 +386,7 @@ impl Config {
     /// # Arguments
     ///
     /// * `settings` - Config struct
-    fn save_settings_file_from_struct(&self, settings: &Settings) -> AnyResult<()> {
+    fn save_settings_file_from_struct(&self, settings: &Settings) -> Result<()> {
         self.ensure_config_dir()?;
         let content = serde_yaml::to_string(settings)?;
         let mut file = fs::File::create(&self.setting_file_path)?;
@@ -404,7 +404,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if the config file cannot be opened or read.
-    pub fn read_config_file(&self) -> AnyResult<String> {
+    pub fn read_config_file(&self) -> Result<String> {
         let mut file = std::fs::File::open(&self.setting_file_path)?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
@@ -416,7 +416,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if the config file cannot be read or parsed.
-    pub fn read_config_as_value(&self) -> AnyResult<serde_yaml::Value> {
+    pub fn read_config_as_value(&self) -> Result<serde_yaml::Value> {
         match self.read_config_file() {
             Ok(content) => Ok(serde_yaml::from_str(&content)?),
             Err(_) if !self.setting_file_path.exists() => {
@@ -432,7 +432,7 @@ impl Config {
     /// # Errors
     ///
     /// Will return `Err` if validation fails or the file cannot be written.
-    pub fn save_config_from_value(&self, value: &serde_yaml::Value) -> AnyResult<()> {
+    pub fn save_config_from_value(&self, value: &serde_yaml::Value) -> Result<()> {
         self.ensure_config_dir()?;
         let yaml_str = serde_yaml::to_string(value)?;
         // Validate: round-trip through Settings deserialization
@@ -442,7 +442,7 @@ impl Config {
         Ok(())
     }
 
-    fn backup(&self) -> AnyResult<PathBuf> {
+    fn backup(&self) -> Result<PathBuf> {
         let backup_to = PathBuf::from(format!(
             "{}.{}.bak",
             self.setting_file_path.display(),
@@ -459,7 +459,7 @@ impl Settings {
     /// # Errors
     ///
     /// Will return `Err` when could not load config file
-    pub fn get_active_checks(&self) -> AnyResult<Vec<checks::Check>> {
+    pub fn get_active_checks(&self) -> Result<Vec<checks::Check>> {
         let enabled: HashSet<&str> = self.enabled_groups.iter().map(String::as_str).collect();
         let disabled: HashSet<&str> = self.disabled_groups.iter().map(String::as_str).collect();
         let ignores: HashSet<&str> = self
@@ -503,16 +503,16 @@ pub fn value_set(
     root: &mut serde_yaml::Value,
     path: &str,
     new_value: serde_yaml::Value,
-) -> AnyResult<()> {
+) -> Result<()> {
     let segments: Vec<&str> = path.split('.').collect();
     let mut current = root;
 
     for (i, segment) in segments.iter().enumerate() {
         if i == segments.len() - 1 {
             // Final segment — set the value
-            let map = current
-                .as_mapping_mut()
-                .ok_or_else(|| anyhow::anyhow!("expected a mapping at parent of '{path}'"))?;
+            let map = current.as_mapping_mut().ok_or_else(|| {
+                Error::Config(format!("expected a mapping at parent of '{path}'"))
+            })?;
             map.insert(serde_yaml::Value::String((*segment).to_string()), new_value);
             return Ok(());
         }
@@ -521,7 +521,7 @@ pub fn value_set(
         if !current.as_mapping().is_some_and(|m| m.contains_key(&key)) {
             let map = current
                 .as_mapping_mut()
-                .ok_or_else(|| anyhow::anyhow!("expected a mapping at '{segment}'"))?;
+                .ok_or_else(|| Error::Config(format!("expected a mapping at '{segment}'")))?;
             map.insert(
                 key.clone(),
                 serde_yaml::Value::Mapping(serde_yaml::Mapping::default()),
@@ -529,7 +529,7 @@ pub fn value_set(
         }
         current = current
             .get_mut(segment)
-            .ok_or_else(|| anyhow::anyhow!("failed to descend into '{segment}'"))?;
+            .ok_or_else(|| Error::Config(format!("failed to descend into '{segment}'")))?;
     }
     Ok(())
 }
@@ -621,7 +621,7 @@ pub fn valid_config_keys() -> Vec<String> {
 /// # Errors
 ///
 /// Returns `Err(String)` when the key is not a known configuration path.
-pub fn validate_config_key(key: &str) -> Result<(), String> {
+pub fn validate_config_key(key: &str) -> std::result::Result<(), String> {
     let valid = valid_config_keys();
     if valid.iter().any(|k| k == key) {
         return Ok(());
@@ -670,16 +670,16 @@ pub fn known_enum_values() -> Vec<(&'static str, &'static [&'static str])> {
 mod test_config {
     use std::fs::read_dir;
 
-    use tempfile::TempDir;
+    use tree_fs::Tree;
 
     use super::*;
 
-    fn initialize_config_folder(temp_dir: &TempDir) -> Config {
-        let temp_dir = temp_dir.path().join("app");
+    fn initialize_config_folder(temp_dir: &Tree) -> Config {
+        let temp_dir = temp_dir.root.join("app");
         Config::new(Some(&temp_dir.display().to_string())).unwrap()
     }
 
-    fn initialize_config_folder_with_file(temp_dir: &TempDir) -> Config {
+    fn initialize_config_folder_with_file(temp_dir: &Tree) -> Config {
         let config = initialize_config_folder(temp_dir);
         config.reset_config(Some(0)).unwrap();
         config
@@ -687,27 +687,31 @@ mod test_config {
 
     #[test]
     fn new_config_does_not_create_files() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         assert!(!config.root_folder.is_dir());
         assert!(!config.setting_file_path.is_file());
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn get_settings_returns_defaults_without_file() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let settings = config.get_settings_from_file().unwrap();
         assert_eq!(settings.challenge, DEFAULT_CHALLENGE);
         assert_eq!(settings.enabled_groups, default_enabled_groups());
         assert!(settings.audit_enabled);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_reset_config_with_override() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder_with_file(&temp_dir);
         // Change challenge via generic value_set
         let mut root = config.read_config_as_value().unwrap();
@@ -728,12 +732,13 @@ mod test_config {
             Challenge::Math
         );
         assert_eq!(read_dir(&config.root_folder).unwrap().count(), 1);
-        temp_dir.close().unwrap();
     }
 
     #[test]
     fn can_reset_config_with_with_backup() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder_with_file(&temp_dir);
         // Change challenge via generic value_set
         let mut root = config.read_config_as_value().unwrap();
@@ -754,7 +759,6 @@ mod test_config {
             Challenge::Math
         );
         assert_eq!(read_dir(&config.root_folder).unwrap().count(), 2);
-        temp_dir.close().unwrap();
     }
 
     #[test]
@@ -874,7 +878,9 @@ mod test_config {
 
     #[test]
     fn sparse_config_on_fresh_install() {
-        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         // initialize_config_folder does not create any files — fresh install
         assert!(!config.setting_file_path.exists());
@@ -897,7 +903,6 @@ mod test_config {
         let settings = config.get_settings_from_file().unwrap();
         assert_eq!(settings.challenge, Challenge::Yes);
         assert_eq!(settings.enabled_groups, default_enabled_groups());
-        temp_dir.close().unwrap();
     }
 }
 
@@ -964,8 +969,10 @@ mod test_settings {
 
     #[test]
     fn settings_file_roundtrip_produces_matches() {
-        let temp = tempfile::tempdir().unwrap();
-        let config = Config::new(Some(&temp.path().join("app").display().to_string())).unwrap();
+        let temp = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
         config.reset_config(Some(0)).unwrap();
         let settings = config.get_settings_from_file().unwrap();
         let checks = settings.get_active_checks().unwrap();

@@ -2,12 +2,12 @@
 
 use std::sync::OnceLock;
 
-use anyhow::Result;
-use log::{debug, warn};
+use crate::error::Result;
 use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_regex;
+use tracing::{debug, warn};
 
 use crate::{
     blast_radius::{self, BlastRadiusInfo, BlastScope},

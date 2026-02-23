@@ -281,7 +281,7 @@ fn get_cancel_string() -> String {
 /// # Errors
 ///
 /// Will return `Err` when the interactive prompt fails.
-pub fn reset_config() -> anyhow::Result<usize> {
+pub fn reset_config() -> crate::error::Result<usize> {
     let answer = requestty::prompt_one(
         requestty::Question::raw_select("reset")
             .message("Rest configuration will reset all checks settings. Select how to continue...")
@@ -292,11 +292,12 @@ pub fn reset_config() -> anyhow::Result<usize> {
                 "Cancel Or ^C".into(),
             ])
             .build(),
-    )?;
-    match answer.as_list_item() {
-        Some(a) => Ok(a.index),
-        _ => anyhow::bail!("select option is empty"),
-    }
+    )
+    .map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
+    answer.as_list_item().map_or_else(
+        || Err(crate::error::Error::Prompt("select option is empty".into())),
+        |a| Ok(a.index),
+    )
 }
 
 /// Present a select prompt and return the chosen index.
@@ -304,15 +305,20 @@ pub fn reset_config() -> anyhow::Result<usize> {
 /// # Errors
 ///
 /// Will return `Err` when the interactive prompt fails.
-pub fn select_with_default(message: &str, items: &[&str], default: usize) -> anyhow::Result<usize> {
+pub fn select_with_default(
+    message: &str,
+    items: &[&str],
+    default: usize,
+) -> crate::error::Result<usize> {
     let question = requestty::Question::select("select")
         .message(message)
         .choices(items.iter().copied())
         .default(default)
         .build();
-    let answer = requestty::prompt_one(question)?;
-    match answer.as_list_item() {
-        Some(a) => Ok(a.index),
-        _ => anyhow::bail!("select option is empty"),
-    }
+    let answer =
+        requestty::prompt_one(question).map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
+    answer.as_list_item().map_or_else(
+        || Err(crate::error::Error::Prompt("select option is empty".into())),
+        |a| Ok(a.index),
+    )
 }

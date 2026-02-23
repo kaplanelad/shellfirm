@@ -1,5 +1,5 @@
-use anyhow::Result;
 use clap::{ArgMatches, Command};
+use shellfirm::error::Result;
 use shellfirm::{audit, Config};
 
 pub fn command() -> Command {
