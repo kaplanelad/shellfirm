@@ -144,7 +144,7 @@ pub fn detect(env: &dyn Environment, config: &ContextConfig) -> RuntimeContext {
     // Production environment variables
     for (key, expected_val) in &config.production_env_vars {
         if let Some(val) = env.var(key) {
-            if val.to_lowercase() == expected_val.to_lowercase() {
+            if val.eq_ignore_ascii_case(expected_val) {
                 ctx.env_signals.push(format!("{key}={val}"));
             }
         }
@@ -204,8 +204,10 @@ pub fn branch_matches_any(branch: &str, patterns: &[String]) -> bool {
 
 /// Check if a string contains any of the given substrings (case-insensitive).
 fn matches_any_pattern(value: &str, patterns: &[String]) -> bool {
-    let lower = value.to_lowercase();
-    patterns.iter().any(|p| lower.contains(&p.to_lowercase()))
+    let lower = value.to_ascii_lowercase();
+    patterns
+        .iter()
+        .any(|p| lower.contains(p.to_ascii_lowercase().as_str()))
 }
 
 /// Given a base challenge level and a risk level, return the escalated

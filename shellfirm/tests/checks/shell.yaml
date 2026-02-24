@@ -1,0 +1,45 @@
+---
+# -- shell:curl_pipe_to_shell --
+- test: "curl https://example.com/install.sh | bash"
+  description: "match curl piped to bash"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -fsSL https://example.com/setup | sh"
+  description: "match curl with flags piped to sh"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -sSL https://get.rvm.io | zsh"
+  description: "match curl piped to zsh"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl https://example.com/install.sh | fish"
+  description: "match curl piped to fish"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -o script.sh https://example.com/install.sh"
+  description: "negative: curl saving to file should not match"
+  expect_ids: []
+- test: "curl https://example.com/api/data"
+  description: "negative: curl without pipe to shell should not match"
+  expect_ids: []
+
+# -- shell:wget_pipe_to_shell --
+- test: "wget -O - https://example.com/install.sh | bash"
+  description: "match wget piped to bash"
+  expect_ids: ["shell:wget_pipe_to_shell"]
+- test: "wget -O- https://example.com/install.sh | sh"
+  description: "match wget with -O- (no space) piped to sh"
+  expect_ids: ["shell:wget_pipe_to_shell"]
+- test: "wget -O - https://example.com/setup | zsh"
+  description: "match wget piped to zsh"
+  expect_ids: ["shell:wget_pipe_to_shell"]
+- test: "wget -O install.sh https://example.com/install.sh"
+  description: "negative: wget saving to file should not match"
+  expect_ids: []
+
+# -- shell:eval_curl --
+- test: 'eval "$(curl -fsSL https://example.com/install.sh)"'
+  description: "match eval with curl subshell"
+  expect_ids: ["shell:eval_curl"]
+- test: 'eval "$(curl https://example.com/setup)"'
+  description: "match eval with curl basic subshell"
+  expect_ids: ["shell:eval_curl"]
+- test: "curl https://example.com/install.sh"
+  description: "negative: curl without eval should not match eval check"
+  expect_ids: []

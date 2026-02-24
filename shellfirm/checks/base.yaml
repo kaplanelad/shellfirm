@@ -23,3 +23,40 @@
   description: "You are going to shutdown your machine."
   id: base:shutdown_machine
   severity: High
+- from: base
+  test: kill\s+-9\s+
+  description: "SIGKILL gives no chance for graceful shutdown or cleanup."
+  id: process:kill_9
+  severity: Low
+  alternative: "kill <pid>"
+  alternative_info: "Send SIGTERM first to allow graceful shutdown, then kill -9 if needed."
+- from: base
+  test: killall\s+
+  description: "Kills ALL processes matching the name."
+  id: process:killall
+  severity: Medium
+- from: base
+  test: pkill\s+
+  description: "Kills processes matching a pattern — could match unintended processes."
+  id: process:pkill
+  severity: Medium
+- from: base
+  test: systemctl\s+(disable|mask)\s+
+  description: "Disabling or masking a service prevents it from starting on boot."
+  id: systemd:disable_service
+  severity: Medium
+- from: base
+  test: systemctl\s+stop\s+(docker|sshd|nginx|apache2|httpd|postgresql|mysql|redis)(\s|$)
+  description: "Stopping a critical system service can cause outages."
+  id: systemd:stop_critical_service
+  severity: High
+- from: base
+  test: ssh-add\s+-D
+  description: "Removes all SSH identities from the agent."
+  id: ssh:delete_all_identities
+  severity: Medium
+- from: base
+  test: ssh-keygen\s+-R\s+
+  description: "Removes a host from known_hosts — could enable MITM attacks."
+  id: ssh:remove_known_host
+  severity: Low

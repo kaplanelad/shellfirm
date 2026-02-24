@@ -40,3 +40,36 @@
   filters:
     - type: NotContains
       value: "--dry-run"
+- from: kubernetes
+  test: helm\s+(uninstall|delete)\s+
+  description: "Removing a Helm release deletes all its managed Kubernetes resources."
+  id: helm:uninstall
+  severity: High
+- from: kubernetes
+  test: helm\s+rollback\s+
+  description: "Rolling back a Helm release reverts to a previous revision."
+  id: helm:rollback
+  severity: Medium
+- from: kubernetes
+  test: helm\s+upgrade\s+.*--force
+  description: "Force-upgrading a Helm release deletes and recreates resources."
+  id: helm:upgrade_force
+  severity: High
+- from: kubernetes
+  test: (kubectl|k)\s+drain\s+
+  description: "Draining a node evicts all pods and marks the node unschedulable."
+  id: kubernetes:drain_node
+  severity: High
+- from: kubernetes
+  test: (kubectl|k)\s+cordon\s+
+  description: "Cordoning a node prevents new pods from being scheduled on it."
+  id: kubernetes:cordon_node
+  severity: Medium
+- from: kubernetes
+  test: (kubectl|k)\s+replace\s+.*--force
+  description: "Force-replacing a resource deletes and recreates it, causing downtime."
+  id: kubernetes:replace_force
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--dry-run"

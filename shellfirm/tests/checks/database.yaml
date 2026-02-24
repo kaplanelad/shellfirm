@@ -68,3 +68,60 @@
 - test: "update users set active=false where id = 1;"
   description: "lowercase UPDATE with WHERE clause should not match"
   expect_ids: []
+
+# -- database — quoted and schema-qualified table names --
+- test: "DELETE FROM `users`;"
+  description: "BUG: backtick-quoted table, \\w+ doesn't match backticks"
+  expect_ids: []
+
+- test: "DROP TABLE `users`"
+  description: "backtick-quoted table for DROP TABLE (uses \\s+ not \\w+)"
+  expect_ids: ["database:drop_table"]
+
+- test: "DELETE FROM public.users;"
+  description: "BUG: schema.table, \\w+ doesn't match dot"
+  expect_ids: []
+
+- test: "UPDATE public.users SET active=false;"
+  description: "BUG: schema-qualified UPDATE"
+  expect_ids: []
+
+- test: 'DELETE FROM "users";'
+  description: "BUG: double-quoted table name"
+  expect_ids: []
+
+- test: "DELETE FROM users"
+  description: "DELETE without semicolon"
+  expect_ids: ["database:delete_all_rows"]
+
+- test: "DELETE FROM users   "
+  description: "DELETE with trailing whitespace"
+  expect_ids: ["database:delete_all_rows"]
+
+# -- database:drop_schema_role_user --
+- test: "DROP SCHEMA public"
+  description: "match DROP SCHEMA"
+  expect_ids: ["database:drop_schema_role_user"]
+- test: "DROP ROLE myrole"
+  description: "match DROP ROLE"
+  expect_ids: ["database:drop_schema_role_user"]
+- test: "DROP USER myuser"
+  description: "match DROP USER"
+  expect_ids: ["database:drop_schema_role_user"]
+- test: "drop schema test_schema"
+  description: "match lowercase drop schema"
+  expect_ids: ["database:drop_schema_role_user"]
+- test: "CREATE SCHEMA newschema"
+  description: "negative: CREATE SCHEMA should not match"
+  expect_ids: []
+
+# -- database:alter_drop_column --
+- test: "ALTER TABLE users DROP COLUMN email"
+  description: "match ALTER TABLE DROP COLUMN"
+  expect_ids: ["database:alter_drop_column"]
+- test: "alter table users drop column email"
+  description: "match lowercase alter table drop column"
+  expect_ids: ["database:alter_drop_column"]
+- test: "ALTER TABLE users ADD COLUMN email VARCHAR(255)"
+  description: "negative: ADD COLUMN should not match"
+  expect_ids: []

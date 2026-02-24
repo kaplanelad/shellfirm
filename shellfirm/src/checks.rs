@@ -3,7 +3,6 @@
 use std::sync::OnceLock;
 
 use crate::error::Result;
-use rayon::prelude::*;
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use serde_regex;
@@ -275,7 +274,7 @@ pub fn run_check_on_command_with_env<'a>(
     env: &dyn Environment,
 ) -> Vec<&'a Check> {
     checks
-        .par_iter()
+        .iter()
         .filter(|v| v.test.is_match(command))
         .filter(|v| check_custom_filter_with_env(v, command, env))
         .collect()
@@ -422,6 +421,7 @@ pub struct PipelineResult {
 ///
 /// # Errors
 /// Returns an error if check loading or policy parsing fails.
+#[allow(clippy::too_many_lines)]
 pub fn analyze_command(
     command: &str,
     settings: &Settings,
@@ -430,7 +430,7 @@ pub fn analyze_command(
     strip_quotes_re: &Regex,
 ) -> Result<PipelineResult> {
     // 1. Strip quoted strings
-    let stripped = strip_quotes_re.replace_all(command, "").to_string();
+    let stripped = strip_quotes_re.replace_all(command, "").into_owned();
 
     // 2. Split on shell operators
     let command_parts = split_command(&stripped);
@@ -454,12 +454,39 @@ pub fn analyze_command(
 
     debug!("analyze_command: {} matches found", matches.len());
 
-    // 4. Context detection
-    let runtime_context = context::detect(env, &settings.context);
-
-    // 5. Policy discovery & merging
+    // 4. Policy discovery (filesystem walk only — no subprocess spawns)
     let cwd = env.current_dir().unwrap_or_default();
     let project_policy = policy::discover(env, &cwd);
+
+    // Check if policy adds extra checks that might match
+    let policy_has_extra_checks = project_policy
+        .as_ref()
+        .is_some_and(|pp| !pp.checks.is_empty());
+
+    // FAST PATH: no matches and no policy extra checks → skip context detection
+    // entirely. This avoids spawning git/kubectl subprocesses for the common case
+    // where a command (e.g. "ls", "cd", "cargo build") matches nothing.
+    if matches.is_empty() && !policy_has_extra_checks {
+        debug!("analyze_command: no matches and no policy checks, skipping context detection");
+        return Ok(PipelineResult {
+            stripped_command: stripped,
+            command_parts,
+            active_matches: Vec::new(),
+            skipped_matches: Vec::new(),
+            context: RuntimeContext::default(),
+            max_severity: Severity::default(),
+            is_denied: false,
+            alternatives: Vec::new(),
+            merged_policy: MergedPolicy::default(),
+            blast_radii: Vec::new(),
+            max_blast_scope: None,
+        });
+    }
+
+    // 5. Context detection (only when we have matches or policy extra checks)
+    let runtime_context = context::detect(env, &settings.context);
+
+    // 6. Policy merging (needs git branch from context for branch-specific overrides)
     let merged_policy = if let Some(ref pp) = project_policy {
         policy::merge_into_settings(settings, pp, runtime_context.git_branch.as_deref())
     } else {
@@ -483,7 +510,7 @@ pub fn analyze_command(
         all_matches.extend(extra);
     }
 
-    // 6. Severity filtering
+    // 7. Severity filtering
     let (active_refs, skipped_refs): (Vec<&Check>, Vec<&Check>) =
         if let Some(min_sev) = settings.min_severity {
             all_matches.into_iter().partition(|c| c.severity >= min_sev)
@@ -523,7 +550,7 @@ pub fn analyze_command(
         }
     }
 
-    // 7. Blast radius computation (only for active matches, when enabled)
+    // 8. Blast radius computation (only for active matches, when enabled)
     let blast_radii = if settings.blast_radius {
         blast_radius::compute_for_matches(&active_matches, &command_parts, &stripped, env)
     } else {

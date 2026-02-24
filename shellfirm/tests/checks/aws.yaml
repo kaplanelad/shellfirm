@@ -103,3 +103,115 @@
 - test: "awss s3 rb s3://mybucket"
   description: "invalid command"
   expect_ids: []
+
+# -- aws:s3_recursive_delete — flag ordering --
+- test: "aws s3 rm --recursive s3://mybucket/path"
+  description: "--recursive before s3:// URL"
+  expect_ids: ["aws:s3_recursive_delete"]
+
+- test: "aws --profile prod s3 rm s3://mybucket/ --recursive"
+  description: "--profile before s3 subcommand"
+  expect_ids: ["aws:s3_recursive_delete"]
+
+- test: "aws --region us-east-1 s3 rm s3://mybucket/ --recursive"
+  description: "--region before s3 subcommand"
+  expect_ids: ["aws:s3_recursive_delete"]
+
+- test: "aws s3 rm s3://mybucket/ --include '*.log' --recursive"
+  description: "--include between URL and --recursive"
+  expect_ids: ["aws:s3_recursive_delete"]
+
+- test: "aws s3 rm s3://mybucket/ --recursive --quiet"
+  description: "--recursive with --quiet"
+  expect_ids: ["aws:s3_recursive_delete"]
+
+# -- aws:dynamodb_delete_table --
+- test: "aws dynamodb delete-table --table-name mytable"
+  description: "delete DynamoDB table"
+  expect_ids: ["aws:dynamodb_delete_table"]
+- test: "aws  dynamodb  delete-table  --table-name mytable"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:dynamodb_delete_table"]
+- test: "awss dynamodb delete-table --table-name mytable"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:sqs_delete_queue --
+- test: "aws sqs delete-queue --queue-url https://sqs.us-east-1.amazonaws.com/123456789012/myqueue"
+  description: "delete SQS queue"
+  expect_ids: ["aws:sqs_delete_queue"]
+- test: "aws  sqs  delete-queue  --queue-url https://example.com"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:sqs_delete_queue"]
+- test: "awss sqs delete-queue --queue-url test"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:sns_delete_topic --
+- test: "aws sns delete-topic --topic-arn arn:aws:sns:us-east-1:123456789012:mytopic"
+  description: "delete SNS topic"
+  expect_ids: ["aws:sns_delete_topic"]
+- test: "aws  sns  delete-topic  --topic-arn test"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:sns_delete_topic"]
+- test: "awss sns delete-topic --topic-arn test"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:ecr_delete_repository --
+- test: "aws ecr delete-repository --repository-name myrepo"
+  description: "delete ECR repository"
+  expect_ids: ["aws:ecr_delete_repository"]
+- test: "aws ecr delete-repository --repository-name myrepo --force"
+  description: "force delete ECR repository"
+  expect_ids: ["aws:ecr_delete_repository"]
+- test: "awss ecr delete-repository --repository-name myrepo"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:secretsmanager_delete --
+- test: "aws secretsmanager delete-secret --secret-id mysecret"
+  description: "delete secret"
+  expect_ids: ["aws:secretsmanager_delete"]
+- test: "aws  secretsmanager  delete-secret  --secret-id mysecret"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:secretsmanager_delete"]
+- test: "awss secretsmanager delete-secret --secret-id mysecret"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:elasticache_delete_cluster --
+- test: "aws elasticache delete-cache-cluster --cache-cluster-id mycluster"
+  description: "delete ElastiCache cluster"
+  expect_ids: ["aws:elasticache_delete_cluster"]
+- test: "aws  elasticache  delete-cache-cluster  --cache-cluster-id test"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:elasticache_delete_cluster"]
+- test: "awss elasticache delete-cache-cluster --cache-cluster-id test"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:logs_delete_log_group --
+- test: "aws logs delete-log-group --log-group-name /aws/lambda/myfunc"
+  description: "delete CloudWatch log group"
+  expect_ids: ["aws:logs_delete_log_group"]
+- test: "aws  logs  delete-log-group  --log-group-name test"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:logs_delete_log_group"]
+- test: "awss logs delete-log-group --log-group-name test"
+  description: "invalid command"
+  expect_ids: []
+
+# -- aws:ecs_delete --
+- test: "aws ecs delete-service --cluster mycluster --service myservice"
+  description: "delete ECS service"
+  expect_ids: ["aws:ecs_delete"]
+- test: "aws ecs delete-cluster --cluster mycluster"
+  description: "delete ECS cluster"
+  expect_ids: ["aws:ecs_delete"]
+- test: "aws  ecs  delete-service  --cluster test --service test"
+  description: "match command with extra spaces"
+  expect_ids: ["aws:ecs_delete"]
+- test: "awss ecs delete-service --cluster test --service test"
+  description: "invalid command"
+  expect_ids: []

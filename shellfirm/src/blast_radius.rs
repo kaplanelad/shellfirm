@@ -167,6 +167,15 @@ fn format_count(n: usize, noun: &str) -> String {
     }
 }
 
+/// Format a file count from `count_files_at`, showing `+` when capped.
+fn format_file_count(count: usize, capped: bool) -> String {
+    if capped {
+        format!("{}+", format_count(count, "file"))
+    } else {
+        format_count(count, "file")
+    }
+}
+
 /// Format a number with comma separators, e.g. `1234567` → `"1,234,567"`.
 fn format_number(n: usize) -> String {
     let s = n.to_string();
@@ -200,10 +209,22 @@ fn fs_scope_for_path(path: &str) -> BlastScope {
     }
 }
 
+/// Maximum number of files to count before returning a capped estimate.
+/// Prevents `find` from consuming excessive memory/time on huge directories.
+const MAX_FILE_COUNT: usize = 100_000;
+
 /// Count files under a path using `find`.
-fn count_files_at(env: &dyn Environment, path: &str) -> Option<usize> {
-    let output = env.run_command("find", &[path, "-type", "f"], TIMEOUT_MS)?;
-    Some(count_lines(&output))
+///
+/// Returns `(count, capped)` where `capped` is true if the count hit the
+/// `MAX_FILE_COUNT` limit (meaning the real count is at least that many).
+fn count_files_at(env: &dyn Environment, path: &str) -> Option<(usize, bool)> {
+    let output = env.run_command("find", &[path, "-maxdepth", "20", "-type", "f"], TIMEOUT_MS)?;
+    let count = count_lines(&output);
+    if count >= MAX_FILE_COUNT {
+        Some((MAX_FILE_COUNT, true))
+    } else {
+        Some((count, false))
+    }
 }
 
 /// Get human-readable size of a path using `du -sh`.
@@ -232,10 +253,15 @@ fn compute_fs_recursive_delete(
     let size = get_size(env, &path);
 
     let description = match (file_count, size) {
-        (Some(count), Some(sz)) => {
-            format!("Deletes ~{} ({sz}) in {path}", format_count(count, "file"))
+        (Some((count, capped)), Some(sz)) => {
+            format!(
+                "Deletes ~{} ({sz}) in {path}",
+                format_file_count(count, capped)
+            )
         }
-        (Some(count), None) => format!("Deletes ~{} in {path}", format_count(count, "file")),
+        (Some((count, capped)), None) => {
+            format!("Deletes ~{} in {path}", format_file_count(count, capped))
+        }
         (None, Some(sz)) => format!("Deletes ({sz}) in {path}"),
         (None, None) => return None,
     };
@@ -282,12 +308,12 @@ fn compute_fs_recursive_chmod(
 ) -> Option<BlastRadiusInfo> {
     let path = capture_group(regex, command, 2)?;
     let scope = fs_scope_for_path(&path);
-    let file_count = count_files_at(env, &path)?;
+    let (file_count, capped) = count_files_at(env, &path)?;
     Some(BlastRadiusInfo {
         scope,
         description: format!(
             "Affects permissions on ~{}",
-            format_count(file_count, "file")
+            format_file_count(file_count, capped)
         ),
     })
 }
@@ -301,12 +327,12 @@ fn compute_fs_delete_find(command: &str, env: &dyn Environment) -> Option<BlastR
         .filter(|p| !p.starts_with('-'))
         .copied()
         .unwrap_or(".");
-    let file_count = count_files_at(env, search_path)?;
+    let (file_count, capped) = count_files_at(env, search_path)?;
     Some(BlastRadiusInfo {
         scope: BlastScope::Project,
         description: format!(
             "Deletes ~{} under {search_path}",
-            format_count(file_count, "file")
+            format_file_count(file_count, capped)
         ),
     })
 }
@@ -325,14 +351,17 @@ fn compute_fs_strict_any_deletion(
     if is_directory(env, path) {
         let file_count = count_files_at(env, path);
         let desc = match (file_count, &size) {
-            (Some(count), Some(sz)) => {
+            (Some((count, capped)), Some(sz)) => {
                 format!(
                     "Deletes directory with ~{} ({sz})",
-                    format_count(count, "file")
+                    format_file_count(count, capped)
                 )
             }
-            (Some(count), None) => {
-                format!("Deletes directory with ~{}", format_count(count, "file"))
+            (Some((count, capped)), None) => {
+                format!(
+                    "Deletes directory with ~{}",
+                    format_file_count(count, capped)
+                )
             }
             (None, Some(sz)) => format!("Deletes directory ({sz})"),
             (None, None) => return None,
@@ -365,14 +394,17 @@ fn compute_fs_strict_folder_deletion(
     let size = get_size(env, path);
     let file_count = count_files_at(env, path);
     let desc = match (file_count, size) {
-        (Some(count), Some(sz)) => {
+        (Some((count, capped)), Some(sz)) => {
             format!(
                 "Deletes directory with ~{} ({sz})",
-                format_count(count, "file")
+                format_file_count(count, capped)
             )
         }
-        (Some(count), None) => {
-            format!("Deletes directory with ~{}", format_count(count, "file"))
+        (Some((count, capped)), None) => {
+            format!(
+                "Deletes directory with ~{}",
+                format_file_count(count, capped)
+            )
         }
         (None, Some(sz)) => format!("Deletes directory ({sz})"),
         (None, None) => return None,
@@ -394,12 +426,12 @@ fn compute_fs_strict_change_permissions(
         return None;
     }
     if is_directory(env, target) {
-        let count = count_files_at(env, target)?;
+        let (count, capped) = count_files_at(env, target)?;
         Some(BlastRadiusInfo {
             scope: BlastScope::Resource,
             description: format!(
                 "Changes permissions on ~{} in {target}",
-                format_count(count, "file")
+                format_file_count(count, capped)
             ),
         })
     } else {
@@ -729,10 +761,10 @@ mod tests {
     #[test]
     fn test_fs_recursive_delete() {
         let regex = Regex::new(
-            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(\*|\.{1,}|/)\s*$",
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
         ).unwrap();
         let env = mock_env_with_commands(vec![
-            ("find / -type f", "file1\nfile2\nfile3"),
+            ("find / -maxdepth 20 -type f", "file1\nfile2\nfile3"),
             ("du -sh /", "1.2G\t/"),
         ]);
         let result = compute_fs_recursive_delete(&regex, "rm -rf /", &env);
@@ -746,9 +778,12 @@ mod tests {
     #[test]
     fn test_fs_recursive_delete_project_scope() {
         let regex = Regex::new(
-            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(\*|\.{1,}|/)\s*$",
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
         ).unwrap();
-        let env = mock_env_with_commands(vec![("find . -type f", "a\nb"), ("du -sh .", "500K\t.")]);
+        let env = mock_env_with_commands(vec![
+            ("find . -maxdepth 20 -type f", "a\nb"),
+            ("du -sh .", "500K\t."),
+        ]);
         let result = compute_fs_recursive_delete(&regex, "rm -rf .", &env);
         assert!(result.is_some());
         let info = result.unwrap();
@@ -758,10 +793,50 @@ mod tests {
     #[test]
     fn test_fs_recursive_delete_no_match() {
         let regex = Regex::new(
-            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?\s*(\*|\.{1,}|/)\s*$",
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
         ).unwrap();
         let env = MockEnvironment::default();
         let result = compute_fs_recursive_delete(&regex, "echo hello", &env);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_fs_recursive_delete_hidden_slash() {
+        let regex = Regex::new(
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
+        ).unwrap();
+        let env = mock_env_with_commands(vec![
+            ("find / -maxdepth 20 -type f", "file1\nfile2\nfile3"),
+            ("du -sh /", "1.2G\t/"),
+        ]);
+        let result = compute_fs_recursive_delete(&regex, "rm -rf / node_modules", &env);
+        assert!(result.is_some());
+        let info = result.unwrap();
+        assert_eq!(info.scope, BlastScope::Machine);
+    }
+
+    #[test]
+    fn test_fs_recursive_delete_hidden_slash_middle() {
+        let regex = Regex::new(
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
+        ).unwrap();
+        let env = mock_env_with_commands(vec![
+            ("find / -maxdepth 20 -type f", "file1\nfile2"),
+            ("du -sh /", "500M\t/"),
+        ]);
+        let result = compute_fs_recursive_delete(&regex, "rm -rf node_modules / pkg", &env);
+        assert!(result.is_some());
+        let info = result.unwrap();
+        assert_eq!(info.scope, BlastScope::Machine);
+    }
+
+    #[test]
+    fn test_fs_recursive_delete_no_false_positive_on_path() {
+        let regex = Regex::new(
+            r"rm\s{1,}(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)\s*(?:-R|-r|-f|-fR|-fr|-Rf|-rf|-v|--force|--verbose|--preserve-root)?(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)",
+        ).unwrap();
+        let env = MockEnvironment::default();
+        let result = compute_fs_recursive_delete(&regex, "rm -rf /usr/local", &env);
         assert!(result.is_none());
     }
 

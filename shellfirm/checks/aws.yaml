@@ -6,7 +6,7 @@
   alternative: "aws s3 ls s3://<bucket>"
   alternative_info: "List bucket contents first to verify what would be deleted."
 - from: aws
-  test: aws\s+s3\s+rm\s+s3://.*--recursive
+  test: aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+.*s3://.*--recursive|aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+--recursive\s+s3://
   description: "Recursively deleting all objects in an S3 bucket."
   id: aws:s3_recursive_delete
   severity: High
@@ -51,4 +51,44 @@
   test: aws\s+lambda\s+delete-function
   description: "Deleting a Lambda function removes it permanently."
   id: aws:lambda_delete
+  severity: High
+- from: aws
+  test: aws\s+dynamodb\s+delete-table
+  description: "Deleting a DynamoDB table permanently destroys all its data."
+  id: aws:dynamodb_delete_table
+  severity: High
+- from: aws
+  test: aws\s+sqs\s+delete-queue
+  description: "Deleting an SQS queue loses all queued messages."
+  id: aws:sqs_delete_queue
+  severity: High
+- from: aws
+  test: aws\s+sns\s+delete-topic
+  description: "Deleting an SNS topic breaks all subscriptions."
+  id: aws:sns_delete_topic
+  severity: High
+- from: aws
+  test: aws\s+ecr\s+delete-repository
+  description: "Deleting an ECR repository removes all container images."
+  id: aws:ecr_delete_repository
+  severity: High
+- from: aws
+  test: aws\s+secretsmanager\s+delete-secret
+  description: "Deleting a secret can break applications depending on it."
+  id: aws:secretsmanager_delete
+  severity: High
+- from: aws
+  test: aws\s+elasticache\s+delete-cache-cluster
+  description: "Deleting an ElastiCache cluster destroys all cached data."
+  id: aws:elasticache_delete_cluster
+  severity: High
+- from: aws
+  test: aws\s+logs\s+delete-log-group
+  description: "Deleting a CloudWatch log group permanently loses all log data."
+  id: aws:logs_delete_log_group
+  severity: High
+- from: aws
+  test: aws\s+ecs\s+delete-(service|cluster)
+  description: "Deleting an ECS service or cluster stops all running containers."
+  id: aws:ecs_delete
   severity: High

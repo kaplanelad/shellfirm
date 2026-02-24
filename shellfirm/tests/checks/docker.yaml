@@ -110,3 +110,97 @@
 - test: "docker volume ls"
   description: "negative: listing volumes should not match"
   expect_ids: []
+
+# -- docker:system_prune_all — flag ordering --
+- test: "docker system prune -f -a"
+  description: "-f before -a"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune --force -a"
+  description: "--force before -a"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune -f --all"
+  description: "-f before --all"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune --force --all"
+  description: "--force before --all"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune -af"
+  description: "-af starts with -a, regex matches prefix"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune -fa"
+  description: "-fa combined"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune -a -f"
+  description: "-a first, then -f"
+  expect_ids: ["docker:system_prune_all"]
+
+- test: "docker system prune --all --force"
+  description: "--all first, then --force"
+  expect_ids: ["docker:system_prune_all"]
+
+# -- docker:compose_down_volumes — flag ordering --
+- test: "docker compose down --rmi all -v"
+  description: "--rmi before -v"
+  expect_ids: ["docker:compose_down_volumes"]
+
+- test: "docker compose down --remove-orphans -v"
+  description: "--remove-orphans before -v"
+  expect_ids: ["docker:compose_down_volumes"]
+
+- test: "docker compose down -t 30 -v"
+  description: "timeout before -v"
+  expect_ids: ["docker:compose_down_volumes"]
+
+- test: "docker-compose down --rmi all --volumes"
+  description: "hyphen syntax, --rmi before --volumes"
+  expect_ids: ["docker:compose_down_volumes"]
+
+- test: "docker compose down -v --rmi all"
+  description: "-v first, then --rmi"
+  expect_ids: ["docker:compose_down_volumes"]
+
+- test: "docker compose down -v --remove-orphans"
+  description: "-v first, then --remove-orphans"
+  expect_ids: ["docker:compose_down_volumes"]
+
+# -- docker:image_prune_all --
+- test: "docker image prune -a"
+  description: "match image prune with -a"
+  expect_ids: ["docker:image_prune_all"]
+- test: "docker image prune --all"
+  description: "match image prune with --all"
+  expect_ids: ["docker:image_prune_all"]
+- test: "docker image prune -af"
+  description: "match image prune with -af"
+  expect_ids: ["docker:image_prune_all"]
+- test: "docker image prune"
+  description: "negative: image prune without -a should not match"
+  expect_ids: []
+
+# -- docker:container_prune --
+- test: "docker container prune"
+  description: "match container prune"
+  expect_ids: ["docker:container_prune"]
+- test: "docker container prune -f"
+  description: "match container prune with force"
+  expect_ids: ["docker:container_prune"]
+- test: "docker container ls"
+  description: "negative: container ls should not match"
+  expect_ids: []
+
+# -- docker:buildx_prune_all --
+- test: "docker buildx prune --all"
+  description: "match buildx prune --all"
+  expect_ids: ["docker:buildx_prune_all"]
+- test: "docker buildx prune --all -f"
+  description: "match buildx prune --all with force"
+  expect_ids: ["docker:buildx_prune_all"]
+- test: "docker buildx prune"
+  description: "negative: buildx prune without --all should not match"
+  expect_ids: []

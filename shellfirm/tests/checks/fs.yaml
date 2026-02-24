@@ -1008,8 +1008,8 @@
   description: "match command with long force flag"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "rm -rfv /"
-  description: "fs-strict:any_deletion matches (flag group is optional, captures remaining)"
-  expect_ids: ["fs-strict:any_deletion"]
+  description: "-rfv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "rm -rf --verbose /"
   description: "match command with long verbose flag"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
@@ -1022,6 +1022,36 @@
 - test: "rm -f *"
   description: "match force delete all files"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf / node_modules package-lock.json .next"
+  description: "/ first with more args following"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules / package-lock.json .next"
+  description: "/ in middle of args"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules package-lock.json / .next"
+  description: "/ near-last in args"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules package-lock.json .next /"
+  description: "/ last with other args before"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf * node_modules"
+  description: "* first with more args following"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules * package-lock.json"
+  description: "* in middle of args"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules . package-lock.json"
+  description: ". in middle of args"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf node_modules .. package-lock.json"
+  description: ".. in middle of args"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+- test: "rm -rf /usr/local"
+  description: "full path, / not standalone — should not match recursively_delete"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm -rf ./node_modules"
+  description: ". followed by /, not standalone — should not match recursively_delete"
+  expect_ids: ["fs-strict:any_deletion"]
 
 # -- fs:sfdisk_disk_modify --
 - test: "sfdisk /dev/sda"
@@ -1148,3 +1178,197 @@
 - test: "rmdir    -pv    TestFolder"
   description: "match command with spaces"
   expect_ids: ["fs-strict:folder_deletion"]
+
+# -- fs:recursively_delete — combined/long-form flag coverage --
+- test: "rm -Rfv /"
+  description: "-Rfv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -frv /"
+  description: "-frv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -rvf /"
+  description: "-rvf now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -vrf /"
+  description: "-vrf now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -vRf /"
+  description: "-vRf now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -rv /"
+  description: "-rv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -Rv /"
+  description: "-Rv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -fv /"
+  description: "-fv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -vr /"
+  description: "-vr now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -vf /"
+  description: "-vf now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm --recursive /"
+  description: "--recursive now matches long flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm --recursive -f /"
+  description: "--recursive -f now matches long flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm --recursive --force /"
+  description: "--recursive --force now matches long flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -f --recursive /"
+  description: "-f matches first slot, --recursive caught by extra-args group"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm -r -f -v /"
+  description: "three separate flags, only 2 slots in regex"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "rm / -rf"
+  description: "BUG: target before flags, regex requires flags before target"
+  expect_ids: ["fs-strict:any_deletion"]
+
+- test: "sudo rm -rfv /"
+  description: "sudo with -rfv now matches combined flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+- test: "sudo rm --recursive /"
+  description: "sudo with --recursive now matches long flag pattern"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+# -- fs:recursively_chmod — combined flags and ordering --
+- test: "chmod -Rv /"
+  description: "-Rv now matches combined flag pattern"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+- test: "chmod -Rc /"
+  description: "-Rc now matches combined flag pattern"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+- test: "chmod -vR /"
+  description: "-vR now matches combined flag pattern"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+- test: "chmod 777 -R /"
+  description: "mode before -R flag now matches"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+- test: "chmod a+rwx -R /"
+  description: "symbolic mode before -R now matches"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+- test: "chmod 777 --recursive /"
+  description: "mode before --recursive now matches"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
+
+# -- fs:mkfs_format — NVMe and vfat --
+- test: "mkfs.ext4 /dev/nvme0n1p1"
+  description: "NVMe partition device now matches"
+  expect_ids: ["fs:mkfs_format"]
+
+- test: "mkfs.ext4 /dev/nvme0n1"
+  description: "NVMe disk device now matches"
+  expect_ids: ["fs:mkfs_format"]
+
+- test: "mkfs.vfat /dev/sda1"
+  description: ".vfat filesystem type now matches"
+  expect_ids: ["fs:mkfs_format"]
+
+- test: "mkfs.ext2 /dev/sda1"
+  description: "ext2 matches ext[2-4]"
+  expect_ids: ["fs:mkfs_format"]
+
+# -- NVMe device coverage for disk-related checks --
+- test: "dd if=image.img of=/dev/nvme0n1"
+  description: "NVMe device now matches dd_block_device"
+  expect_ids: ["fs:dd_block_device"]
+
+- test: "fdisk /dev/nvme0n1"
+  description: "NVMe device now matches fdisk"
+  expect_ids: ["fs:fdisk_disk_modify"]
+
+- test: "parted /dev/nvme0n1 mklabel gpt"
+  description: "NVMe device now matches parted"
+  expect_ids: ["fs:parted_disk_modify"]
+
+- test: "gdisk /dev/nvme0n1"
+  description: "NVMe device now matches gdisk"
+  expect_ids: ["fs:gdisk_disk_modify"]
+
+- test: "mount /dev/nvme0n1p1 /mnt"
+  description: "NVMe device now matches mount"
+  expect_ids: ["fs:mount_operations"]
+
+- test: "cryptsetup luksFormat /dev/nvme0n1p1"
+  description: "NVMe device now matches encryption operations"
+  expect_ids: ["fs:encryption_operations"]
+
+- test: "blockdev --setro /dev/nvme0n1"
+  description: "NVMe device now matches blockdev"
+  expect_ids: ["fs:blockdev_disk_modify"]
+
+# -- fs:move_to_dev_null — multiple flags --
+- test: "mv -f -v file.txt /dev/null"
+  description: "-f matches short flag slot, -v captured as filename arg"
+  expect_ids: ["fs:move_to_dev_null"]
+
+- test: "mv --force --verbose file.txt /dev/null"
+  description: "--force matches long flag slot, --verbose captured as filename arg"
+  expect_ids: ["fs:move_to_dev_null"]
+
+- test: "mv -fv file.txt /dev/null"
+  description: "-fv as single combined flag"
+  expect_ids: ["fs:move_to_dev_null"]
+
+# -- fs:rsync_delete --
+- test: "rsync -avz --delete /src/ /dest/"
+  description: "match rsync with --delete"
+  expect_ids: ["fs:rsync_delete"]
+- test: "rsync --delete -az /src/ /dest/"
+  description: "match rsync with --delete before other flags"
+  expect_ids: ["fs:rsync_delete"]
+- test: "rsync -avz --delete --dry-run /src/ /dest/"
+  description: "negative: rsync with --dry-run should not match"
+  expect_ids: []
+- test: "rsync -avzn --delete /src/ /dest/"
+  description: "BUG: -n inside combined flags not detected by substring NotContains filter"
+  expect_ids: ["fs:rsync_delete"]
+- test: "rsync -n --delete /src/ /dest/"
+  description: "negative: rsync with standalone -n should not match"
+  expect_ids: []
+- test: "rsync -avz /src/ /dest/"
+  description: "negative: rsync without --delete should not match"
+  expect_ids: []
+
+# -- fs:recursively_chown --
+- test: "chown -R root:root /"
+  description: "match recursive chown on root"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R user:group *"
+  description: "match recursive chown on wildcard"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R user:group ."
+  description: "match recursive chown on current dir"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown --recursive user:group /"
+  description: "match chown --recursive long form on root"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown user:group file.txt"
+  description: "negative: chown without -R should not match"
+  expect_ids: []
