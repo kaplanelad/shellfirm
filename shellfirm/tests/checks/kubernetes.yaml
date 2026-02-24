@@ -67,3 +67,91 @@
 - test: "kubectl set"
   description: "invalid command"
   expect_ids: []
+
+# -- kubernetes — additional coverage --
+- test: "kubectl --context prod delete ns staging"
+  description: "BUG: --context between kubectl and delete"
+  expect_ids: []
+
+- test: "kubectl delete ns staging --dry-run=client"
+  description: "dry-run=client contains --dry-run, filtered out"
+  expect_ids: []
+
+- test: "k delete ns production"
+  description: "short alias deleting production namespace"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+
+# -- helm:uninstall --
+- test: "helm uninstall my-release"
+  description: "match helm uninstall"
+  expect_ids: ["helm:uninstall"]
+- test: "helm delete my-release"
+  description: "match helm delete (alias for uninstall)"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall my-release --namespace prod"
+  description: "match helm uninstall with namespace"
+  expect_ids: ["helm:uninstall"]
+- test: "helm list"
+  description: "negative: helm list should not match"
+  expect_ids: []
+
+# -- helm:rollback --
+- test: "helm rollback my-release 1"
+  description: "match helm rollback to revision"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback my-release"
+  description: "match helm rollback without revision"
+  expect_ids: ["helm:rollback"]
+- test: "helm history my-release"
+  description: "negative: helm history should not match"
+  expect_ids: []
+
+# -- helm:upgrade_force --
+- test: "helm upgrade my-release my-chart --force"
+  description: "match helm upgrade with --force"
+  expect_ids: ["helm:upgrade_force"]
+- test: "helm upgrade --force my-release my-chart"
+  description: "match helm upgrade with --force before args"
+  expect_ids: ["helm:upgrade_force"]
+- test: "helm upgrade my-release my-chart"
+  description: "negative: helm upgrade without --force should not match"
+  expect_ids: []
+
+# -- kubernetes:drain_node --
+- test: "kubectl drain node01"
+  description: "match kubectl drain"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "k drain node01"
+  description: "match short alias drain"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node01 --ignore-daemonsets"
+  description: "match kubectl drain with flags"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl get nodes"
+  description: "negative: get nodes should not match drain"
+  expect_ids: []
+
+# -- kubernetes:cordon_node --
+- test: "kubectl cordon node01"
+  description: "match kubectl cordon"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "k cordon node01"
+  description: "match short alias cordon"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl uncordon node01"
+  description: "negative: uncordon should not match cordon"
+  expect_ids: []
+
+# -- kubernetes:replace_force --
+- test: "kubectl replace -f deployment.yaml --force"
+  description: "match kubectl replace --force"
+  expect_ids: ["kubernetes:replace_force"]
+- test: "k replace -f pod.yaml --force"
+  description: "match short alias replace --force"
+  expect_ids: ["kubernetes:replace_force"]
+- test: "kubectl replace -f deployment.yaml"
+  description: "negative: replace without --force should not match"
+  expect_ids: []
+- test: "kubectl replace -f deployment.yaml --force --dry-run=client"
+  description: "negative: replace --force with dry-run should not match"
+  expect_ids: []

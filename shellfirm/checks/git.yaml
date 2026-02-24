@@ -14,7 +14,7 @@
   id: git:delete_all
   severity: High
 - from: git
-  test: git\s{1,}clean\s{1,}-fd
+  test: git\s{1,}clean\s{1,}(?:-[a-zA-Z]*f[a-zA-Z]*d[a-zA-Z]*|-[a-zA-Z]*d[a-zA-Z]*f[a-zA-Z]*|(?:-\S+\s+)*-f(?:\s+-\S+)*\s+-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+-f)
   description: "This command will remove all untracked files and directories."
   id: git:clean_force
   severity: High
@@ -36,14 +36,14 @@
   alternative: "git push --force-with-lease"
   alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
-  test: git\s{1,}branch\s{1,}-D
+  test: git\s{1,}branch\s{1,}(?:-D|(?:-d|--delete)\s+--force|--force\s+(?:-d|--delete))
   description: "This command will force delete a branch."
   id: git:force_delete_branch
   severity: High
   alternative: "git branch -d <branch>"
   alternative_info: "Uses safe delete (-d) which refuses to delete a branch with unmerged changes."
 - from: git
-  test: git\s{1,}checkout\s{1,}-f
+  test: git\s{1,}checkout\s{1,}(-f|--force)
   description: "This command will force checkout and discard local changes."
   id: git:force_checkout
   severity: High
@@ -121,3 +121,18 @@
   description: "This command will create an annotated tag."
   id: git-strict:create_tag
   severity: Low
+- from: git
+  test: git\s{1,}push\s{1,}.*--mirror
+  description: "Mirror push overwrites the ENTIRE remote — all branches, tags, and refs."
+  id: git:push_mirror
+  severity: Critical
+- from: git
+  test: git\s{1,}push\s{1,}\S+\s{1,}--delete\s|git\s{1,}push\s{1,}\S+\s{1,}:\S
+  description: "This command will delete a remote branch."
+  id: git:push_delete_branch
+  severity: High
+- from: git
+  test: git\s{1,}reflog\s{1,}expire\s{1,}--expire=now
+  description: "Expiring all reflog entries destroys the last recovery mechanism for lost commits."
+  id: git:reflog_expire
+  severity: Critical

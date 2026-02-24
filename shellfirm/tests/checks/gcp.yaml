@@ -75,3 +75,56 @@
 - test: "gsutil cat gs://mybucket/file.txt"
   description: "reading a GCS file should not trigger remove bucket check"
   expect_ids: []
+
+# -- gcp:gcs_recursive_delete — flag ordering --
+- test: "gsutil -m rm -r gs://mybucket/"
+  description: "-m between gsutil and rm now matched"
+  expect_ids: ["gcp:gcs_recursive_delete"]
+
+- test: "gsutil rm gs://mybucket/ -r"
+  description: "-r after gs:// URL now matched"
+  expect_ids: ["gcp:gcs_recursive_delete"]
+
+# -- gcp:delete_function --
+- test: "gcloud functions delete my-function"
+  description: "delete Cloud Function"
+  expect_ids: ["gcp:delete_function"]
+- test: "gcloud  functions  delete  my-function --region us-central1"
+  description: "match with extra spaces and region"
+  expect_ids: ["gcp:delete_function"]
+- test: "gcloud functions list"
+  description: "negative: listing functions should not match"
+  expect_ids: []
+
+# -- gcp:delete_cloud_run --
+- test: "gcloud run services delete my-service"
+  description: "delete Cloud Run service"
+  expect_ids: ["gcp:delete_cloud_run"]
+- test: "gcloud  run  services  delete  my-service --region us-central1"
+  description: "match with extra spaces"
+  expect_ids: ["gcp:delete_cloud_run"]
+- test: "gcloud run services list"
+  description: "negative: listing services should not match"
+  expect_ids: []
+
+# -- gcp:delete_pubsub_topic --
+- test: "gcloud pubsub topics delete my-topic"
+  description: "delete Pub/Sub topic"
+  expect_ids: ["gcp:delete_pubsub_topic"]
+- test: "gcloud  pubsub  topics  delete  my-topic"
+  description: "match with extra spaces"
+  expect_ids: ["gcp:delete_pubsub_topic"]
+- test: "gcloud pubsub topics list"
+  description: "negative: listing topics should not match"
+  expect_ids: []
+
+# -- gcp:delete_secret --
+- test: "gcloud secrets delete my-secret"
+  description: "delete secret"
+  expect_ids: ["gcp:delete_secret"]
+- test: "gcloud  secrets  delete  my-secret --project myproject"
+  description: "match with extra spaces and project"
+  expect_ids: ["gcp:delete_secret"]
+- test: "gcloud secrets list"
+  description: "negative: listing secrets should not match"
+  expect_ids: []

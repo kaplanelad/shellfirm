@@ -89,3 +89,98 @@
 - test: "shutdownn"
   description: "not match"
   expect_ids: []
+
+# -- process:kill_9 --
+- test: "kill -9 1234"
+  description: "match kill -9 with PID"
+  expect_ids: ["process:kill_9"]
+- test: "kill -9 $(pgrep nginx)"
+  description: "match kill -9 with command substitution"
+  expect_ids: ["process:kill_9"]
+- test: "kill 1234"
+  description: "negative: regular kill should not match"
+  expect_ids: []
+- test: "kill -15 1234"
+  description: "negative: SIGTERM should not match"
+  expect_ids: []
+
+# -- process:killall --
+- test: "killall nginx"
+  description: "match killall with process name"
+  expect_ids: ["process:killall"]
+- test: "killall -9 node"
+  description: "match killall with signal"
+  expect_ids: ["process:killall"]
+- test: "kill 1234"
+  description: "negative: kill single process should not match killall"
+  expect_ids: []
+
+# -- process:pkill --
+- test: "pkill nginx"
+  description: "match pkill with pattern"
+  expect_ids: ["process:pkill"]
+- test: "pkill -f 'node server.js'"
+  description: "match pkill with full command match"
+  expect_ids: ["process:pkill"]
+- test: "pgrep nginx"
+  description: "negative: pgrep should not match pkill"
+  expect_ids: []
+
+# -- systemd:disable_service --
+- test: "systemctl disable nginx"
+  description: "match systemctl disable"
+  expect_ids: ["systemd:disable_service"]
+- test: "systemctl mask docker"
+  description: "match systemctl mask"
+  expect_ids: ["systemd:disable_service"]
+- test: "systemctl enable nginx"
+  description: "negative: enable should not match"
+  expect_ids: []
+- test: "systemctl start nginx"
+  description: "negative: start should not match"
+  expect_ids: []
+
+# -- systemd:stop_critical_service --
+- test: "systemctl stop docker"
+  description: "match stopping docker"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop sshd"
+  description: "match stopping sshd"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop nginx"
+  description: "match stopping nginx"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop postgresql"
+  description: "match stopping postgresql"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop mysql"
+  description: "match stopping mysql"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop redis"
+  description: "match stopping redis"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop myapp"
+  description: "negative: stopping non-critical service should not match"
+  expect_ids: []
+- test: "systemctl restart nginx"
+  description: "negative: restart should not match stop check"
+  expect_ids: []
+
+# -- ssh:delete_all_identities --
+- test: "ssh-add -D"
+  description: "match ssh-add -D"
+  expect_ids: ["ssh:delete_all_identities"]
+- test: "ssh-add -l"
+  description: "negative: list identities should not match"
+  expect_ids: []
+
+# -- ssh:remove_known_host --
+- test: "ssh-keygen -R example.com"
+  description: "match removing known host"
+  expect_ids: ["ssh:remove_known_host"]
+- test: "ssh-keygen -R 192.168.1.1"
+  description: "match removing known host by IP"
+  expect_ids: ["ssh:remove_known_host"]
+- test: "ssh-keygen -t rsa"
+  description: "negative: generating key should not match"
+  expect_ids: []

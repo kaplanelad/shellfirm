@@ -9,3 +9,12 @@
 - test: "mysql -e SELECT * FROM users"
   description: "mysql SELECT should not trigger drop check"
   expect_ids: []
+
+# -- mysql:drop — additional flag coverage --
+- test: "mysql -u root -p -e 'DROP DATABASE test'"
+  description: "user and password flags before -e"
+  expect_ids: ["database:drop_database", "mysql:drop"]
+
+- test: "mysql --execute 'DROP TABLE users'"
+  description: "BUG: --execute long form not matched"
+  expect_ids: ["database:drop_table"]

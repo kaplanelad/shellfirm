@@ -236,3 +236,133 @@
 - test: "git submodule status"
   description: "negative: checking submodule status should not match"
   expect_ids: []
+
+# -- git:clean_force — flag reordering --
+- test: "git clean -df"
+  description: "flag reorder -df now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -fxd"
+  description: "flag reorder -fxd now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -xfd"
+  description: "flag reorder -xfd now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -dfx"
+  description: "flag reorder -dfx now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -xdf"
+  description: "flag reorder -xdf now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -dxf"
+  description: "flag reorder -dxf now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -f -d"
+  description: "separate -f -d flags now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -d -f"
+  description: "separate -d -f flags now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -f -d -x"
+  description: "three separate flags now matched after regex fix"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -fdX"
+  description: "-fdX starts with -fd, matches"
+  expect_ids: ["git:clean_force"]
+
+- test: "git   clean   -fd"
+  description: "extra spaces, still matches"
+  expect_ids: ["git:clean_force"]
+
+- test: "git clean -fdn"
+  description: "-fdn starts with -fd, '-n' substring not present (n preceded by d not -)"
+  expect_ids: ["git:clean_force"]
+
+# -- git:force_delete_branch — long-form flags --
+- test: "git branch --delete --force feature"
+  description: "long-form --delete --force now matched after regex fix"
+  expect_ids: ["git:force_delete_branch"]
+
+- test: "git branch -d --force feature"
+  description: "-d with --force now matched after regex fix"
+  expect_ids: ["git:force_delete_branch"]
+
+- test: "git branch -D feature/my-branch"
+  description: "branch with slash in name"
+  expect_ids: ["git:force_delete_branch"]
+
+# -- git:force_checkout — long-form flag --
+- test: "git checkout --force main"
+  description: "long-form --force now matched after regex fix"
+  expect_ids: ["git:force_checkout"]
+
+- test: "git checkout -f -- ."
+  description: "force checkout with -- separator"
+  expect_ids: ["git:force_checkout"]
+
+# -- git:reset — more variants --
+- test: "git reset --hard"
+  description: "hard reset, most dangerous variant"
+  expect_ids: ["git:reset"]
+
+- test: "git reset --hard HEAD~3"
+  description: "hard reset to specific commit"
+  expect_ids: ["git:reset"]
+
+- test: "git reset --soft HEAD~1"
+  description: "soft reset filtered out by NotContains"
+  expect_ids: []
+
+- test: "git reset --hard origin/main"
+  description: "hard reset to remote"
+  expect_ids: ["git:reset"]
+
+# -- git:push_mirror --
+- test: "git push --mirror origin"
+  description: "match push --mirror with remote"
+  expect_ids: ["git:push_mirror"]
+- test: "git push origin --mirror"
+  description: "match push with remote before --mirror"
+  expect_ids: ["git:push_mirror"]
+- test: "git push --mirror"
+  description: "match push --mirror without remote"
+  expect_ids: ["git:push_mirror"]
+- test: "git push origin main"
+  description: "negative: regular push should not match mirror"
+  expect_ids: []
+
+# -- git:push_delete_branch --
+- test: "git push origin --delete feature-branch"
+  description: "match push --delete branch"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push origin --delete main"
+  description: "match push --delete main branch"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push origin :feature-branch"
+  description: "match push colon syntax to delete remote branch"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push origin main"
+  description: "negative: regular push should not match delete"
+  expect_ids: []
+
+# -- git:reflog_expire --
+- test: "git reflog expire --expire=now --all"
+  description: "match reflog expire now with --all"
+  expect_ids: ["git:reflog_expire"]
+- test: "git reflog expire --expire=now"
+  description: "match reflog expire now without --all"
+  expect_ids: ["git:reflog_expire"]
+- test: "git reflog show"
+  description: "negative: reflog show should not match"
+  expect_ids: []
+- test: "git reflog expire --expire=90.days"
+  description: "negative: normal expire should not match"
+  expect_ids: []

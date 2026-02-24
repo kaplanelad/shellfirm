@@ -21,7 +21,7 @@
   id: gcp:delete_gke_cluster
   severity: High
 - from: gcp
-  test: gsutil\s+rm\s+-r\s+gs://
+  test: gsutil\s+(?:-\S+\s+)*rm\s+(?:-r\s+gs://|gs://\S+\s+-r)
   description: "Recursively deleting all objects in a GCS bucket."
   id: gcp:gcs_recursive_delete
   severity: High
@@ -36,4 +36,24 @@
   test: gcloud\s+iam\s+service-accounts\s+delete
   description: "Deleting a service account can break applications using it."
   id: gcp:delete_service_account
+  severity: High
+- from: gcp
+  test: gcloud\s+functions\s+delete
+  description: "Deleting a Cloud Function removes it permanently."
+  id: gcp:delete_function
+  severity: High
+- from: gcp
+  test: gcloud\s+run\s+services\s+delete
+  description: "Deleting a Cloud Run service stops serving traffic."
+  id: gcp:delete_cloud_run
+  severity: High
+- from: gcp
+  test: gcloud\s+pubsub\s+topics\s+delete
+  description: "Deleting a Pub/Sub topic breaks all connected subscriptions."
+  id: gcp:delete_pubsub_topic
+  severity: High
+- from: gcp
+  test: gcloud\s+secrets\s+delete
+  description: "Deleting a secret can break applications depending on it."
+  id: gcp:delete_secret
   severity: High

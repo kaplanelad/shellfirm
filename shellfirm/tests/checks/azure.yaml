@@ -78,3 +78,36 @@
 - test: "az vm show --name myvm"
   description: "showing VM info should not trigger delete check"
   expect_ids: []
+
+# -- azure:delete_functionapp --
+- test: "az functionapp delete --name myfunc --resource-group myrg"
+  description: "delete Azure Function App"
+  expect_ids: ["azure:delete_functionapp"]
+- test: "az  functionapp  delete  --name myfunc --resource-group myrg"
+  description: "match with extra spaces"
+  expect_ids: ["azure:delete_functionapp"]
+- test: "az functionapp list"
+  description: "negative: listing function apps should not match"
+  expect_ids: []
+
+# -- azure:delete_webapp --
+- test: "az webapp delete --name myapp --resource-group myrg"
+  description: "delete web app"
+  expect_ids: ["azure:delete_webapp"]
+- test: "az  webapp  delete  --name myapp --resource-group myrg"
+  description: "match with extra spaces"
+  expect_ids: ["azure:delete_webapp"]
+- test: "az webapp list"
+  description: "negative: listing web apps should not match"
+  expect_ids: []
+
+# -- azure:delete_cosmosdb --
+- test: "az cosmosdb delete --name myaccount --resource-group myrg"
+  description: "delete Cosmos DB account"
+  expect_ids: ["azure:delete_cosmosdb"]
+- test: "az  cosmosdb  delete  --name myaccount --resource-group myrg"
+  description: "match with extra spaces"
+  expect_ids: ["azure:delete_cosmosdb"]
+- test: "az cosmosdb list"
+  description: "negative: listing Cosmos DB should not match"
+  expect_ids: []

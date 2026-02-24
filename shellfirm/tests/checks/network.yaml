@@ -162,3 +162,8 @@
 - test: "systemctl restart networking"
   description: "should not match restart command"
   expect_ids: []
+
+# -- network:force_reset_firewall — flag ordering --
+- test: "ufw reset --force"
+  description: "BUG: --force after reset, not matched"
+  expect_ids: []

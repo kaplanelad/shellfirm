@@ -1,0 +1,21 @@
+- from: shell
+  test: 'curl\s+.*\|\s*(bash|sh|zsh|fish|source\s)'
+  description: "Piping remote content directly to shell executes arbitrary code without inspection."
+  id: shell:curl_pipe_to_shell
+  severity: High
+  alternative: "curl -o script.sh <url> && cat script.sh && bash script.sh"
+  alternative_info: "Download first, review the script, then execute it."
+- from: shell
+  test: 'wget\s+.*-O\s*-\s.*\|\s*(bash|sh|zsh|fish)'
+  description: "Piping downloaded content to shell executes arbitrary code without inspection."
+  id: shell:wget_pipe_to_shell
+  severity: High
+  alternative: "wget -O script.sh <url> && cat script.sh && bash script.sh"
+  alternative_info: "Download first, review the script, then execute it."
+- from: shell
+  test: 'eval\s+"\$\(curl'
+  description: "Evaluating remote content executes arbitrary code without inspection."
+  id: shell:eval_curl
+  severity: High
+  alternative: "curl -o script.sh <url> && cat script.sh && source script.sh"
+  alternative_info: "Download first, review the script, then source it."

@@ -35,3 +35,13 @@
       value: "WHERE"
     - type: NotContains
       value: "where"
+- from: database
+  test: (?i)DROP\s+(SCHEMA|ROLE|USER)
+  description: "Dropping a schema, role, or user is a destructive and often irreversible operation."
+  id: database:drop_schema_role_user
+  severity: High
+- from: database
+  test: (?i)ALTER\s+TABLE\s+\w+\s+DROP\s+COLUMN
+  description: "Dropping a column permanently removes data from all rows."
+  id: database:alter_drop_column
+  severity: High

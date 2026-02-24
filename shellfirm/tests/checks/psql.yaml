@@ -9,3 +9,12 @@
 - test: "psql -c SELECT 1"
   description: "psql SELECT should not trigger drop check"
   expect_ids: []
+
+# -- psql:drop — additional flag coverage --
+- test: "psql -U postgres -c 'DROP TABLE users'"
+  description: "user flag before -c"
+  expect_ids: ["database:drop_table", "psql:drop"]
+
+- test: "psql --command 'DROP DATABASE test'"
+  description: "BUG: --command long form not matched"
+  expect_ids: ["database:drop_database"]

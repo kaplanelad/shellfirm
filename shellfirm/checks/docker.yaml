@@ -1,5 +1,5 @@
 - from: docker
-  test: docker\s+system\s+prune\s+(-a|--all)
+  test: docker\s+system\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
   description: "This will remove all unused Docker data including stopped containers, networks, dangling images, and build cache."
   id: docker:system_prune_all
   severity: High
@@ -31,7 +31,7 @@
   id: docker:remove_network
   severity: Medium
 - from: docker
-  test: docker[\s-]compose\s+down\s+(-v|--volumes)
+  test: docker[\s-]compose\s+down\s+.*(-v|--volumes)
   description: "This will stop containers AND delete all associated volumes and data."
   id: docker:compose_down_volumes
   severity: High
@@ -42,3 +42,20 @@
   description: "Stopping all running Docker containers."
   id: docker:stop_all_containers
   severity: Medium
+- from: docker
+  test: docker\s+image\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
+  description: "Removes ALL images, not just dangling ones."
+  id: docker:image_prune_all
+  severity: High
+  alternative: "docker image prune"
+  alternative_info: "Without -a, only dangling images are removed."
+- from: docker
+  test: docker\s+container\s+prune
+  description: "Removes all stopped containers."
+  id: docker:container_prune
+  severity: Medium
+- from: docker
+  test: docker\s+buildx\s+prune\s+.*--all
+  description: "Clears the entire Docker build cache."
+  id: docker:buildx_prune_all
+  severity: High

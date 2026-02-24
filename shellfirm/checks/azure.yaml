@@ -35,3 +35,18 @@
   description: "Deleting an Azure AD application or service principal can break authentication."
   id: azure:delete_ad_app
   severity: High
+- from: azure
+  test: az\s+functionapp\s+delete
+  description: "Deleting an Azure Function App removes it permanently."
+  id: azure:delete_functionapp
+  severity: High
+- from: azure
+  test: az\s+webapp\s+delete
+  description: "Deleting a web app removes it and all deployed code."
+  id: azure:delete_webapp
+  severity: High
+- from: azure
+  test: az\s+cosmosdb\s+delete
+  description: "Deleting a Cosmos DB account destroys all databases and data."
+  id: azure:delete_cosmosdb
+  severity: High

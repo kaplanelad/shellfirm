@@ -467,11 +467,14 @@ impl Settings {
             .iter()
             .map(String::as_str)
             .collect();
-        Ok(checks::get_all()?
-            .into_iter()
+        // Filter from the static cache directly — only clone checks that pass
+        // all filters, instead of cloning all ~100 checks then discarding.
+        Ok(checks::all_checks_cached()
+            .iter()
             .filter(|c| enabled.contains(c.from.as_str()))
             .filter(|c| !disabled.contains(c.from.as_str()))
             .filter(|c| !ignores.contains(c.id.as_str()))
+            .cloned()
             .collect())
     }
 
