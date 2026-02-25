@@ -1,0 +1,12 @@
+{
+  "name": "@shellfirm/cli-linux-x64",
+  "version": "0.3.0",
+  "description": "shellfirm binary for Linux x64",
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

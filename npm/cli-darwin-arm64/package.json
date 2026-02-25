@@ -1,0 +1,12 @@
+{
+  "name": "@shellfirm/cli-darwin-arm64",
+  "version": "0.3.0",
+  "description": "shellfirm binary for macOS ARM64",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ]
+}

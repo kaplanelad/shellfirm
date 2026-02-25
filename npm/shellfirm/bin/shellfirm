@@ -1,0 +1,74 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
+
+const PLATFORM_MAPPING = {
+  "darwin-arm64": "@shellfirm/cli-darwin-arm64",
+  "darwin-x64": "@shellfirm/cli-darwin-x64",
+  "linux-x64": "@shellfirm/cli-linux-x64",
+  "win32-x64": "@shellfirm/cli-win32-x64",
+};
+
+function getBinaryPath() {
+  const key = `${process.platform}-${process.arch}`;
+  const pkg = PLATFORM_MAPPING[key];
+
+  if (!pkg) {
+    throw new Error(
+      `Unsupported platform: ${process.platform}-${process.arch}. ` +
+        `Supported platforms: ${Object.keys(PLATFORM_MAPPING).join(", ")}`
+    );
+  }
+
+  const binaryName = process.platform === "win32" ? "shellfirm.exe" : "shellfirm";
+
+  let pkgPath;
+  try {
+    pkgPath = path.dirname(require.resolve(`${pkg}/package.json`));
+  } catch (_e) {
+    throw new Error(
+      `Could not find the package "${pkg}" for your platform.\n` +
+        `This usually means the optional dependency was not installed.\n\n` +
+        `Try reinstalling with:\n` +
+        `  npm install @shellfirm/cli\n\n` +
+        `If the problem persists, please open an issue at:\n` +
+        `  https://github.com/kaplanelad/shellfirm/issues`
+    );
+  }
+
+  const binaryPath = path.join(pkgPath, binaryName);
+
+  if (!fs.existsSync(binaryPath)) {
+    throw new Error(
+      `The binary "${binaryName}" was not found in "${pkgPath}".\n` +
+        `The package "${pkg}" may be corrupted. Try reinstalling:\n` +
+        `  npm install @shellfirm/cli`
+    );
+  }
+
+  // Ensure the binary is executable
+  try {
+    fs.chmodSync(binaryPath, 0o755);
+  } catch (_e) {
+    // Ignore chmod errors (e.g., on Windows)
+  }
+
+  return binaryPath;
+}
+
+try {
+  const binary = getBinaryPath();
+  const result = execFileSync(binary, process.argv.slice(2), {
+    stdio: "inherit",
+  });
+} catch (err) {
+  if (err.status !== undefined) {
+    // execFileSync throws when the child exits with non-zero;
+    // forward the exit code
+    process.exit(err.status);
+  }
+  console.error(err.message);
+  process.exit(1);
+}

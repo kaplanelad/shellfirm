@@ -25,6 +25,8 @@ jobs:
           rust: stable
           target: x86_64-unknown-linux-gnu
           cross: false
+          npm_pkg: cli-linux-x64
+          binary: shellfirm
         # - build: aarch64-linux
         #   os: ubuntu-20.04
         #   rust: stable
@@ -35,16 +37,22 @@ jobs:
           rust: stable
           target: x86_64-apple-darwin
           cross: false
+          npm_pkg: cli-darwin-x64
+          binary: shellfirm
         - build: aarch64-macos
           os: macos-latest
           rust: stable
           target: aarch64-apple-darwin
           cross: false
+          npm_pkg: cli-darwin-arm64
+          binary: shellfirm
         - build: x86_64-windows
           os: windows-2019
           rust: stable
           target: x86_64-pc-windows-msvc
           cross: false
+          npm_pkg: cli-win32-x64
+          binary: shellfirm.exe
 
 
     steps:
@@ -88,6 +96,16 @@ jobs:
         with:
           name: bins-${{ matrix.build }}
           path: dist
+
+      - name: Copy binary to npm package
+        shell: bash
+        run: cp target/${{ matrix.target }}/release/${{ matrix.binary }} npm/${{ matrix.npm_pkg }}/
+
+      - name: Upload npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.npm_pkg }}
+          path: npm/${{ matrix.npm_pkg }}/
 
   publish:
     name: Publish
@@ -159,3 +177,39 @@ jobs:
           commit-message: updating formula for ${{ env.PROJECT_NAME }}
         env:
           COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+
+  publish-npm:
+    name: Publish to npm
+    needs: [dist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Download all npm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare platform packages
+        run: |
+          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-x64 cli-win32-x64; do
+            cp -r artifacts/$pkg/* npm/$pkg/
+          done
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-x64 cli-win32-x64; do
+            npm publish ./npm/$pkg --access public
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./npm/shellfirm --access public
