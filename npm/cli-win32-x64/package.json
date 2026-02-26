@@ -1,6 +1,6 @@
 {
   "name": "@shellfirm/cli-win32-x64",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "shellfirm binary for Windows x64",
   "license": "MIT",
   "os": [
