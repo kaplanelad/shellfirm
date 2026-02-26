@@ -75,6 +75,11 @@ pub struct TerminalPrompter;
 
 impl Prompter for TerminalPrompter {
     fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
+        // Move to a new line and clear everything below the cursor.
+        // This erases leftover terminal artifacts (e.g., fzf inline display)
+        // so the challenge renders cleanly.
+        eprint!("\n\x1b[J");
+
         // Banner
         let separator = "=".repeat(12);
         if display.is_denied {
