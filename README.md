@@ -9,19 +9,27 @@
 
 Humans make mistakes. AI agents make them faster. shellfirm intercepts dangerous shell commands before the damage is done — for both.
 
-```bash
-$ rm -rf /
-#######################
-# RISKY COMMAND FOUND #
-#######################
-* You are going to delete everything in the path.
-
-> Safe alternative: rm -ri /  (interactive mode, confirm each file)
+```
+$ rm -rf ./src
+============ RISKY COMMAND DETECTED ============
+Severity: Critical
+Blast radius: [PROJECT] — Deletes 347 files (12.4 MB) in ./src
+Description: You are going to delete everything in the path.
 
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
 
-![](./docs/media/example.gif)
+```
+$ git push origin main --force
+============ RISKY COMMAND DETECTED ============
+Severity: High
+Blast radius: [RESOURCE] — Force-pushes branch main (3 commits behind remote)
+Description: This command will force push and overwrite remote history.
+Alternative: git push --force-with-lease
+  (Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work.)
+
+Solve the challenge: 3 + 5 = ? (^C to cancel)
+```
 
 ---
 

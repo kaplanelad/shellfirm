@@ -76,25 +76,32 @@ pub struct TerminalPrompter;
 impl Prompter for TerminalPrompter {
     fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
         // Banner
+        let separator = "=".repeat(12);
         if display.is_denied {
-            eprintln!("{}", style("##################").red().bold());
-            eprintln!("{}", style("# COMMAND DENIED #").red().bold());
-            eprintln!("{}", style("##################").red().bold());
+            eprintln!(
+                "{}",
+                style(format!("{separator} COMMAND DENIED {separator}"))
+                    .red()
+                    .bold()
+            );
         } else {
-            eprintln!("{}", style("#######################").yellow().bold());
-            eprintln!("{}", style("# RISKY COMMAND FOUND #").yellow().bold());
-            eprintln!("{}", style("#######################").yellow().bold());
+            eprintln!(
+                "{}",
+                style(format!("{separator} RISKY COMMAND DETECTED {separator}"))
+                    .red()
+                    .bold()
+            );
         }
 
         // Severity label
         if let Some(ref sev) = display.severity_label {
-            eprintln!("{}", style(format!("  Severity: [{sev}]")).red().bold());
+            eprintln!("{} {}", style("Severity:").red().bold(), style(sev).red());
         }
 
         // Blast radius
         if let Some(ref br) = display.blast_radius_label {
             eprintln!(
-                "  {} {}",
+                "{} {}",
                 style("Blast radius:").red().bold(),
                 style(br).dim()
             );
@@ -103,20 +110,23 @@ impl Prompter for TerminalPrompter {
         // Context labels
         if !display.context_labels.is_empty() {
             let labels = display.context_labels.join(", ");
-            eprintln!("{}", style(format!("  Context: {labels}")).cyan().bold());
+            eprintln!(
+                "{} {}",
+                style("Context:").cyan().bold(),
+                style(labels).cyan()
+            );
         }
 
         // Descriptions
         for desc in &display.descriptions {
-            eprintln!("* {desc}");
+            eprintln!("{} {desc}", style("Description:").white().bold());
         }
 
         // Alternatives
         for alt in &display.alternatives {
-            eprintln!();
             eprintln!(
-                "  {} {}",
-                style("Safer alternative:").green().bold(),
+                "{} {}",
+                style("Alternative:").green().bold(),
                 alt.suggestion
             );
             if let Some(ref info) = alt.explanation {
@@ -126,9 +136,8 @@ impl Prompter for TerminalPrompter {
 
         // Escalation note
         if let Some(ref note) = display.escalation_note {
-            eprintln!();
             eprintln!(
-                "  {}",
+                "{}",
                 style(format!("Challenge ESCALATED: {note}"))
                     .magenta()
                     .bold()
