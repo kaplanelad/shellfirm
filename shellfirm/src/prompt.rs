@@ -1,6 +1,6 @@
 //! Challenge prompts and the [`Prompter`] trait for testability.
 
-use std::{cell::RefCell, io, thread, time::Duration};
+use std::{cell::RefCell, thread, time::Duration};
 
 use console::style;
 use rand::RngExt;
@@ -18,7 +18,7 @@ const SOLVE_YES_TEXT: &str = "Type `yes` to continue";
 /// show denied text
 const DENIED_TEXT: &str = "The command is not allowed.";
 /// show to the user how can he cancel the command
-const CANCEL_PROMPT_TEXT: &str = "^C to cancel";
+const CANCEL_PROMPT_TEXT: &str = "Esc to cancel";
 
 // ---------------------------------------------------------------------------
 // ChallengeResult + DisplayContext
@@ -153,7 +153,10 @@ impl Prompter for TerminalPrompter {
 
         // Deny
         if display.is_denied {
-            eprintln!("{} type {}", DENIED_TEXT, get_cancel_string());
+            eprintln!(
+                "{DENIED_TEXT} {}",
+                style("Press ^C to exit.").underlined().bold().italic()
+            );
             loop {
                 thread::sleep(Duration::from_secs(60));
             }
@@ -212,78 +215,71 @@ impl Prompter for MockPrompter {
 // ---------------------------------------------------------------------------
 
 /// Show math challenge to the user.
-#[must_use]
 fn math_challenge() -> bool {
     let mut rng = rand::rng();
     let num_a = rng.random_range(0..10);
     let num_b = rng.random_range(0..10);
-    let expected_answer = num_a + num_b;
+    let expected: i64 = (num_a + num_b).into();
 
-    eprintln!(
-        "{}: {} + {} = ? {}",
-        SOLVE_MATH_TEXT,
-        num_a,
-        num_b,
-        get_cancel_string()
-    );
-    loop {
-        let answer = show_stdin_prompt();
+    let cancel = format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic());
+    let question = requestty::Question::int("math")
+        .message(format!("{SOLVE_MATH_TEXT}: {num_a} + {num_b} = ? {cancel}"))
+        .on_esc(requestty::OnEsc::Terminate)
+        .validate(move |n, _| {
+            if n == expected {
+                Ok(())
+            } else {
+                Err(WRONG_ANSWER.to_owned())
+            }
+        })
+        .build();
 
-        let answer: u32 = match answer.trim().parse() {
-            Ok(num) => num,
-            Err(_) => continue,
-        };
-        if answer == expected_answer {
-            break;
-        }
-        eprintln!("{WRONG_ANSWER}");
+    match requestty::prompt_one(question) {
+        Ok(_) => true,
+        Err(_) => std::process::exit(exitcode::DATAERR),
     }
-    true
 }
 
 /// Show enter challenge to the user.
-#[must_use]
 fn enter_challenge() -> bool {
-    eprintln!("{} {}", SOLVE_ENTER_TEXT, get_cancel_string());
-    loop {
-        let answer = show_stdin_prompt();
-        if answer == "\n" {
-            break;
-        }
-        eprintln!("{WRONG_ANSWER}");
+    let cancel = format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic());
+    let question = requestty::Question::input("enter")
+        .message(format!("{SOLVE_ENTER_TEXT} {cancel}"))
+        .on_esc(requestty::OnEsc::Terminate)
+        .validate(|answer, _| {
+            if answer.is_empty() {
+                Ok(())
+            } else {
+                Err(WRONG_ANSWER.to_owned())
+            }
+        })
+        .build();
+
+    match requestty::prompt_one(question) {
+        Ok(_) => true,
+        Err(_) => std::process::exit(exitcode::DATAERR),
     }
-    true
 }
 
 /// Show yes challenge to the user.
-#[must_use]
 fn yes_challenge() -> bool {
-    eprintln!("{} {}", SOLVE_YES_TEXT, get_cancel_string());
-    loop {
-        if show_stdin_prompt().trim() == "yes" {
-            break;
-        }
-        eprintln!("{WRONG_ANSWER}");
-    }
-    true
-}
+    let cancel = format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic());
+    let question = requestty::Question::input("yes")
+        .message(format!("{SOLVE_YES_TEXT} {cancel}"))
+        .on_esc(requestty::OnEsc::Terminate)
+        .validate(|answer, _| {
+            if answer.trim() == "yes" {
+                Ok(())
+            } else {
+                Err(WRONG_ANSWER.to_owned())
+            }
+        })
+        .build();
 
-/// Catch user stdin and return the user's input.
-/// If stdin is closed or unreadable, exits gracefully instead of panicking.
-fn show_stdin_prompt() -> String {
-    let mut answer = String::new();
-    match io::stdin().read_line(&mut answer) {
-        Ok(_) => answer,
-        Err(_) => {
-            // stdin closed or error — treat as cancellation and exit gracefully
-            std::process::exit(exitcode::OK);
-        }
+    match requestty::prompt_one(question) {
+        Ok(_) => true,
+        Err(_) => std::process::exit(exitcode::DATAERR),
     }
-}
-
-/// return cancel string with colorize format
-fn get_cancel_string() -> String {
-    format!("{}", style(CANCEL_PROMPT_TEXT).underlined().bold().italic())
 }
 
 // ---------------------------------------------------------------------------

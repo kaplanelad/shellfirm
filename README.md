@@ -60,9 +60,11 @@ shellfirm ships as an [MCP](https://modelcontextprotocol.io/) server so AI codin
 | `explain_risk` | Detailed explanation of why a command is dangerous |
 | `get_policy` | Read the active shellfirm configuration and project policy |
 
-### Claude Code Setup
+### MCP Setup
 
-Add to `~/.claude.json`:
+#### Claude Code
+
+Add to `~/.claude.json` (global) or `.claude.json` (per-project):
 
 ```json
 {
@@ -75,7 +77,7 @@ Add to `~/.claude.json`:
 }
 ```
 
-For Cursor, Windsurf, and other MCP-compatible tools, see the [AI agents documentation](https://shellfirm.dev/docs/agents-and-automation).
+For Cursor, Windsurf, Zed, Cline, Continue, Amazon Q, and other MCP-compatible tools, see the [integration guides](https://shellfirm.vercel.app/docs/agents-and-automation/cursor-and-others).
 
 ---
 
@@ -130,7 +132,7 @@ Full documentation is available at **[shellfirm.dev](https://shellfirm.dev)**:
 - [Configuration](https://shellfirm.dev/docs/configuration) — challenge types, severity thresholds, custom checks
 - [Context-Aware Protection](https://shellfirm.dev/docs/context-aware) — SSH, root, git branches, Kubernetes, environment variables
 - [Team Policies](https://shellfirm.dev/docs/team-policies) — `.shellfirm.yaml` project-level rules
-- [AI Agents & Automation](https://shellfirm.dev/docs/agents-and-automation) — MCP server, LLM analysis, agent mode
+- [AI Agents & Automation](https://shellfirm.vercel.app/docs/agents-and-automation) — MCP server, LLM analysis, agent mode
 
 ---
 
