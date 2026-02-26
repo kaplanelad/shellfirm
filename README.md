@@ -2,23 +2,12 @@
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/ci.yaml/badge.svg"/>
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/release.yml/badge.svg"/>
 </p>
-  
+
 # shellfirm
 
-<div align="center">
-<h1>Opppppsss <b>you</b> did it again? :scream: :scream: :cold_sweat:</h1>
-</div>
+**Think before you execute.**
 
-How do I save myself from myself?
-
-- `rm -rf *`
-- `git reset --hard` before hitting the enter key?
-- `kubectl delete ns` Stop! You are going to delete a lot of resources.
-- `docker system prune -a` Bye bye, all your images and containers.
-- `aws s3 rb` Deleting an entire S3 bucket?
-- And many more!
-
-`shellfirm` will intercept any risky patterns and immediately prompt a small challenge that will double verify your action, think of it as a captcha for your terminal.
+Humans make mistakes. AI agents make them faster. shellfirm intercepts dangerous shell commands before the damage is done — for both.
 
 ```bash
 $ rm -rf /
@@ -32,120 +21,71 @@ $ rm -rf /
 Solve the challenge: 8 + 0 = ? (^C to cancel)
 ```
 
-## Features
-
-### Context-Aware Protection
-
-shellfirm detects _where_ you're running and automatically escalates challenge difficulty:
-
-| Signal                | Risk Level   | Example                                          |
-| --------------------- | ------------ | ------------------------------------------------ |
-| SSH session           | Elevated     | Harder challenge when remotely connected         |
-| Root user             | Critical     | Hardest challenge to prevent root-level mistakes |
-| Protected git branch  | Elevated     | Extra caution on `main`, `master`, `release/*`   |
-| Production Kubernetes | Critical     | Safeguards for prod clusters                     |
-| Custom env vars       | Configurable | Flag `ENVIRONMENT=production` as critical        |
-
-### Safe Alternative Suggestions
-
-When a risky command is detected, shellfirm suggests a safer alternative:
-
-```
-$ git push --force origin main
-#######################
-# RISKY COMMAND FOUND #
-#######################
-* Force push can overwrite remote history.
-
-> Safe alternative: git push --force-with-lease origin main
-  (Only force-pushes if your local ref matches the remote, preventing accidental overwrites)
-```
-
-### Severity Levels
-
-Every check has a severity level that indicates how critical the matched pattern is:
-
-| Severity   | Description                          | Examples                                                              |
-| ---------- | ------------------------------------ | --------------------------------------------------------------------- |
-| `Critical` | Irreversible, catastrophic actions   | `rm -rf /`, `DROP DATABASE`, `mkfs`, `terraform apply -auto-approve`  |
-| `High`     | Dangerous but scoped actions         | `git push --force`, `docker system prune -a`, cloud resource deletion |
-| `Medium`   | Potentially risky, context-dependent | `git cherry-pick`, `chmod`, `docker network rm`                       |
-| `Low`      | Informational, strict-mode guards    | `git add .`, `git commit --all`, `git tag -a`                         |
-| `Info`     | Advisory-only                        | Custom checks for team conventions                                    |
-
-You can set a **minimum severity threshold** so that low-severity checks are silently skipped (but still logged to audit):
-
-```bash
-shellfirm config severity          # Interactive selection
-shellfirm config severity High     # Only challenge on High and Critical
-shellfirm config severity None     # Disable filtering (challenge on all)
-```
-
-Or edit `~/.shellfirm/settings.yaml` directly:
-
-```yaml
-min_severity: High
-```
-
-When `min_severity` is not set (the default), all severities trigger a challenge.
-
-### Project-Level Policies
-
-Teams can share safety rules via a `.shellfirm.yaml` file in their repository:
-
-```yaml
-version: "1"
-deny:
-  - "git:force_push"
-overrides:
-  - id: "fs:recursively_delete"
-    min_challenge: Yes
-```
-
-Policies are **additive-only** -- they can make shellfirm stricter but never weaker. Rules are inherited up the directory tree, so a monorepo can have different policies per subdirectory.
-
-### Audit Trail
-
-Track every intercepted command and your decision:
-
-```bash
-shellfirm audit show
-# [2026-02-15T10:00:00Z] git push -f | matched: git:force_push | challenge: Math | ALLOWED | ctx: branch=main
-```
-
-### Expanded Coverage
-
-Built-in patterns cover **9 ecosystems**: filesystem, git, Kubernetes, Terraform, Heroku, Docker, AWS, GCP/Azure, and databases.
+![](./docs/media/example.gif)
 
 ---
 
-## How Does It Work?
+## Features
 
-`shellfirm` evaluates every shell command before execution. If a risky pattern is detected, you get an immediate challenge prompt. The pipeline:
+- **100+ patterns** across 9 ecosystems (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP/Azure, Heroku, databases)
+- **8 shells** — Zsh, Bash, Fish, Nushell, PowerShell, Elvish, Xonsh, Oils
+- **Context-aware escalation** — harder challenges when connected via SSH, running as root, on protected git branches, or in production Kubernetes clusters
+- **Safe alternative suggestions** — actionable safer commands shown alongside every warning
+- **Severity levels** with configurable thresholds (`Critical`, `High`, `Medium`, `Low`, `Info`)
+- **Project policies** — share team safety rules via `.shellfirm.yaml` (additive-only, never weakens)
+- **Audit trail** — every intercepted command and decision logged as JSON-lines
+- **Blast radius detection** — runtime context signals feed into risk scoring
+- **MCP server** — expose shellfirm as an AI tool for Claude Code, Cursor, and other agents
 
-1. **Pattern matching** -- regex-based detection across compound commands (`&&`, `||`, `|`, `;`)
-2. **Severity filtering** -- checks below `min_severity` are skipped (but still audit-logged)
-3. **Context detection** -- SSH, root, git branch, Kubernetes context, environment variables
-4. **Policy enforcement** -- project `.shellfirm.yaml` rules merged with user settings
-5. **Challenge escalation** -- difficulty scales with risk level
-6. **Safe alternatives** -- actionable suggestion shown alongside the warning
-7. **Audit logging** -- every decision recorded (optional)
+---
 
-## Example
+## AI Agent Integration
 
-![](./docs/media/example.gif)
+shellfirm ships as an [MCP](https://modelcontextprotocol.io/) server so AI coding agents can check commands before running them.
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `check_command` | Check if a command is risky — returns severity, matched rules, and alternatives |
+| `suggest_alternative` | Get safer replacement commands |
+| `explain_risk` | Detailed explanation of why a command is dangerous |
+| `get_policy` | Read the active shellfirm configuration and project policy |
+
+### Claude Code Setup
+
+Add to `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "shellfirm": {
+      "command": "shellfirm",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+For Cursor, Windsurf, and other MCP-compatible tools, see the [AI agents documentation](https://shellfirm.dev/docs/agents-and-automation).
 
 ---
 
 ## Installation
 
-### Via Homebrew
+### npm
+
+```bash
+npm install -g @shellfirm/cli
+```
+
+### Homebrew
 
 ```bash
 brew tap kaplanelad/tap && brew install shellfirm
 ```
 
-### Via Cargo
+### Cargo
 
 ```bash
 cargo install shellfirm
@@ -153,182 +93,43 @@ cargo install shellfirm
 
 Or download the binary from the [releases page](https://github.com/kaplanelad/shellfirm/releases).
 
-Verify:
-
-```bash
-shellfirm --version
-```
-
 ---
 
-## Shell Setup
+## Quick Start
 
-One command — auto-detects your shell and writes the hook to your rc file:
+**1. Install the shell hook** (auto-detects your shell):
 
 ```bash
 shellfirm init --install
 ```
 
-That's it. Restart your shell (or `source` your rc file) and you're protected.
+**2. Restart your shell** (or `source` your rc file).
 
-To specify the shell explicitly:
-
-```bash
-shellfirm init zsh --install
-shellfirm init bash --install
-shellfirm init fish --install
-```
-
-Supported shells: **Zsh**, **Bash**, **Fish**, **Nushell**, **PowerShell**, **Elvish**, **Xonsh**, **Oils (OSH/YSH)**.
-
-### Verify
+**3. Try it:**
 
 ```bash
 git reset --hard  # Should trigger shellfirm!
 ```
 
-<details>
-<summary>Manual setup (print hook without installing)</summary>
-
-If you prefer to add the hook yourself, run `shellfirm init` without `--install` to
-print the hook code to stdout:
-
-```bash
-# Zsh / Bash / Oils — add this line to your rc file:
-eval "$(shellfirm init zsh)"
-
-# Fish — add this line to ~/.config/fish/config.fish:
-shellfirm init fish | source
-
-# Nushell / PowerShell / Elvish / Xonsh — run and paste output into your config:
-shellfirm init nushell
-shellfirm init powershell
-shellfirm init elvish
-shellfirm init xonsh
-```
-
-| Shell          | RC File                                     |
-| -------------- | ------------------------------------------- |
-| Zsh            | `~/.zshrc`                                  |
-| Bash           | `~/.bashrc`                                 |
-| Fish           | `~/.config/fish/config.fish`                |
-| Nushell        | `$nu.config-path` (run `config nu` to edit) |
-| PowerShell     | `$PROFILE` (run `notepad $PROFILE` to edit) |
-| Elvish         | `~/.config/elvish/rc.elv`                   |
-| Xonsh          | `~/.xonshrc`                                |
-| Oils (OSH/YSH) | `~/.config/oils/oshrc`                      |
-
-</details>
-
-<details>
-<summary>Oh My Zsh plugin</summary>
-
-```sh
-curl https://raw.githubusercontent.com/kaplanelad/shellfirm/main/shell-plugins/shellfirm.plugin.oh-my-zsh.zsh \
-  --create-dirs -o ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/shellfirm/shellfirm.plugin.zsh
-```
-
-Add `shellfirm` to the plugin list in `~/.zshrc`:
-
-```bash
-plugins=(... shellfirm)
-```
-
-</details>
+For manual setup, shell-specific instructions, and Oh My Zsh plugin, see the [shell setup docs](https://shellfirm.dev/docs/getting-started/shell-setup).
 
 ---
 
-## Configuration
+## Documentation
 
-### Challenge Types
+Full documentation is available at **[shellfirm.dev](https://shellfirm.dev)**:
 
-| Type    | Description                                 |
-| ------- | ------------------------------------------- |
-| `Math`  | Solve a simple arithmetic problem (default) |
-| `Enter` | Press Enter to confirm                      |
-| `Yes`   | Type "yes" to confirm                       |
-
-```bash
-shellfirm config challenge   # Interactive selection
-```
-
-### Context-Aware Settings
-
-Edit `~/.shellfirm/settings.yaml` to configure context detection:
-
-```yaml
-context:
-  protected_branches:
-    - main
-    - master
-    - "release/*"
-  production_k8s_patterns:
-    - "prod"
-    - "production"
-  production_env_vars:
-    ENVIRONMENT: "production"
-    RAILS_ENV: "production"
-    NODE_ENV: "production"
-  escalation:
-    elevated: Enter # Elevated risk -> at least Enter challenge
-    critical: Yes # Critical risk -> at least Yes challenge
-audit_enabled: true
-```
-
-### Custom Checks
-
-Add your own patterns by placing YAML files in `~/.shellfirm/checks/`:
-
-```yaml
-# ~/.shellfirm/checks/my-team.yaml
-- from: internal
-  test: deploy-tool nuke
-  description: "This will destroy the deployment."
-  id: internal:deploy_nuke
-  severity: Critical
-  alternative: deploy-tool rollback
-  alternative_info: "Rolls back to the previous version safely."
-```
-
-If `severity` is omitted, it defaults to `Medium`.
-
-### Manage Checks
-
-```bash
-shellfirm config update-groups  # Enable/disable check groups
-shellfirm config ignore         # Ignore specific patterns
-shellfirm config deny           # Hard-deny patterns (no challenge, just block)
-shellfirm config severity       # Set minimum severity threshold
-shellfirm config show           # Display current configuration
-shellfirm config reset          # Reset to defaults
-```
+- [Configuration](https://shellfirm.dev/docs/configuration) — challenge types, severity thresholds, custom checks
+- [Context-Aware Protection](https://shellfirm.dev/docs/context-aware) — SSH, root, git branches, Kubernetes, environment variables
+- [Team Policies](https://shellfirm.dev/docs/team-policies) — `.shellfirm.yaml` project-level rules
+- [AI Agents & Automation](https://shellfirm.dev/docs/agents-and-automation) — MCP server, LLM analysis, agent mode
 
 ---
 
-## Team Adoption (Project Policies)
+## Contributing
 
-### Create a Policy
+Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/kaplanelad/shellfirm).
 
-```bash
-cd your-project
-shellfirm policy init    # Creates .shellfirm.yaml template
-```
+## License
 
-## Audit Trail
-
-Enable auditing in your settings:
-
-```yaml
-audit_enabled: true
-```
-
-Commands:
-
-```bash
-shellfirm audit show    # View the log
-shellfirm audit clear   # Clear the log
-```
-
-Each entry records: timestamp, command, matched patterns, severity, challenge type, outcome (ALLOWED/BLOCKED/DENIED/SKIPPED), and context labels. Checks that matched but were below `min_severity` are logged with a `SKIPPED` outcome.
-
----
+[Apache-2.0](LICENSE)

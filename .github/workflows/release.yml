@@ -12,8 +12,59 @@ env:
   BREW_TAP: kaplanelad/homebrew-tap
 
 jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      npm_ready: ${{ steps.npm-check.outputs.npm_ready }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract tag version
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify Cargo.toml matches tag
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version' shellfirm/Cargo.toml | sed 's/version *= *"\(.*\)"/\1/')
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Cargo.toml version ($CARGO_VERSION) does not match tag (v$TAG_VERSION)"
+            exit 1
+          fi
+          echo "Cargo.toml version matches tag: $CARGO_VERSION"
+
+      - name: Check version not already released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          if gh release view "v$TAG_VERSION" > /dev/null 2>&1; then
+            echo "::error::Release v$TAG_VERSION already exists"
+            exit 1
+          fi
+          echo "Version v$TAG_VERSION has not been released yet"
+
+      - name: Check npm versions in sync
+        id: npm-check
+        run: |
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          ALL_MATCH=true
+          for pkg in npm/shellfirm npm/cli-darwin-arm64 npm/cli-darwin-x64 npm/cli-linux-x64 npm/cli-win32-x64; do
+            PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
+            if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+              echo "::warning::$pkg version ($PKG_VERSION) does not match tag (v$TAG_VERSION). Run scripts/bump-npm-version.sh"
+              ALL_MATCH=false
+            fi
+          done
+          echo "npm_ready=$ALL_MATCH" >> "$GITHUB_OUTPUT"
+
   dist:
     name: Dist
+    needs: [validate]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -180,7 +231,8 @@ jobs:
 
   publish-npm:
     name: Publish to npm
-    needs: [dist]
+    needs: [validate, dist]
+    if: needs.validate.outputs.npm_ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
