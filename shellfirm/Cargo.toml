@@ -1,7 +1,7 @@
 [package]
 name = "shellfirm"
 description = "`shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal."
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Elad-Kaplan <kaplan.elad@gmail.com>"]
 license = "MIT"
@@ -31,19 +31,39 @@ exitcode = "1.1"
 requestty = "0.6"
 wait-timeout = "0.2"
 serde_json = "1.0"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "blocking"], optional = true }
-tokio = { version = "1", features = ["rt", "macros", "time", "io-std", "io-util"], optional = true }
+reqwest = { version = "0.12", features = [
+    "json",
+    "rustls-tls",
+    "blocking",
+], optional = true }
+tokio = { version = "1", features = [
+    "rt",
+    "macros",
+    "time",
+    "io-std",
+    "io-util",
+], optional = true }
 uuid = { version = "1", features = ["v4"] }
 strsim = "0.11"
 libc = { version = "0.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", features = ["term", "signal", "process", "poll", "fs", "ioctl"], optional = true }
+nix = { version = "0.31", features = [
+    "term",
+    "signal",
+    "process",
+    "poll",
+    "fs",
+    "ioctl",
+], optional = true }
 rustix = { version = "1.0", features = ["termios"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 portable-pty = { version = "0.9", optional = true }
-windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation"], optional = true }
+windows-sys = { version = "0.59", features = [
+    "Win32_System_Console",
+    "Win32_Foundation",
+], optional = true }
 
 [dev-dependencies]
 insta = { version = "1.46", features = ["filters"] }
