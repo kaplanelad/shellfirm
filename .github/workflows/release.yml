@@ -72,7 +72,7 @@ jobs:
         build: [x86_64-linux, x86_64-macos, aarch64-macos, x86_64-windows] # aarch64-linux,
         include:
         - build: x86_64-linux
-          os: ubuntu-20.04
+          os: ubuntu-latest
           rust: stable
           target: x86_64-unknown-linux-gnu
           cross: false
@@ -98,7 +98,7 @@ jobs:
           npm_pkg: cli-darwin-arm64
           binary: shellfirm
         - build: x86_64-windows
-          os: windows-2019
+          os: windows-latest
           rust: stable
           target: x86_64-pc-windows-msvc
           cross: false
@@ -138,7 +138,7 @@ jobs:
         shell: bash
         run: |
           mkdir dist
-          if [ "${{ matrix.os }}" = "windows-2019" ]; then
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/$BIN_NAME.exe" "dist/"
           else
             cp "target/${{ matrix.target }}/release/$BIN_NAME" "dist/"
@@ -158,8 +158,8 @@ jobs:
           name: ${{ matrix.npm_pkg }}
           path: npm/${{ matrix.npm_pkg }}/
 
-  publish:
-    name: Publish
+  publish-github:
+    name: Publish to GitHub Releases
     needs: [dist]
     runs-on: ubuntu-latest
     steps:
@@ -214,8 +214,11 @@ jobs:
           tag: ${{ steps.tagname.outputs.val }}
           overwrite: true
 
-      # update homebrew
-
+  publish-brew:
+    name: Publish to Homebrew
+    needs: [publish-github]
+    runs-on: ubuntu-latest
+    steps:
       - name: Extract version
         id: extract-version
         run: |
