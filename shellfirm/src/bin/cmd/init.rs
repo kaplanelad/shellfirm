@@ -842,10 +842,11 @@ shellfirm-pre-command() {
         zle .accept-line
         return
     fi
-    echo
     shellfirm pre-command -c "${BUFFER}"
     if [[ $? -eq 0 ]]; then
         zle .accept-line
+    else
+        zle reset-prompt
     fi
 }
 zle -N accept-line shellfirm-pre-command"#
@@ -853,29 +854,64 @@ zle -N accept-line shellfirm-pre-command"#
 
 #[allow(clippy::literal_string_with_formatting_args)]
 const fn bash_hook() -> &'static str {
-    r#"# shellfirm hook for bash — intercepts commands before execution via DEBUG trap
+    r#"# shellfirm hook for bash — intercepts risky commands via DEBUG trap.
+# Fires once per command line using PROMPT_COMMAND flag + history number.
+# Without functrace, the DEBUG trap only fires for function CALLS (not
+# internal commands), so fzf/keybinding internals are never affected.
+__shellfirm_ready=""
+__shellfirm_histnum="__sf_none__"
+__shellfirm_blocked=""
+
+_shellfirm_prompt() {
+    __shellfirm_ready="1"
+    __shellfirm_blocked=""
+}
+
 _shellfirm_hook() {
+    # Fast exit for sub-commands after the first check (no subshells)
+    if [[ -z "$__shellfirm_ready" ]]; then
+        [[ -n "$__shellfirm_blocked" ]] && return 1
+        return 0
+    fi
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$BASH_COMMAND" == *"shellfirm"* ]] && return 0
-    [[ "$BASH_COMMAND" == "_shellfirm_hook" ]] && return 0
+    [[ "$BASH_COMMAND" == "_shellfirm_"* ]] && return 0
     command -v shellfirm &>/dev/null || return 0
-    # Temporarily trap SIGINT with a no-op so Ctrl+C kills only the child
-    # (shellfirm pre-command) without interrupting this handler.  Using ':'
-    # rather than '' ensures child processes still receive SIGINT normally.
+
+    # Check history number to distinguish real commands from keybinding
+    # functions (fzf, etc.). Keybinding functions don't create new history
+    # entries, so the number stays the same — we skip without consuming
+    # the ready flag, so the actual command will be checked later.
+    local histnum
+    histnum=$(HISTTIMEFORMAT='' builtin history 1 | awk '{print $1}')
+    [[ "$histnum" == "$__shellfirm_histnum" ]] && return 0
+
+    # New command line — consume the flag and check
+    __shellfirm_ready=""
+    __shellfirm_histnum="$histnum"
+
+    local full_cmd
+    full_cmd=$(HISTTIMEFORMAT='' builtin history 1 | sed 's/^[ ]*[0-9]*[ ]*//')
+    [[ -z "$full_cmd" ]] && return 0
+
     local __sf_prev_int
     __sf_prev_int=$(trap -p INT)
     trap ':' INT
-    shellfirm pre-command -c "$BASH_COMMAND"
+    shellfirm pre-command -c "$full_cmd"
     local __sf_rc=$?
-    # Restore previous SIGINT handler
     if [[ -n "$__sf_prev_int" ]]; then
         eval "$__sf_prev_int"
     else
         trap - INT
     fi
-    [[ $__sf_rc -ne 0 ]] && return 1
+    if [[ $__sf_rc -ne 0 ]]; then
+        __shellfirm_blocked="1"
+        return 1
+    fi
     return 0
 }
+
+PROMPT_COMMAND="_shellfirm_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 shopt -s extdebug
 trap '_shellfirm_hook' DEBUG"#
 }
@@ -889,7 +925,6 @@ function _shellfirm_check
         return
     end
     stty sane
-    echo
     shellfirm pre-command -c "$cmd"
     if test $status -eq 0
         commandline -f execute
@@ -1002,15 +1037,47 @@ else:
 
 #[allow(clippy::literal_string_with_formatting_args)]
 const fn oils_hook() -> &'static str {
-    r#"# shellfirm hook for Oils (OSH/YSH) — bash-compatible, uses extdebug
-shopt -s extdebug
+    r#"# shellfirm hook for Oils (OSH/YSH) — same approach as the bash hook.
+__shellfirm_ready=""
+__shellfirm_histnum="__sf_none__"
+__shellfirm_blocked=""
+
+_shellfirm_prompt() {
+    __shellfirm_ready="1"
+    __shellfirm_blocked=""
+}
+
 _shellfirm_hook() {
+    if [[ -z "$__shellfirm_ready" ]]; then
+        [[ -n "$__shellfirm_blocked" ]] && return 1
+        return 0
+    fi
     [[ -n "${COMP_LINE:-}" ]] && return 0
     [[ "$BASH_COMMAND" == *"shellfirm"* ]] && return 0
+    [[ "$BASH_COMMAND" == "_shellfirm_"* ]] && return 0
     command -v shellfirm &>/dev/null || return 0
-    shellfirm pre-command -c "$BASH_COMMAND" || return 1
+
+    local histnum
+    histnum=$(HISTTIMEFORMAT='' builtin history 1 | awk '{print $1}')
+    [[ "$histnum" == "$__shellfirm_histnum" ]] && return 0
+
+    __shellfirm_ready=""
+    __shellfirm_histnum="$histnum"
+
+    local full_cmd
+    full_cmd=$(HISTTIMEFORMAT='' builtin history 1 | sed 's/^[ ]*[0-9]*[ ]*//')
+    [[ -z "$full_cmd" ]] && return 0
+
+    shellfirm pre-command -c "$full_cmd"
+    if [[ $? -ne 0 ]]; then
+        __shellfirm_blocked="1"
+        return 1
+    fi
     return 0
 }
+
+PROMPT_COMMAND="_shellfirm_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+shopt -s extdebug
 trap '_shellfirm_hook' DEBUG"#
 }
 
