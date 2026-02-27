@@ -118,6 +118,83 @@ impl Default for WrapperToolConfig {
     }
 }
 
+/// Configuration for severity-based challenge escalation.
+///
+/// When enabled (the default), checks at higher severity levels automatically
+/// receive harder challenges — `Critical` → `Yes`, `High` → `Enter`.
+/// Each mapping acts as a floor: `max_challenge(base, severity_floor)`.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SeverityEscalationConfig {
+    /// Whether severity-based escalation is active.
+    #[serde(default = "default_severity_escalation_enabled")]
+    pub enabled: bool,
+    /// Minimum challenge for Critical severity checks.
+    #[serde(default = "default_severity_critical")]
+    pub critical: Challenge,
+    /// Minimum challenge for High severity checks.
+    #[serde(default = "default_severity_high")]
+    pub high: Challenge,
+    /// Minimum challenge for Medium severity checks.
+    #[serde(default = "default_severity_medium")]
+    pub medium: Challenge,
+    /// Minimum challenge for Low severity checks.
+    #[serde(default = "default_severity_low")]
+    pub low: Challenge,
+    /// Minimum challenge for Info severity checks.
+    #[serde(default = "default_severity_info")]
+    pub info: Challenge,
+}
+
+const fn default_severity_escalation_enabled() -> bool {
+    true
+}
+const fn default_severity_critical() -> Challenge {
+    Challenge::Yes
+}
+const fn default_severity_high() -> Challenge {
+    Challenge::Enter
+}
+const fn default_severity_medium() -> Challenge {
+    Challenge::Math
+}
+const fn default_severity_low() -> Challenge {
+    Challenge::Math
+}
+const fn default_severity_info() -> Challenge {
+    Challenge::Math
+}
+
+impl Default for SeverityEscalationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_severity_escalation_enabled(),
+            critical: default_severity_critical(),
+            high: default_severity_high(),
+            medium: default_severity_medium(),
+            low: default_severity_low(),
+            info: default_severity_info(),
+        }
+    }
+}
+
+impl SeverityEscalationConfig {
+    /// Return the challenge floor for the given severity, or `None` if
+    /// severity escalation is disabled.
+    #[must_use]
+    pub const fn challenge_for_severity(&self, severity: Severity) -> Option<Challenge> {
+        if !self.enabled {
+            return None;
+        }
+        Some(match severity {
+            Severity::Critical => self.critical,
+            Severity::High => self.high,
+            Severity::Medium => self.medium,
+            Severity::Low => self.low,
+            Severity::Info => self.info,
+        })
+    }
+}
+
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
 
 pub const DEFAULT_CHALLENGE: Challenge = Challenge::Math;
@@ -218,6 +295,15 @@ pub struct Settings {
     /// PTY wrapper configuration (requires `wrap` feature).
     #[serde(default)]
     pub wrappers: WrappersConfig,
+    /// Severity-based challenge escalation (enabled by default).
+    #[serde(default)]
+    pub severity_escalation: SeverityEscalationConfig,
+    /// Per-group minimum challenge overrides (group name → challenge).
+    #[serde(default)]
+    pub group_escalation: HashMap<String, Challenge>,
+    /// Per-check-ID minimum challenge overrides (check ID → challenge).
+    #[serde(default)]
+    pub check_escalation: HashMap<String, Challenge>,
 }
 
 impl fmt::Display for Challenge {
@@ -282,6 +368,9 @@ impl Default for Settings {
             agent: AgentConfig::default(),
             llm: None,
             wrappers: WrappersConfig::default(),
+            severity_escalation: SeverityEscalationConfig::default(),
+            group_escalation: HashMap::new(),
+            check_escalation: HashMap::new(),
         }
     }
 }

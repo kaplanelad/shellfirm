@@ -147,6 +147,80 @@ pub fn command() -> Command {
                         ),
                 ),
         )
+        .subcommand(
+            Command::new("escalation")
+                .about("Manage challenge escalation settings")
+                .subcommand(
+                    Command::new("severity")
+                        .about("Configure severity-based challenge escalation")
+                        .arg(
+                            Arg::new("enabled")
+                                .long("enabled")
+                                .help("Enable/disable severity escalation (true/false)"),
+                        )
+                        .arg(
+                            Arg::new("critical")
+                                .long("critical")
+                                .help("Challenge for Critical severity (Math, Enter, Yes)"),
+                        )
+                        .arg(
+                            Arg::new("high")
+                                .long("high")
+                                .help("Challenge for High severity (Math, Enter, Yes)"),
+                        )
+                        .arg(
+                            Arg::new("medium")
+                                .long("medium")
+                                .help("Challenge for Medium severity (Math, Enter, Yes)"),
+                        )
+                        .arg(
+                            Arg::new("low")
+                                .long("low")
+                                .help("Challenge for Low severity (Math, Enter, Yes)"),
+                        )
+                        .arg(
+                            Arg::new("info")
+                                .long("info")
+                                .help("Challenge for Info severity (Math, Enter, Yes)"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("group")
+                        .about("Manage per-group challenge overrides")
+                        .arg(Arg::new("name").help("Group name (e.g. fs, git, kubernetes)"))
+                        .arg(Arg::new("challenge").help("Challenge type (Math, Enter, Yes)"))
+                        .arg(
+                            Arg::new("remove")
+                                .long("remove")
+                                .help("Remove override for a group")
+                                .num_args(1),
+                        )
+                        .arg(
+                            Arg::new("list")
+                                .long("list")
+                                .help("List group overrides")
+                                .action(ArgAction::SetTrue),
+                        ),
+                )
+                .subcommand(
+                    Command::new("check")
+                        .about("Manage per-check-ID challenge overrides")
+                        .arg(Arg::new("id").help("Check ID (e.g. git:force_push)"))
+                        .arg(Arg::new("challenge").help("Challenge type (Math, Enter, Yes)"))
+                        .arg(
+                            Arg::new("remove")
+                                .long("remove")
+                                .help("Remove override for a check ID")
+                                .num_args(1),
+                        )
+                        .arg(
+                            Arg::new("list")
+                                .long("list")
+                                .help("List check-ID overrides")
+                                .action(ArgAction::SetTrue),
+                        ),
+                ),
+        )
 }
 
 pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
@@ -181,6 +255,7 @@ pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> 
             ("deny", sub) => run_pattern_list_cmd(config, sub, PatternListKind::Deny),
             ("llm", sub) => run_llm_cmd(config, sub),
             ("context", sub) => run_context_cmd(config, sub),
+            ("escalation", sub) => run_escalation_cmd(config, sub),
             _ => unreachable!(),
         },
     )
@@ -260,6 +335,7 @@ pub fn run_show(config: &Config) -> Result<shellfirm::CmdExit> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn format_settings_display(settings: &Settings, config_path: &std::path::Path) -> String {
     let mut lines = Vec::new();
 
@@ -324,6 +400,40 @@ fn format_settings_display(settings: &Settings, config_path: &std::path::Path) -
             "  sensitive paths:    {}",
             settings.context.sensitive_paths.join(", ")
         ));
+    }
+
+    // Severity escalation
+    lines.push(String::new());
+    lines.push("escalation:".to_string());
+    if settings.severity_escalation.enabled {
+        lines.push(format!(
+            "  severity:  Critical={}, High={}, Medium={}, Low={}, Info={}",
+            settings.severity_escalation.critical,
+            settings.severity_escalation.high,
+            settings.severity_escalation.medium,
+            settings.severity_escalation.low,
+            settings.severity_escalation.info,
+        ));
+    } else {
+        lines.push("  severity:  (disabled)".to_string());
+    }
+    if !settings.group_escalation.is_empty() {
+        let mut entries: Vec<String> = settings
+            .group_escalation
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        entries.sort();
+        lines.push(format!("  groups:    {}", entries.join(", ")));
+    }
+    if !settings.check_escalation.is_empty() {
+        let mut entries: Vec<String> = settings
+            .check_escalation
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        entries.sort();
+        lines.push(format!("  checks:    {}", entries.join(", ")));
     }
 
     // LLM
@@ -952,6 +1062,274 @@ fn run_context_interactive(
 }
 
 // ---------------------------------------------------------------------------
+// escalation
+// ---------------------------------------------------------------------------
+
+fn run_escalation_cmd(config: &Config, matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
+    match matches.subcommand() {
+        Some(("severity", sub)) => run_escalation_severity_from_matches(config, sub),
+        Some(("group", sub)) => run_escalation_map_cmd(config, sub, EscalationMapKind::Group),
+        Some(("check", sub)) => run_escalation_map_cmd(config, sub, EscalationMapKind::Check),
+        _ => run_escalation_show(config),
+    }
+}
+
+fn run_escalation_show(config: &Config) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    if settings.severity_escalation.enabled {
+        println!(
+            "severity escalation: enabled\n  Critical={}, High={}, Medium={}, Low={}, Info={}",
+            settings.severity_escalation.critical,
+            settings.severity_escalation.high,
+            settings.severity_escalation.medium,
+            settings.severity_escalation.low,
+            settings.severity_escalation.info,
+        );
+    } else {
+        println!("severity escalation: disabled");
+    }
+    if settings.group_escalation.is_empty() {
+        println!("group overrides: (none)");
+    } else {
+        println!("group overrides:");
+        let mut entries: Vec<_> = settings.group_escalation.iter().collect();
+        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (k, v) in entries {
+            println!("  {k} = {v}");
+        }
+    }
+    if settings.check_escalation.is_empty() {
+        println!("check-id overrides: (none)");
+    } else {
+        println!("check-id overrides:");
+        let mut entries: Vec<_> = settings.check_escalation.iter().collect();
+        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (k, v) in entries {
+            println!("  {k} = {v}");
+        }
+    }
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: None,
+    })
+}
+
+fn run_escalation_severity_from_matches(
+    config: &Config,
+    matches: &ArgMatches,
+) -> Result<shellfirm::CmdExit> {
+    let enabled_arg = matches.get_one::<String>("enabled").map(String::as_str);
+    let critical = matches.get_one::<String>("critical").map(String::as_str);
+    let high = matches.get_one::<String>("high").map(String::as_str);
+    let medium = matches.get_one::<String>("medium").map(String::as_str);
+    let low = matches.get_one::<String>("low").map(String::as_str);
+    let info = matches.get_one::<String>("info").map(String::as_str);
+    run_escalation_severity(config, enabled_arg, critical, high, medium, low, info)
+}
+
+pub fn run_escalation_severity(
+    config: &Config,
+    enabled_arg: Option<&str>,
+    critical: Option<&str>,
+    high: Option<&str>,
+    medium: Option<&str>,
+    low: Option<&str>,
+    info: Option<&str>,
+) -> Result<shellfirm::CmdExit> {
+    let has_flags = enabled_arg.is_some()
+        || critical.is_some()
+        || high.is_some()
+        || medium.is_some()
+        || low.is_some()
+        || info.is_some();
+
+    if !has_flags {
+        let settings = config.get_settings_from_file()?;
+        if settings.severity_escalation.enabled {
+            println!(
+                "severity escalation: enabled\n  Critical={}, High={}, Medium={}, Low={}, Info={}",
+                settings.severity_escalation.critical,
+                settings.severity_escalation.high,
+                settings.severity_escalation.medium,
+                settings.severity_escalation.low,
+                settings.severity_escalation.info,
+            );
+        } else {
+            println!("severity escalation: disabled");
+        }
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: None,
+        });
+    }
+
+    let mut settings = config.get_settings_from_file()?;
+    let mut changes = Vec::new();
+
+    if let Some(val) = enabled_arg {
+        let enabled = match val.to_lowercase().as_str() {
+            "true" | "1" | "yes" => true,
+            "false" | "0" | "no" => false,
+            _ => {
+                return Err(Error::Config(format!(
+                    "invalid value for --enabled: '{val}'\n\nValid values: true, false"
+                )));
+            }
+        };
+        settings.severity_escalation.enabled = enabled;
+        changes.push(format!("enabled = {enabled}"));
+    }
+
+    for (name, arg_val) in [
+        ("critical", critical),
+        ("high", high),
+        ("medium", medium),
+        ("low", low),
+        ("info", info),
+    ] {
+        if let Some(val) = arg_val {
+            let challenge = Challenge::from_string(val).map_err(|_| {
+                Error::Config(format!(
+                    "invalid challenge for {name}: '{val}'\n\nValid values: Math, Enter, Yes"
+                ))
+            })?;
+            match name {
+                "critical" => settings.severity_escalation.critical = challenge,
+                "high" => settings.severity_escalation.high = challenge,
+                "medium" => settings.severity_escalation.medium = challenge,
+                "low" => settings.severity_escalation.low = challenge,
+                "info" => settings.severity_escalation.info = challenge,
+                _ => unreachable!(),
+            }
+            changes.push(format!("{name} = {challenge}"));
+        }
+    }
+
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!(
+            "severity escalation updated: {}",
+            changes.join(", ")
+        )),
+    })
+}
+
+#[derive(Clone, Copy)]
+pub enum EscalationMapKind {
+    Group,
+    Check,
+}
+
+impl EscalationMapKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Group => "group",
+            Self::Check => "check-id",
+        }
+    }
+}
+
+fn run_escalation_map_cmd(
+    config: &Config,
+    matches: &ArgMatches,
+    kind: EscalationMapKind,
+) -> Result<shellfirm::CmdExit> {
+    let list_flag = matches.get_flag("list");
+    let remove_value = matches.get_one::<String>("remove");
+    let key_arg = match kind {
+        EscalationMapKind::Group => matches.get_one::<String>("name"),
+        EscalationMapKind::Check => matches.get_one::<String>("id"),
+    };
+    let challenge_arg = matches.get_one::<String>("challenge");
+
+    if list_flag {
+        return run_escalation_map_show(config, kind);
+    }
+    if let Some(key) = remove_value {
+        return run_escalation_map_remove(config, kind, key);
+    }
+    if let (Some(key), Some(challenge)) = (key_arg, challenge_arg) {
+        return run_escalation_map_set(config, kind, key, challenge);
+    }
+
+    // No args or only key — show current
+    run_escalation_map_show(config, kind)
+}
+
+fn run_escalation_map_show(config: &Config, kind: EscalationMapKind) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let map = match kind {
+        EscalationMapKind::Group => &settings.group_escalation,
+        EscalationMapKind::Check => &settings.check_escalation,
+    };
+    if map.is_empty() {
+        println!("{} overrides: (none)", kind.label());
+    } else {
+        println!("{} overrides:", kind.label());
+        let mut entries: Vec<_> = map.iter().collect();
+        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        for (k, v) in entries {
+            println!("  {k} = {v}");
+        }
+    }
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: None,
+    })
+}
+
+pub fn run_escalation_map_set(
+    config: &Config,
+    kind: EscalationMapKind,
+    key: &str,
+    challenge_str: &str,
+) -> Result<shellfirm::CmdExit> {
+    let challenge = Challenge::from_string(challenge_str).map_err(|_| {
+        Error::Config(format!(
+            "invalid challenge: '{challenge_str}'\n\nValid values: Math, Enter, Yes"
+        ))
+    })?;
+    let mut settings = config.get_settings_from_file()?;
+    let map = match kind {
+        EscalationMapKind::Group => &mut settings.group_escalation,
+        EscalationMapKind::Check => &mut settings.check_escalation,
+    };
+    map.insert(key.to_string(), challenge);
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{} override: {key} = {challenge}", kind.label())),
+    })
+}
+
+pub fn run_escalation_map_remove(
+    config: &Config,
+    kind: EscalationMapKind,
+    key: &str,
+) -> Result<shellfirm::CmdExit> {
+    let mut settings = config.get_settings_from_file()?;
+    let map = match kind {
+        EscalationMapKind::Group => &mut settings.group_escalation,
+        EscalationMapKind::Check => &mut settings.check_escalation,
+    };
+    if map.remove(key).is_none() {
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: Some(format!(
+                "{} override: no override found for '{key}'",
+                kind.label()
+            )),
+        });
+    }
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{} override: removed '{key}'", kind.label())),
+    })
+}
+
+// ---------------------------------------------------------------------------
 // interactive menu (no subcommand)
 // ---------------------------------------------------------------------------
 
@@ -981,6 +1359,7 @@ fn run_interactive_menu(
             |llm| format!("LLM settings            ({} / {})", llm.provider, llm.model),
         ),
         "Context settings".to_string(),
+        "Escalation settings".to_string(),
         "Show full config".to_string(),
     ];
     let item_refs: Vec<&str> = items.iter().map(String::as_str).collect();
@@ -1004,7 +1383,8 @@ fn run_interactive_menu(
         4 => run_pattern_list_show(config, PatternListKind::Deny),
         5 => run_llm_interactive(config, None),
         6 => run_context_interactive(config, None),
-        7 => run_show(config),
+        7 => run_escalation_show(config),
+        8 => run_show(config),
         _ => Ok(shellfirm::CmdExit {
             code: exitcode::CONFIG,
             message: Some("invalid selection".to_string()),
@@ -1514,6 +1894,89 @@ mod test_config_cli_command {
     }
 
     // -----------------------------------------------------------------------
+    // escalation
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn escalation_severity_set_high_and_disable() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        // Set high to Yes
+        let result =
+            run_escalation_severity(&config, None, None, Some("Yes"), None, None, None).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.severity_escalation.high, Challenge::Yes);
+        // Other fields unchanged
+        assert!(settings.severity_escalation.enabled);
+        assert_eq!(settings.severity_escalation.critical, Challenge::Yes);
+
+        // Disable severity escalation
+        let result =
+            run_escalation_severity(&config, Some("false"), None, None, None, None, None).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(!settings.severity_escalation.enabled);
+        // high stays as previously set
+        assert_eq!(settings.severity_escalation.high, Challenge::Yes);
+    }
+
+    #[test]
+    fn escalation_group_set_fs() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result =
+            run_escalation_map_set(&config, EscalationMapKind::Group, "fs", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.group_escalation.get("fs"), Some(&Challenge::Yes));
+    }
+
+    #[test]
+    fn escalation_check_set_and_remove() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        // Set
+        let result =
+            run_escalation_map_set(&config, EscalationMapKind::Check, "git:force_push", "Yes")
+                .unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(
+            settings.check_escalation.get("git:force_push"),
+            Some(&Challenge::Yes)
+        );
+        // Remove
+        let result =
+            run_escalation_map_remove(&config, EscalationMapKind::Check, "git:force_push").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(settings.check_escalation.get("git:force_push").is_none());
+    }
+
+    #[test]
+    fn escalation_group_on_fresh_install() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = fresh_config(&temp_dir);
+        let result =
+            run_escalation_map_set(&config, EscalationMapKind::Group, "database", "Yes").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(
+            settings.group_escalation.get("database"),
+            Some(&Challenge::Yes)
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // interactive menu (force_selection)
     // -----------------------------------------------------------------------
 
@@ -1523,8 +1986,8 @@ mod test_config_cli_command {
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        // Selection 7 = "Show full config"
-        let result = run_interactive_menu(&config, Some(7)).unwrap();
+        // Selection 8 = "Show full config"
+        let result = run_interactive_menu(&config, Some(8)).unwrap();
         assert_eq!(result.code, exitcode::OK);
     }
 }

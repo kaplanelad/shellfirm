@@ -279,18 +279,9 @@ deny:
     #[test]
     fn test_merge_adds_deny() {
         let settings = Settings {
-            challenge: Challenge::Math,
             enabled_groups: vec![],
-            disabled_groups: vec![],
-            ignores_patterns_ids: vec![],
-            deny_patterns_ids: vec![],
-            context: crate::context::ContextConfig::default(),
             audit_enabled: false,
-            blast_radius: true,
-            min_severity: None,
-            agent: crate::config::AgentConfig::default(),
-            llm: None,
-            wrappers: crate::config::WrappersConfig::default(),
+            ..Settings::default()
         };
         let policy = ProjectPolicy {
             version: 1,
@@ -334,18 +325,9 @@ deny:
     #[test]
     fn test_branch_specific_override() {
         let settings = Settings {
-            challenge: Challenge::Math,
             enabled_groups: vec![],
-            disabled_groups: vec![],
-            ignores_patterns_ids: vec![],
-            deny_patterns_ids: vec![],
-            context: crate::context::ContextConfig::default(),
             audit_enabled: false,
-            blast_radius: true,
-            min_severity: None,
-            agent: crate::config::AgentConfig::default(),
-            llm: None,
-            wrappers: crate::config::WrappersConfig::default(),
+            ..Settings::default()
         };
         let policy = ProjectPolicy {
             version: 1,

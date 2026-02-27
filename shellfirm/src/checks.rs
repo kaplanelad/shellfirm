@@ -166,17 +166,23 @@ pub fn validate_checks(checks: &[Check]) -> Vec<String> {
 /// New challenge flow that is context-aware and uses the Prompter trait.
 ///
 /// This is the primary entry point for the v1.0 pipeline.
+/// The effective challenge is computed by applying six escalation layers
+/// in order — each layer can only make the challenge stricter, never weaker:
+///
+/// 1. **Base** — `settings.challenge`
+/// 2. **Severity** — `severity_escalation` (Critical→Yes, High→Enter by default)
+/// 3. **Group** — `group_escalation[check.from]`
+/// 4. **Check-ID** — `check_escalation[check.id]`
+/// 5. **Context** — `escalate_challenge(risk_level)` (SSH→Enter, root/prod→Yes)
+/// 6. **Policy** — `merged_policy.effective_challenge(check.id)` (.shellfirm.yaml)
 ///
 /// # Errors
 /// Returns an error if the prompter fails.
-#[allow(clippy::too_many_arguments)]
 pub fn challenge_with_context(
-    base_challenge: &Challenge,
+    settings: &Settings,
     checks: &[&Check],
-    deny_pattern_ids: &[String],
     context: &RuntimeContext,
     merged_policy: &MergedPolicy,
-    escalation_config: &context::EscalationConfig,
     prompter: &dyn Prompter,
     blast_radii: &[(String, BlastRadiusInfo)],
 ) -> Result<ChallengeResult> {
@@ -184,14 +190,17 @@ pub fn challenge_with_context(
     let mut alternatives: Vec<AlternativeInfo> = Vec::new();
     let mut should_deny_command = false;
 
-    debug!("list of denied pattern ids {deny_pattern_ids:?}");
+    debug!(
+        "list of denied pattern ids {:?}",
+        settings.deny_patterns_ids
+    );
 
     for check in checks {
         if !descriptions.contains(&check.description) {
             descriptions.push(check.description.clone());
         }
         // Check deny from global settings
-        if !should_deny_command && deny_pattern_ids.contains(&check.id) {
+        if !should_deny_command && settings.deny_patterns_ids.contains(&check.id) {
             should_deny_command = true;
         }
         // Check deny from project policy
@@ -210,26 +219,58 @@ pub fn challenge_with_context(
         }
     }
 
-    // Compute effective challenge with context escalation + policy overrides
-    let context_escalated =
-        context::escalate_challenge(base_challenge, context.risk_level, escalation_config);
+    // --- 6-layer escalation pipeline ---
+    let base_challenge = settings.challenge;
 
-    // Apply per-pattern policy overrides (take the strictest)
-    let mut effective = context_escalated;
+    // Layer 1: base challenge
+    let mut effective = base_challenge;
+
+    // Layer 2: severity escalation (highest severity across all matched checks)
+    let max_severity = checks.iter().map(|c| c.severity).max();
+    if let Some(sev) = max_severity {
+        if let Some(sev_floor) = settings.severity_escalation.challenge_for_severity(sev) {
+            effective = max_challenge(effective, sev_floor);
+        }
+    }
+
+    // Layer 3: group escalation (per-group floor from settings)
+    for check in checks {
+        if let Some(&group_floor) = settings.group_escalation.get(&check.from) {
+            effective = max_challenge(effective, group_floor);
+        }
+    }
+
+    // Layer 4: check-ID escalation (per-check floor from settings)
+    for check in checks {
+        if let Some(&check_floor) = settings.check_escalation.get(&check.id) {
+            effective = max_challenge(effective, check_floor);
+        }
+    }
+
+    // Layer 5: context escalation (SSH→Enter, root/prod→Yes)
+    effective = max_challenge(
+        effective,
+        context::escalate_challenge(
+            &base_challenge,
+            context.risk_level,
+            &settings.context.escalation,
+        ),
+    );
+
+    // Layer 6: project policy overrides (.shellfirm.yaml)
     for check in checks {
         let policy_effective = merged_policy.effective_challenge(&check.id, &effective);
         effective = max_challenge(effective, policy_effective);
     }
 
     // Build escalation note
-    let escalation_note = if effective == *base_challenge {
+    let escalation_note = if effective == base_challenge {
         None
     } else {
         Some(format!("{base_challenge} -> {effective}"))
     };
 
     // Compute highest severity for display
-    let max_severity = checks.iter().map(|c| c.severity).max();
     let severity_label = max_severity.map(|s| format!("{s}"));
 
     // Build blast radius label from the highest-scope entry

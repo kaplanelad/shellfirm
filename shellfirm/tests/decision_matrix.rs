@@ -9,7 +9,7 @@ use std::{collections::HashMap, path::PathBuf};
 use serde_derive::Deserialize;
 use shellfirm::{
     checks,
-    context::{self, ContextConfig, RiskLevel},
+    context::{self, RiskLevel},
     env::MockEnvironment,
     policy::{self, MergedPolicy, ProjectPolicy},
     prompt::MockPrompter,
@@ -133,7 +133,6 @@ fn parse_risk_level(s: &str) -> RiskLevel {
 
 fn default_settings() -> Settings {
     Settings {
-        challenge: Challenge::Math,
         enabled_groups: vec![
             "base".into(),
             "fs".into(),
@@ -148,16 +147,8 @@ fn default_settings() -> Settings {
             "heroku".into(),
             "network".into(),
         ],
-        disabled_groups: vec![],
-        ignores_patterns_ids: vec![],
-        deny_patterns_ids: vec![],
-        context: ContextConfig::default(),
         audit_enabled: false,
-        blast_radius: true,
-        min_severity: None,
-        agent: shellfirm::AgentConfig::default(),
-        llm: None,
-        wrappers: shellfirm::WrappersConfig::default(),
+        ..Settings::default()
     }
 }
 
@@ -247,12 +238,10 @@ fn test_decision_matrix() {
 
         // Run challenge
         let _result = checks::challenge_with_context(
-            &settings.challenge,
+            &settings,
             &matches,
-            &settings.deny_patterns_ids,
             &runtime_context,
             &merged_policy,
-            &settings.context.escalation,
             &prompter,
             &[],
         )

@@ -16,7 +16,7 @@ pub mod prompt;
 #[cfg(feature = "wrap")]
 pub mod wrap;
 pub use config::{
-    value_set, AgentConfig, Challenge, Config, LlmConfig, Settings, WrapperToolConfig,
-    WrappersConfig, DEFAULT_ENABLED_GROUPS,
+    value_set, AgentConfig, Challenge, Config, LlmConfig, Settings, SeverityEscalationConfig,
+    WrapperToolConfig, WrappersConfig, DEFAULT_ENABLED_GROUPS,
 };
 pub use data::CmdExit;

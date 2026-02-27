@@ -221,16 +221,8 @@ mod tests {
                 "kubernetes".into(),
                 "database".into(),
             ],
-            disabled_groups: vec![],
-            ignores_patterns_ids: vec![],
-            deny_patterns_ids: vec![],
-            context: crate::context::ContextConfig::default(),
             audit_enabled: false,
-            blast_radius: true,
-            min_severity: None,
-            agent: AgentConfig::default(),
-            llm: None,
-            wrappers: crate::config::WrappersConfig::default(),
+            ..Settings::default()
         }
     }
 
