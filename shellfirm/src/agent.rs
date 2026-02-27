@@ -161,8 +161,8 @@ fn build_assessment(pipeline: &PipelineResult, agent_config: &AgentConfig) -> Ri
         .collect();
 
     let context = AssessmentContext {
-        risk_level: format!("{:?}", pipeline.context.risk_level),
-        labels: pipeline.context.labels.clone(),
+        risk_level: format!("{:?}", pipeline.relevant_context.risk_level),
+        labels: pipeline.relevant_context.labels.clone(),
     };
 
     let severity = if pipeline.active_matches.is_empty() {
@@ -192,7 +192,7 @@ fn build_assessment(pipeline: &PipelineResult, agent_config: &AgentConfig) -> Ri
 
     RiskAssessment {
         allowed,
-        risk_level: format!("{:?}", pipeline.context.risk_level),
+        risk_level: format!("{:?}", pipeline.relevant_context.risk_level),
         severity,
         matched_rules,
         alternatives,

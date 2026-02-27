@@ -111,6 +111,71 @@ impl Default for EscalationConfig {
     }
 }
 
+impl RuntimeContext {
+    /// Return a filtered copy that only contains signals relevant to the
+    /// matched check groups.
+    ///
+    /// **Global signals** (`is_ssh`, `is_root`, `env_signals`) are always
+    /// kept — they apply regardless of what command matched.
+    ///
+    /// **Domain signals** are kept only when the corresponding group is
+    /// present in `matched_groups`:
+    /// - `git_branch` → `"git"`
+    /// - `k8s_context` → `"kubernetes"`
+    ///
+    /// Labels and `risk_level` are recomputed from the kept signals.
+    #[must_use]
+    pub fn filter_for_groups(
+        &self,
+        matched_groups: &std::collections::HashSet<&str>,
+        config: &ContextConfig,
+    ) -> Self {
+        let keep_git = matched_groups.contains("git");
+        let keep_k8s = matched_groups.contains("kubernetes");
+
+        let git_branch = if keep_git {
+            self.git_branch.clone()
+        } else {
+            None
+        };
+        let k8s_context = if keep_k8s {
+            self.k8s_context.clone()
+        } else {
+            None
+        };
+
+        // Rebuild labels from kept signals
+        let mut labels = Vec::new();
+        if self.is_ssh {
+            labels.push("ssh=true".into());
+        }
+        if self.is_root {
+            labels.push("root=true".into());
+        }
+        if let Some(ref branch) = git_branch {
+            labels.push(format!("branch={branch}"));
+        }
+        if let Some(ref k8s) = k8s_context {
+            labels.push(format!("k8s={k8s}"));
+        }
+
+        let filtered = Self {
+            is_ssh: self.is_ssh,
+            is_root: self.is_root,
+            git_branch,
+            k8s_context,
+            env_signals: self.env_signals.clone(),
+            risk_level: RiskLevel::Normal, // placeholder
+            labels,
+        };
+
+        Self {
+            risk_level: compute_risk_level(&filtered, config),
+            ..filtered
+        }
+    }
+}
+
 /// Detect runtime context from the given environment.
 ///
 /// This is called once per shellfirm invocation.
@@ -158,7 +223,7 @@ pub fn detect(env: &dyn Environment, config: &ContextConfig) -> RuntimeContext {
 }
 
 /// Compute the aggregate risk level from context signals.
-fn compute_risk_level(ctx: &RuntimeContext, config: &ContextConfig) -> RiskLevel {
+pub(crate) fn compute_risk_level(ctx: &RuntimeContext, config: &ContextConfig) -> RiskLevel {
     // Critical signals
     if ctx.is_root {
         return RiskLevel::Critical;
@@ -390,5 +455,122 @@ mod tests {
             escalate_challenge(&Challenge::Yes, RiskLevel::Elevated, &esc),
             Challenge::Yes
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // filter_for_groups tests
+    // -----------------------------------------------------------------------
+
+    fn full_context() -> RuntimeContext {
+        RuntimeContext {
+            is_ssh: true,
+            is_root: false,
+            git_branch: Some("main".into()),
+            k8s_context: Some("prod-us-east-1".into()),
+            env_signals: vec!["NODE_ENV=production".into()],
+            risk_level: RiskLevel::Critical,
+            labels: vec![
+                "ssh=true".into(),
+                "branch=main".into(),
+                "k8s=prod-us-east-1".into(),
+            ],
+        }
+    }
+
+    #[test]
+    fn test_filter_git_command_hides_k8s() {
+        let ctx = full_context();
+        let groups: std::collections::HashSet<&str> = ["git"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert_eq!(filtered.git_branch, Some("main".into()));
+        assert!(filtered.k8s_context.is_none());
+        assert!(filtered.labels.contains(&"branch=main".to_string()));
+        assert!(!filtered.labels.iter().any(|l| l.starts_with("k8s=")));
+    }
+
+    #[test]
+    fn test_filter_k8s_command_hides_branch() {
+        let ctx = full_context();
+        let groups: std::collections::HashSet<&str> = ["kubernetes"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert!(filtered.git_branch.is_none());
+        assert_eq!(filtered.k8s_context, Some("prod-us-east-1".into()));
+        assert!(!filtered.labels.iter().any(|l| l.starts_with("branch=")));
+        assert!(filtered.labels.contains(&"k8s=prod-us-east-1".to_string()));
+    }
+
+    #[test]
+    fn test_filter_fs_command_global_only() {
+        let ctx = full_context();
+        let groups: std::collections::HashSet<&str> = ["fs"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert!(filtered.git_branch.is_none());
+        assert!(filtered.k8s_context.is_none());
+        assert!(filtered.is_ssh);
+        assert!(filtered.labels.contains(&"ssh=true".to_string()));
+        assert!(!filtered.labels.iter().any(|l| l.starts_with("branch=")));
+        assert!(!filtered.labels.iter().any(|l| l.starts_with("k8s=")));
+    }
+
+    #[test]
+    fn test_filter_compound_git_and_k8s() {
+        let ctx = full_context();
+        let groups: std::collections::HashSet<&str> = ["git", "kubernetes"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert_eq!(filtered.git_branch, Some("main".into()));
+        assert_eq!(filtered.k8s_context, Some("prod-us-east-1".into()));
+        assert!(filtered.labels.contains(&"branch=main".to_string()));
+        assert!(filtered.labels.contains(&"k8s=prod-us-east-1".to_string()));
+    }
+
+    #[test]
+    fn test_filter_global_signals_never_hidden() {
+        let ctx = RuntimeContext {
+            is_ssh: true,
+            is_root: true,
+            git_branch: Some("main".into()),
+            k8s_context: Some("prod".into()),
+            env_signals: vec!["NODE_ENV=production".into()],
+            risk_level: RiskLevel::Critical,
+            labels: vec![
+                "ssh=true".into(),
+                "root=true".into(),
+                "branch=main".into(),
+                "k8s=prod".into(),
+            ],
+        };
+        // Even with an unrelated group, SSH, root, and env_signals remain
+        let groups: std::collections::HashSet<&str> = ["fs"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert!(filtered.is_ssh);
+        assert!(filtered.is_root);
+        assert_eq!(filtered.env_signals, vec!["NODE_ENV=production"]);
+        assert!(filtered.labels.contains(&"ssh=true".to_string()));
+        assert!(filtered.labels.contains(&"root=true".to_string()));
+    }
+
+    #[test]
+    fn test_filter_risk_level_recomputed() {
+        // Context with only branch=main making it Critical
+        let ctx = RuntimeContext {
+            is_ssh: false,
+            is_root: false,
+            git_branch: Some("main".into()),
+            k8s_context: None,
+            env_signals: vec![],
+            risk_level: RiskLevel::Critical,
+            labels: vec!["branch=main".into()],
+        };
+        // Matched groups: {"fs"} — branch is irrelevant, so risk drops
+        let groups: std::collections::HashSet<&str> = ["fs"].into_iter().collect();
+        let filtered = ctx.filter_for_groups(&groups, &default_config());
+
+        assert!(filtered.git_branch.is_none());
+        assert_eq!(filtered.risk_level, RiskLevel::Normal);
     }
 }
