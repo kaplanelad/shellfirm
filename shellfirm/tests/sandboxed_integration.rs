@@ -481,3 +481,135 @@ fn test_multiple_critical_signals() {
     assert!(ctx.is_ssh);
     assert!(ctx.is_root);
 }
+
+// ---------------------------------------------------------------------------
+// Command-aware context filtering (relevant_context) tests
+// ---------------------------------------------------------------------------
+
+fn strip_quotes_regex() -> regex::Regex {
+    regex::Regex::new(r#"'[^']*'|"[^"]*""#).unwrap()
+}
+
+#[test]
+fn test_relevant_context_rm_rf_hides_branch_and_k8s() {
+    // Environment has branch=main + k8s=prod, but `rm -rf /` is an "fs" check
+    // so relevant_context should NOT include branch or k8s labels.
+    let mut env = mock_env_production_ssh();
+    // PathExists filters need `/` to exist in the mock
+    env.existing_paths.insert(PathBuf::from("/"));
+    let settings = default_settings();
+    let all_checks = settings.get_active_checks().unwrap();
+    let re = strip_quotes_regex();
+
+    let pipeline = checks::analyze_command("rm -rf /", &settings, &all_checks, &env, &re).unwrap();
+
+    // Should have matched at least one fs check
+    assert!(
+        !pipeline.active_matches.is_empty(),
+        "rm -rf / should match checks"
+    );
+
+    // Full context has branch and k8s
+    assert!(pipeline.context.git_branch.is_some());
+    assert!(pipeline.context.k8s_context.is_some());
+
+    // Relevant context should NOT have branch or k8s (fs command)
+    assert!(
+        pipeline.relevant_context.git_branch.is_none(),
+        "branch should be hidden for fs command"
+    );
+    assert!(
+        pipeline.relevant_context.k8s_context.is_none(),
+        "k8s should be hidden for fs command"
+    );
+    assert!(
+        !pipeline
+            .relevant_context
+            .labels
+            .iter()
+            .any(|l| l.starts_with("branch=")),
+        "branch label should be hidden"
+    );
+    assert!(
+        !pipeline
+            .relevant_context
+            .labels
+            .iter()
+            .any(|l| l.starts_with("k8s=")),
+        "k8s label should be hidden"
+    );
+    // Global signals (SSH, env_signals) still present
+    assert!(pipeline.relevant_context.is_ssh);
+}
+
+#[test]
+fn test_relevant_context_git_push_shows_branch_hides_k8s() {
+    // `git push --force` is a "git" check — branch should be shown, k8s hidden.
+    let env = mock_env_production_ssh();
+    let settings = default_settings();
+    let all_checks = settings.get_active_checks().unwrap();
+    let re = strip_quotes_regex();
+
+    let pipeline =
+        checks::analyze_command("git push --force", &settings, &all_checks, &env, &re).unwrap();
+
+    assert!(
+        !pipeline.active_matches.is_empty(),
+        "git push --force should match checks"
+    );
+
+    // Relevant context: branch shown, k8s hidden
+    assert_eq!(
+        pipeline.relevant_context.git_branch,
+        Some("main".into()),
+        "branch should be visible for git command"
+    );
+    assert!(
+        pipeline.relevant_context.k8s_context.is_none(),
+        "k8s should be hidden for git command"
+    );
+    assert!(pipeline
+        .relevant_context
+        .labels
+        .iter()
+        .any(|l| l.starts_with("branch=")));
+    assert!(!pipeline
+        .relevant_context
+        .labels
+        .iter()
+        .any(|l| l.starts_with("k8s=")),);
+}
+
+#[test]
+fn test_relevant_context_kubectl_shows_k8s_hides_branch() {
+    // `kubectl delete ns kube-system` is a "kubernetes" check
+    let env = mock_env_production_ssh();
+    let settings = default_settings();
+    let all_checks = settings.get_active_checks().unwrap();
+    let re = strip_quotes_regex();
+
+    let pipeline = checks::analyze_command(
+        "kubectl delete ns kube-system",
+        &settings,
+        &all_checks,
+        &env,
+        &re,
+    )
+    .unwrap();
+
+    assert!(
+        !pipeline.active_matches.is_empty(),
+        "kubectl delete ns should match checks"
+    );
+
+    // Relevant context: k8s shown, branch hidden
+    assert!(
+        pipeline.relevant_context.git_branch.is_none(),
+        "branch should be hidden for kubernetes command"
+    );
+    assert_eq!(
+        pipeline.relevant_context.k8s_context,
+        Some("prod-us-east-1".into()),
+        "k8s should be visible for kubernetes command"
+    );
+}

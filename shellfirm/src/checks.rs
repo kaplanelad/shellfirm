@@ -389,8 +389,11 @@ pub struct PipelineResult {
     pub active_matches: Vec<Check>,
     /// Checks that matched but are below `min_severity`.
     pub skipped_matches: Vec<Check>,
-    /// The detected runtime context.
+    /// The detected runtime context (full — for audit logging).
     pub context: RuntimeContext,
+    /// Context filtered to only signals relevant to matched check groups
+    /// (for display and challenge escalation).
+    pub relevant_context: RuntimeContext,
     /// The highest severity across all matches (active + skipped).
     pub max_severity: Severity,
     /// Whether any matched check is on the deny list.
@@ -474,6 +477,7 @@ pub fn analyze_command(
             active_matches: Vec::new(),
             skipped_matches: Vec::new(),
             context: RuntimeContext::default(),
+            relevant_context: RuntimeContext::default(),
             max_severity: Severity::default(),
             is_denied: false,
             alternatives: Vec::new(),
@@ -558,12 +562,18 @@ pub fn analyze_command(
     };
     let max_blast_scope = blast_radii.iter().map(|(_, br)| br.scope).max();
 
+    // Compute context filtered to only signals relevant to matched groups
+    let matched_groups: std::collections::HashSet<&str> =
+        active_matches.iter().map(|c| c.from.as_str()).collect();
+    let relevant_context = runtime_context.filter_for_groups(&matched_groups, &settings.context);
+
     Ok(PipelineResult {
         stripped_command: stripped,
         command_parts,
         active_matches,
         skipped_matches,
         context: runtime_context,
+        relevant_context,
         max_severity,
         is_denied,
         alternatives,

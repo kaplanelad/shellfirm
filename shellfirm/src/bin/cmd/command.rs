@@ -161,12 +161,12 @@ fn execute(
                 }
             }
 
-            // Run the context-aware challenge
+            // Run the context-aware challenge (use filtered context for display + escalation)
             let result = checks::challenge_with_context(
                 &settings.challenge,
                 &active_refs,
                 &settings.deny_patterns_ids,
-                &pipeline.context,
+                &pipeline.relevant_context,
                 &pipeline.merged_policy,
                 &settings.context.escalation,
                 prompter,
