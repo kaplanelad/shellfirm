@@ -332,3 +332,49 @@ pub fn select_with_default(
         |a| Ok(a.index),
     )
 }
+
+/// Present a multi-select prompt and return the indices of selected items.
+///
+/// # Errors
+///
+/// Will return `Err` when the interactive prompt fails.
+pub fn multi_select(
+    message: &str,
+    items: &[&str],
+    defaults: &[bool],
+) -> crate::error::Result<Vec<usize>> {
+    let mut builder = requestty::Question::multi_select("multi_select").message(message);
+    for (i, &item) in items.iter().enumerate() {
+        let checked = defaults.get(i).copied().unwrap_or(false);
+        builder = builder.choice_with_default(item, checked);
+    }
+    let question = builder.build();
+    let answer =
+        requestty::prompt_one(question).map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
+    answer.as_list_items().map_or_else(
+        || {
+            Err(crate::error::Error::Prompt(
+                "multi-select result is empty".into(),
+            ))
+        },
+        |items| Ok(items.iter().map(|item| item.index).collect()),
+    )
+}
+
+/// Present a text input prompt with a default value.
+///
+/// # Errors
+///
+/// Will return `Err` when the interactive prompt fails.
+pub fn input_with_default(message: &str, default: &str) -> crate::error::Result<String> {
+    let question = requestty::Question::input("input")
+        .message(message)
+        .default(default)
+        .build();
+    let answer =
+        requestty::prompt_one(question).map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
+    answer.as_string().map_or_else(
+        || Err(crate::error::Error::Prompt("input result is empty".into())),
+        |s| Ok(s.to_string()),
+    )
+}

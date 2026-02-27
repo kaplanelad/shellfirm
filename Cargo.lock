@@ -1730,7 +1730,6 @@ dependencies = [
  "serde_json",
  "serde_regex",
  "serde_yaml",
- "strsim",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

@@ -1,76 +1,194 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use shellfirm::checks::Severity;
 use shellfirm::error::{Error, Result};
-use shellfirm::{
-    format_yaml_value, known_enum_values, validate_config_key, value_get, value_list_paths,
-    value_set, Config, Settings,
-};
+use shellfirm::{Challenge, Config, Settings, DEFAULT_ENABLED_GROUPS};
 
+#[allow(clippy::too_many_lines)]
 pub fn command() -> Command {
     Command::new("config")
         .about("Manage shellfirm configuration")
-        .arg_required_else_help(true)
-        .subcommand(Command::new("reset").about("Reset configuration"))
+        .subcommand(Command::new("show").about("Show current configuration"))
+        .subcommand(Command::new("reset").about("Reset configuration to defaults"))
         .subcommand(
-            Command::new("set")
-                .about("Set any configuration value by dot-notation key")
+            Command::new("edit").about("Open settings.yaml in $EDITOR with post-save validation"),
+        )
+        .subcommand(
+            Command::new("challenge")
+                .about("Set the challenge type (Math, Enter, Yes)")
+                .arg(Arg::new("value").help("Challenge type: Math, Enter, or Yes")),
+        )
+        .subcommand(
+            Command::new("severity")
+                .about("Set the minimum severity threshold")
+                .arg(
+                    Arg::new("level")
+                        .help("Severity level: all, Info, Low, Medium, High, or Critical"),
+                ),
+        )
+        .subcommand(
+            Command::new("groups")
+                .about("Manage enabled check groups")
+                .arg(
+                    Arg::new("enable")
+                        .long("enable")
+                        .action(ArgAction::Append)
+                        .help("Enable a check group"),
+                )
+                .arg(
+                    Arg::new("disable")
+                        .long("disable")
+                        .action(ArgAction::Append)
+                        .help("Disable a check group"),
+                ),
+        )
+        .subcommand(
+            Command::new("ignore")
+                .about("Manage ignored pattern IDs")
+                .arg(Arg::new("pattern").help("Pattern ID to add to ignore list"))
+                .arg(
+                    Arg::new("remove")
+                        .long("remove")
+                        .help("Pattern ID to remove from ignore list")
+                        .num_args(1),
+                )
                 .arg(
                     Arg::new("list")
                         .long("list")
-                        .short('l')
-                        .help("List all configuration keys and their current values")
+                        .help("List currently ignored patterns")
                         .action(ArgAction::SetTrue),
+                ),
+        )
+        .subcommand(
+            Command::new("deny")
+                .about("Manage denied pattern IDs")
+                .arg(Arg::new("pattern").help("Pattern ID to add to deny list"))
+                .arg(
+                    Arg::new("remove")
+                        .long("remove")
+                        .help("Pattern ID to remove from deny list")
+                        .num_args(1),
                 )
-                .arg(Arg::new("key").help("Configuration key (dot-notation, e.g. llm.model)"))
                 .arg(
-                    Arg::new("value")
-                        .help("Value to set (parsed as YAML)")
-                        .num_args(1..),
+                    Arg::new("list")
+                        .long("list")
+                        .help("List currently denied patterns")
+                        .action(ArgAction::SetTrue),
                 ),
         )
         .subcommand(
-            Command::new("get")
-                .about("Get a configuration value by dot-notation key")
+            Command::new("llm")
+                .about("Configure LLM analysis settings")
                 .arg(
-                    Arg::new("key")
-                        .help("Configuration key (dot-notation, e.g. llm.model)")
-                        .required(true),
+                    Arg::new("provider")
+                        .long("provider")
+                        .help("LLM provider (e.g. anthropic)"),
+                )
+                .arg(
+                    Arg::new("model")
+                        .long("model")
+                        .help("Model ID (e.g. claude-sonnet-4-20250514)"),
+                )
+                .arg(
+                    Arg::new("timeout")
+                        .long("timeout")
+                        .help("Request timeout in milliseconds"),
+                )
+                .arg(
+                    Arg::new("base-url")
+                        .long("base-url")
+                        .help("Custom base URL for openai-compatible providers"),
                 ),
         )
         .subcommand(
-            Command::new("edit").about("Open settings.yaml in $EDITOR with post-save validation"),
+            Command::new("context")
+                .about("Configure context-aware protection settings")
+                .subcommand(
+                    Command::new("branches")
+                        .about("Manage protected branches")
+                        .arg(Arg::new("add").long("add").help("Add a protected branch"))
+                        .arg(
+                            Arg::new("remove")
+                                .long("remove")
+                                .help("Remove a protected branch"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("k8s")
+                        .about("Manage production Kubernetes patterns")
+                        .arg(Arg::new("add").long("add").help("Add a k8s pattern"))
+                        .arg(
+                            Arg::new("remove")
+                                .long("remove")
+                                .help("Remove a k8s pattern"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("escalation")
+                        .about("Configure escalation challenge levels")
+                        .arg(
+                            Arg::new("elevated")
+                                .long("elevated")
+                                .help("Challenge for elevated risk (Math, Enter, Yes)"),
+                        )
+                        .arg(
+                            Arg::new("critical")
+                                .long("critical")
+                                .help("Challenge for critical risk (Math, Enter, Yes)"),
+                        ),
+                )
+                .subcommand(
+                    Command::new("paths")
+                        .about("Manage sensitive paths")
+                        .arg(Arg::new("add").long("add").help("Add a sensitive path"))
+                        .arg(
+                            Arg::new("remove")
+                                .long("remove")
+                                .help("Remove a sensitive path"),
+                        ),
+                ),
         )
 }
 
 pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
-    match matches.subcommand() {
-        None => Err(Error::Config("command not found".into())),
-        Some(tup) => match tup {
-            ("reset", _subcommand_matches) => Ok(run_reset(config, None)),
-            ("set", subcommand_matches) => {
-                if subcommand_matches.get_flag("list") {
-                    run_set_list(config)
+    matches.subcommand().map_or_else(
+        || run_interactive_menu(config, None),
+        |tup| match tup {
+            ("show", _) => run_show(config),
+            ("reset", _) => Ok(run_reset(config, None)),
+            ("edit", _) => run_edit(config),
+            ("challenge", sub) => {
+                let value = sub.get_one::<String>("value");
+                run_challenge_cmd(config, value.map(String::as_str), None)
+            }
+            ("severity", sub) => {
+                let level = sub.get_one::<String>("level");
+                run_severity_cmd(config, level.map(String::as_str), None)
+            }
+            ("groups", sub) => {
+                let enables: Vec<&str> = sub
+                    .get_many::<String>("enable")
+                    .map_or_else(Vec::new, |v| v.map(String::as_str).collect());
+                let disables: Vec<&str> = sub
+                    .get_many::<String>("disable")
+                    .map_or_else(Vec::new, |v| v.map(String::as_str).collect());
+                if enables.is_empty() && disables.is_empty() {
+                    run_groups_interactive(config, None)
                 } else {
-                    let key = subcommand_matches.get_one::<String>("key").ok_or_else(|| {
-                        Error::Config("missing <key> argument (use --list to see all keys)".into())
-                    })?;
-                    let value_str: String = subcommand_matches
-                        .get_many::<String>("value")
-                        .ok_or_else(|| Error::Config("missing <value> argument".into()))?
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    run_set_key_value(config, key, &value_str)
+                    run_groups(config, &enables, &disables)
                 }
             }
-            ("get", subcommand_matches) => {
-                let key = subcommand_matches.get_one::<String>("key").unwrap();
-                run_get_key(config, key)
-            }
-            ("edit", _subcommand_matches) => run_edit(config),
+            ("ignore", sub) => run_pattern_list_cmd(config, sub, PatternListKind::Ignore),
+            ("deny", sub) => run_pattern_list_cmd(config, sub, PatternListKind::Deny),
+            ("llm", sub) => run_llm_cmd(config, sub),
+            ("context", sub) => run_context_cmd(config, sub),
             _ => unreachable!(),
         },
-    }
+    )
 }
+
+// ---------------------------------------------------------------------------
+// reset (kept as-is)
+// ---------------------------------------------------------------------------
 
 pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::CmdExit {
     match config.reset_config(force_selection) {
@@ -85,115 +203,11 @@ pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::
     }
 }
 
-pub fn run_set_key_value(
-    config: &Config,
-    key: &str,
-    value_str: &str,
-) -> Result<shellfirm::CmdExit> {
-    // Validate key before doing anything
-    if let Err(e) = validate_config_key(key) {
-        return Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(e),
-        });
-    }
-
-    let new_value: serde_yaml::Value = match serde_yaml::from_str(value_str) {
-        Ok(v) => v,
-        Err(e) => {
-            return Ok(shellfirm::CmdExit {
-                code: exitcode::CONFIG,
-                message: Some(format!("failed to parse value as YAML: {e}")),
-            });
-        }
-    };
-    let mut root = config.read_config_as_value()?;
-    value_set(&mut root, key, new_value)?;
-    if let Err(e) = config.save_config_from_value(&root) {
-        let enum_hint = known_enum_values()
-            .iter()
-            .find(|(k, _)| *k == key)
-            .map(|(_, vals)| format!("\n\n  Valid values: {}", vals.join(", ")));
-        let hint = enum_hint.unwrap_or_default();
-        return Ok(shellfirm::CmdExit {
-            code: exitcode::CONFIG,
-            message: Some(format!(
-                "invalid value '{value_str}' for '{key}': {e}{hint}"
-            )),
-        });
-    }
-    let display = value_get(&root, key).map_or_else(|| value_str.to_string(), format_yaml_value);
-    Ok(shellfirm::CmdExit {
-        code: exitcode::OK,
-        message: Some(format!("{key} = {display}")),
-    })
-}
-
-pub fn run_set_list(config: &Config) -> Result<shellfirm::CmdExit> {
-    let user_root = config.read_config_as_value()?;
-    let default_root = serde_yaml::to_value(Settings::default())
-        .map_err(|e| Error::Config(format!("failed to serialize defaults: {e}")))?;
-    let merged = merge_for_display(&default_root, &user_root);
-    let paths = value_list_paths(&merged);
-    let enum_map = known_enum_values();
-    let max_key_len = paths.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
-    for (key, value) in &paths {
-        let hint = enum_map
-            .iter()
-            .find(|(k, _)| *k == key.as_str())
-            .map(|(_, vals)| format!("  (valid: {})", vals.join(", ")))
-            .unwrap_or_default();
-        println!("{key:<max_key_len$}  {value}{hint}");
-    }
-    Ok(shellfirm::CmdExit {
-        code: exitcode::OK,
-        message: None,
-    })
-}
-
-/// Recursively merge `overrides` on top of `base`.
-/// Keys in `overrides` replace keys in `base`; both must be mappings at the
-/// top level.
-fn merge_for_display(base: &serde_yaml::Value, overrides: &serde_yaml::Value) -> serde_yaml::Value {
-    match (base, overrides) {
-        (serde_yaml::Value::Mapping(b), serde_yaml::Value::Mapping(o)) => {
-            let mut result = b.clone();
-            for (k, v) in o {
-                let merged = b
-                    .get(k)
-                    .map_or_else(|| v.clone(), |base_v| merge_for_display(base_v, v));
-                result.insert(k.clone(), merged);
-            }
-            serde_yaml::Value::Mapping(result)
-        }
-        (_, override_val) => override_val.clone(),
-    }
-}
-
-pub fn run_get_key(config: &Config, key: &str) -> Result<shellfirm::CmdExit> {
-    let root = config.read_config_as_value()?;
-    value_get(&root, key).map_or_else(
-        || {
-            Ok(shellfirm::CmdExit {
-                code: exitcode::CONFIG,
-                message: Some(format!(
-                    "key not found: {key}\n\nUse 'config set --list' to see valid keys."
-                )),
-            })
-        },
-        |v| {
-            let display = format_yaml_value(v);
-            println!("{display}");
-            Ok(shellfirm::CmdExit {
-                code: exitcode::OK,
-                message: None,
-            })
-        },
-    )
-}
+// ---------------------------------------------------------------------------
+// edit (kept as-is)
+// ---------------------------------------------------------------------------
 
 pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
-    // Ensure file exists before opening editor
     if !config.setting_file_path.exists() {
         config.reset_config(Some(0))?;
     }
@@ -214,14 +228,12 @@ pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
         });
     }
 
-    // Validate the edited file
     match config.get_settings_from_file() {
         Ok(_) => Ok(shellfirm::CmdExit {
             code: exitcode::OK,
             message: Some("Configuration updated successfully.".to_string()),
         }),
         Err(e) => {
-            // Restore original on validation failure
             let mut file = std::fs::File::create(&config.setting_file_path)?;
             std::io::Write::write_all(&mut file, original.as_bytes())?;
             Ok(shellfirm::CmdExit {
@@ -234,6 +246,776 @@ pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// show
+// ---------------------------------------------------------------------------
+
+pub fn run_show(config: &Config) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let output = format_settings_display(&settings, &config.setting_file_path);
+    println!("{output}");
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: None,
+    })
+}
+
+fn format_settings_display(settings: &Settings, config_path: &std::path::Path) -> String {
+    let mut lines = Vec::new();
+
+    lines.push(format!("config:         {}", config_path.display()));
+    lines.push(String::new());
+
+    let severity_str = settings
+        .min_severity
+        .as_ref()
+        .map_or_else(|| "(all)".to_string(), ToString::to_string);
+
+    lines.push(format!("challenge:      {}", settings.challenge));
+    lines.push(format!("min_severity:   {severity_str}"));
+    lines.push(format!(
+        "audit:          {}",
+        if settings.audit_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ));
+    lines.push(format!(
+        "blast_radius:   {}",
+        if settings.blast_radius {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    ));
+
+    // Groups
+    let enabled_count = settings.enabled_groups.len();
+    let disabled_count = settings.disabled_groups.len();
+    lines.push(String::new());
+    lines.push(format!(
+        "groups ({enabled_count} enabled, {disabled_count} disabled):"
+    ));
+    let groups_str = settings.enabled_groups.join(", ");
+    lines.push(format!("  {groups_str}"));
+    if !settings.disabled_groups.is_empty() {
+        let disabled_str = settings.disabled_groups.join(", ");
+        lines.push(format!("  disabled: {disabled_str}"));
+    }
+
+    // Context
+    lines.push(String::new());
+    lines.push("context:".to_string());
+    lines.push(format!(
+        "  protected branches: {}",
+        settings.context.protected_branches.join(", ")
+    ));
+    lines.push(format!(
+        "  production k8s:     {}",
+        settings.context.production_k8s_patterns.join(", ")
+    ));
+    lines.push(format!(
+        "  escalation:         elevated={}, critical={}",
+        settings.context.escalation.elevated, settings.context.escalation.critical
+    ));
+    if !settings.context.sensitive_paths.is_empty() {
+        lines.push(format!(
+            "  sensitive paths:    {}",
+            settings.context.sensitive_paths.join(", ")
+        ));
+    }
+
+    // LLM
+    lines.push(String::new());
+    if let Some(ref llm) = settings.llm {
+        let base_url_str = llm.base_url.as_deref().unwrap_or("(default)");
+        lines.push(format!(
+            "llm:     {} / {} (timeout: {}ms, base_url: {})",
+            llm.provider, llm.model, llm.timeout_ms, base_url_str
+        ));
+    } else {
+        lines.push("llm:     (not configured)".to_string());
+    }
+
+    // Agent
+    lines.push(format!(
+        "agent:   auto-deny severity: {}",
+        settings.agent.auto_deny_severity
+    ));
+
+    // Ignore / Deny
+    if !settings.ignores_patterns_ids.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "ignored patterns: {}",
+            settings.ignores_patterns_ids.join(", ")
+        ));
+    }
+    if !settings.deny_patterns_ids.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "denied patterns:  {}",
+            settings.deny_patterns_ids.join(", ")
+        ));
+    }
+
+    lines.join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// challenge
+// ---------------------------------------------------------------------------
+
+pub fn run_challenge(config: &Config, value: &str) -> Result<shellfirm::CmdExit> {
+    let challenge = Challenge::from_string(value).map_err(|_| {
+        Error::Config(format!(
+            "invalid challenge type: '{value}'\n\nValid values: Math, Enter, Yes"
+        ))
+    })?;
+    let mut settings = config.get_settings_from_file()?;
+    settings.challenge = challenge;
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("challenge = {challenge}")),
+    })
+}
+
+fn run_challenge_cmd(
+    config: &Config,
+    arg: Option<&str>,
+    force_selection: Option<usize>,
+) -> Result<shellfirm::CmdExit> {
+    if let Some(value) = arg {
+        return run_challenge(config, value);
+    }
+    let items = &["Math", "Enter", "Yes"];
+    let current = config.get_settings_from_file()?.challenge;
+    let default_idx = items
+        .iter()
+        .position(|&i| i.eq_ignore_ascii_case(&current.to_string()))
+        .unwrap_or(0);
+    let idx = force_selection.map_or_else(
+        || shellfirm::prompt::select_with_default("Select challenge type:", items, default_idx),
+        Ok,
+    )?;
+    let value = items
+        .get(idx)
+        .ok_or_else(|| Error::Config("invalid selection".into()))?;
+    run_challenge(config, value)
+}
+
+// ---------------------------------------------------------------------------
+// severity
+// ---------------------------------------------------------------------------
+
+fn parse_severity(value: &str) -> std::result::Result<Option<Severity>, String> {
+    match value.to_lowercase().as_str() {
+        "all" | "null" | "" => Ok(None),
+        "info" => Ok(Some(Severity::Info)),
+        "low" => Ok(Some(Severity::Low)),
+        "medium" => Ok(Some(Severity::Medium)),
+        "high" => Ok(Some(Severity::High)),
+        "critical" => Ok(Some(Severity::Critical)),
+        _ => Err(format!(
+            "invalid severity: '{value}'\n\nValid values: all, Info, Low, Medium, High, Critical"
+        )),
+    }
+}
+
+pub fn run_severity(config: &Config, value: &str) -> Result<shellfirm::CmdExit> {
+    let severity = parse_severity(value).map_err(Error::Config)?;
+    let mut settings = config.get_settings_from_file()?;
+    settings.min_severity = severity;
+    config.save_settings_file_from_struct(&settings)?;
+    let display = severity.map_or_else(|| "(all)".to_string(), |s| s.to_string());
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("min_severity = {display}")),
+    })
+}
+
+fn run_severity_cmd(
+    config: &Config,
+    arg: Option<&str>,
+    force_selection: Option<usize>,
+) -> Result<shellfirm::CmdExit> {
+    if let Some(value) = arg {
+        return run_severity(config, value);
+    }
+    let items = &["(all)", "Info", "Low", "Medium", "High", "Critical"];
+    let current = config.get_settings_from_file()?.min_severity;
+    let default_idx = match current {
+        None => 0,
+        Some(Severity::Info) => 1,
+        Some(Severity::Low) => 2,
+        Some(Severity::Medium) => 3,
+        Some(Severity::High) => 4,
+        Some(Severity::Critical) => 5,
+    };
+    let idx = force_selection.map_or_else(
+        || shellfirm::prompt::select_with_default("Select minimum severity:", items, default_idx),
+        Ok,
+    )?;
+    let value = items
+        .get(idx)
+        .ok_or_else(|| Error::Config("invalid selection".into()))?;
+    let mapped = if *value == "(all)" { "all" } else { value };
+    run_severity(config, mapped)
+}
+
+// ---------------------------------------------------------------------------
+// groups
+// ---------------------------------------------------------------------------
+
+pub fn run_groups(
+    config: &Config,
+    enables: &[&str],
+    disables: &[&str],
+) -> Result<shellfirm::CmdExit> {
+    // Validate group names
+    for &name in enables.iter().chain(disables.iter()) {
+        if !DEFAULT_ENABLED_GROUPS.contains(&name) {
+            return Ok(shellfirm::CmdExit {
+                code: exitcode::CONFIG,
+                message: Some(format!(
+                    "unknown group: '{name}'\n\nAvailable groups: {}",
+                    DEFAULT_ENABLED_GROUPS.join(", ")
+                )),
+            });
+        }
+    }
+
+    let mut settings = config.get_settings_from_file()?;
+
+    for &name in enables {
+        if !settings.enabled_groups.iter().any(|g| g == name) {
+            settings.enabled_groups.push(name.to_string());
+        }
+        settings.disabled_groups.retain(|g| g != name);
+    }
+    for &name in disables {
+        if !settings.disabled_groups.iter().any(|g| g == name) {
+            settings.disabled_groups.push(name.to_string());
+        }
+        settings.enabled_groups.retain(|g| g != name);
+    }
+
+    config.save_settings_file_from_struct(&settings)?;
+
+    let mut parts = Vec::new();
+    if !enables.is_empty() {
+        parts.push(format!("enabled: {}", enables.join(", ")));
+    }
+    if !disables.is_empty() {
+        parts.push(format!("disabled: {}", disables.join(", ")));
+    }
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("groups updated ({})", parts.join("; "))),
+    })
+}
+
+fn run_groups_interactive(
+    config: &Config,
+    force_selections: Option<&[usize]>,
+) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let items: Vec<&str> = DEFAULT_ENABLED_GROUPS.to_vec();
+    let defaults: Vec<bool> = items
+        .iter()
+        .map(|&group| {
+            settings.enabled_groups.iter().any(|g| g == group)
+                && !settings.disabled_groups.iter().any(|g| g == group)
+        })
+        .collect();
+
+    let selected_indices = if let Some(forced) = force_selections {
+        forced.to_vec()
+    } else {
+        shellfirm::prompt::multi_select("Select check groups to enable:", &items, &defaults)?
+    };
+
+    let mut enables = Vec::new();
+    let mut disables = Vec::new();
+    for (i, &group) in items.iter().enumerate() {
+        if selected_indices.contains(&i) {
+            enables.push(group);
+        } else {
+            disables.push(group);
+        }
+    }
+
+    run_groups(config, &enables, &disables)
+}
+
+// ---------------------------------------------------------------------------
+// ignore / deny (shared pattern list logic)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy)]
+pub enum PatternListKind {
+    Ignore,
+    Deny,
+}
+
+impl PatternListKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Ignore => "ignore",
+            Self::Deny => "deny",
+        }
+    }
+}
+
+fn run_pattern_list_cmd(
+    config: &Config,
+    matches: &ArgMatches,
+    kind: PatternListKind,
+) -> Result<shellfirm::CmdExit> {
+    let list_flag = matches.get_flag("list");
+    let remove_value = matches.get_one::<String>("remove");
+    let add_value = matches.get_one::<String>("pattern");
+
+    if list_flag {
+        return run_pattern_list_show(config, kind);
+    }
+    if let Some(id) = remove_value {
+        return run_pattern_list_remove(config, kind, id);
+    }
+    if let Some(id) = add_value {
+        return run_pattern_list_add(config, kind, id);
+    }
+
+    // No args — show current list
+    run_pattern_list_show(config, kind)
+}
+
+pub fn run_pattern_list_add(
+    config: &Config,
+    kind: PatternListKind,
+    id: &str,
+) -> Result<shellfirm::CmdExit> {
+    let mut settings = config.get_settings_from_file()?;
+    let list = match kind {
+        PatternListKind::Ignore => &mut settings.ignores_patterns_ids,
+        PatternListKind::Deny => &mut settings.deny_patterns_ids,
+    };
+    if !list.iter().any(|existing| existing == id) {
+        list.push(id.to_string());
+    }
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{} list: added '{id}'", kind.label())),
+    })
+}
+
+pub fn run_pattern_list_remove(
+    config: &Config,
+    kind: PatternListKind,
+    id: &str,
+) -> Result<shellfirm::CmdExit> {
+    let mut settings = config.get_settings_from_file()?;
+    let list = match kind {
+        PatternListKind::Ignore => &mut settings.ignores_patterns_ids,
+        PatternListKind::Deny => &mut settings.deny_patterns_ids,
+    };
+    list.retain(|existing| existing != id);
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{} list: removed '{id}'", kind.label())),
+    })
+}
+
+fn run_pattern_list_show(config: &Config, kind: PatternListKind) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let list = match kind {
+        PatternListKind::Ignore => &settings.ignores_patterns_ids,
+        PatternListKind::Deny => &settings.deny_patterns_ids,
+    };
+    if list.is_empty() {
+        println!("{} list: (empty)", kind.label());
+    } else {
+        println!("{} list:", kind.label());
+        for id in list {
+            println!("  {id}");
+        }
+    }
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// llm
+// ---------------------------------------------------------------------------
+
+fn run_llm_cmd(config: &Config, matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
+    let provider = matches.get_one::<String>("provider");
+    let model = matches.get_one::<String>("model");
+    let timeout = matches.get_one::<String>("timeout");
+    let base_url = matches.get_one::<String>("base-url");
+
+    let has_flags =
+        provider.is_some() || model.is_some() || timeout.is_some() || base_url.is_some();
+
+    if has_flags {
+        return run_llm(
+            config,
+            provider.map(String::as_str),
+            model.map(String::as_str),
+            timeout.map(String::as_str),
+            base_url.map(String::as_str),
+        );
+    }
+
+    // Interactive: prompt for each field
+    run_llm_interactive(config, None)
+}
+
+pub fn run_llm(
+    config: &Config,
+    provider: Option<&str>,
+    model: Option<&str>,
+    timeout: Option<&str>,
+    base_url: Option<&str>,
+) -> Result<shellfirm::CmdExit> {
+    let mut settings = config.get_settings_from_file()?;
+    let mut llm = settings.llm.unwrap_or_default();
+    let mut changes = Vec::new();
+
+    if let Some(p) = provider {
+        llm.provider = p.to_string();
+        changes.push(format!("provider = {p}"));
+    }
+    if let Some(m) = model {
+        llm.model = m.to_string();
+        changes.push(format!("model = {m}"));
+    }
+    if let Some(t) = timeout {
+        let ms: u64 = t.parse().map_err(|_| {
+            Error::Config(format!("invalid timeout: '{t}' (expected milliseconds)"))
+        })?;
+        llm.timeout_ms = ms;
+        changes.push(format!("timeout = {ms}ms"));
+    }
+    if let Some(url) = base_url {
+        let url_value = if url.is_empty() || url == "none" {
+            None
+        } else {
+            Some(url.to_string())
+        };
+        changes.push(format!(
+            "base_url = {}",
+            url_value.as_deref().unwrap_or("(none)")
+        ));
+        llm.base_url = url_value;
+    }
+
+    settings.llm = Some(llm);
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("llm updated: {}", changes.join(", "))),
+    })
+}
+
+fn run_llm_interactive(
+    config: &Config,
+    force_values: Option<(&str, &str)>,
+) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let llm = settings.llm.unwrap_or_default();
+
+    let (provider, model) = if let Some((p, m)) = force_values {
+        (p.to_string(), m.to_string())
+    } else {
+        let p = shellfirm::prompt::input_with_default("LLM provider:", &llm.provider)?;
+        let m = shellfirm::prompt::input_with_default("Model ID:", &llm.model)?;
+        (p, m)
+    };
+
+    run_llm(config, Some(&provider), Some(&model), None, None)
+}
+
+// ---------------------------------------------------------------------------
+// context
+// ---------------------------------------------------------------------------
+
+fn run_context_cmd(config: &Config, matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
+    match matches.subcommand() {
+        Some(("branches", sub)) => {
+            let add = sub.get_one::<String>("add");
+            let remove = sub.get_one::<String>("remove");
+            run_context_list(
+                config,
+                &ContextListField::Branches,
+                add.map(String::as_str),
+                remove.map(String::as_str),
+            )
+        }
+        Some(("k8s", sub)) => {
+            let add = sub.get_one::<String>("add");
+            let remove = sub.get_one::<String>("remove");
+            run_context_list(
+                config,
+                &ContextListField::K8s,
+                add.map(String::as_str),
+                remove.map(String::as_str),
+            )
+        }
+        Some(("escalation", sub)) => {
+            let elevated = sub.get_one::<String>("elevated");
+            let critical = sub.get_one::<String>("critical");
+            run_context_escalation(
+                config,
+                elevated.map(String::as_str),
+                critical.map(String::as_str),
+            )
+        }
+        Some(("paths", sub)) => {
+            let add = sub.get_one::<String>("add");
+            let remove = sub.get_one::<String>("remove");
+            run_context_list(
+                config,
+                &ContextListField::Paths,
+                add.map(String::as_str),
+                remove.map(String::as_str),
+            )
+        }
+        _ => run_context_interactive(config, None),
+    }
+}
+
+pub enum ContextListField {
+    Branches,
+    K8s,
+    Paths,
+}
+
+impl ContextListField {
+    const fn label(&self) -> &'static str {
+        match self {
+            Self::Branches => "protected branches",
+            Self::K8s => "production k8s patterns",
+            Self::Paths => "sensitive paths",
+        }
+    }
+}
+
+const fn get_context_list_mut<'a>(
+    settings: &'a mut Settings,
+    field: &ContextListField,
+) -> &'a mut Vec<String> {
+    match field {
+        ContextListField::Branches => &mut settings.context.protected_branches,
+        ContextListField::K8s => &mut settings.context.production_k8s_patterns,
+        ContextListField::Paths => &mut settings.context.sensitive_paths,
+    }
+}
+
+const fn get_context_list<'a>(settings: &'a Settings, field: &ContextListField) -> &'a Vec<String> {
+    match field {
+        ContextListField::Branches => &settings.context.protected_branches,
+        ContextListField::K8s => &settings.context.production_k8s_patterns,
+        ContextListField::Paths => &settings.context.sensitive_paths,
+    }
+}
+
+pub fn run_context_list(
+    config: &Config,
+    field: &ContextListField,
+    add: Option<&str>,
+    remove: Option<&str>,
+) -> Result<shellfirm::CmdExit> {
+    if add.is_none() && remove.is_none() {
+        let settings = config.get_settings_from_file()?;
+        let list = get_context_list(&settings, field);
+        if list.is_empty() {
+            println!("{}: (empty)", field.label());
+        } else {
+            println!("{}:", field.label());
+            for item in list {
+                println!("  {item}");
+            }
+        }
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: None,
+        });
+    }
+
+    let mut settings = config.get_settings_from_file()?;
+
+    if let Some(value) = add {
+        let list = get_context_list_mut(&mut settings, field);
+        if !list.iter().any(|v| v == value) {
+            list.push(value.to_string());
+        }
+    }
+    if let Some(value) = remove {
+        let list = get_context_list_mut(&mut settings, field);
+        list.retain(|v| v != value);
+    }
+
+    config.save_settings_file_from_struct(&settings)?;
+
+    let mut msg_parts = Vec::new();
+    if let Some(value) = add {
+        msg_parts.push(format!("added '{value}'"));
+    }
+    if let Some(value) = remove {
+        msg_parts.push(format!("removed '{value}'"));
+    }
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("{}: {}", field.label(), msg_parts.join(", "))),
+    })
+}
+
+pub fn run_context_escalation(
+    config: &Config,
+    elevated: Option<&str>,
+    critical: Option<&str>,
+) -> Result<shellfirm::CmdExit> {
+    let mut settings = config.get_settings_from_file()?;
+    let mut changes = Vec::new();
+
+    if let Some(val) = elevated {
+        let challenge = Challenge::from_string(val).map_err(|_| {
+            Error::Config(format!(
+                "invalid challenge for elevated: '{val}'\n\nValid values: Math, Enter, Yes"
+            ))
+        })?;
+        settings.context.escalation.elevated = challenge;
+        changes.push(format!("elevated = {challenge}"));
+    }
+    if let Some(val) = critical {
+        let challenge = Challenge::from_string(val).map_err(|_| {
+            Error::Config(format!(
+                "invalid challenge for critical: '{val}'\n\nValid values: Math, Enter, Yes"
+            ))
+        })?;
+        settings.context.escalation.critical = challenge;
+        changes.push(format!("critical = {challenge}"));
+    }
+
+    if changes.is_empty() {
+        // Show current escalation
+        println!(
+            "escalation: elevated={}, critical={}",
+            settings.context.escalation.elevated, settings.context.escalation.critical
+        );
+        return Ok(shellfirm::CmdExit {
+            code: exitcode::OK,
+            message: None,
+        });
+    }
+
+    config.save_settings_file_from_struct(&settings)?;
+    Ok(shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some(format!("escalation updated: {}", changes.join(", "))),
+    })
+}
+
+fn run_context_interactive(
+    config: &Config,
+    force_selection: Option<usize>,
+) -> Result<shellfirm::CmdExit> {
+    let items = &[
+        "Protected branches",
+        "Production k8s patterns",
+        "Escalation settings",
+        "Sensitive paths",
+    ];
+    let idx = force_selection.map_or_else(
+        || shellfirm::prompt::select_with_default("What context setting to configure?", items, 0),
+        Ok,
+    )?;
+
+    // Show the current values for the selected item
+    match idx {
+        0 => run_context_list(config, &ContextListField::Branches, None, None),
+        1 => run_context_list(config, &ContextListField::K8s, None, None),
+        2 => run_context_escalation(config, None, None),
+        3 => run_context_list(config, &ContextListField::Paths, None, None),
+        _ => Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some("invalid selection".to_string()),
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// interactive menu (no subcommand)
+// ---------------------------------------------------------------------------
+
+fn run_interactive_menu(
+    config: &Config,
+    force_selection: Option<usize>,
+) -> Result<shellfirm::CmdExit> {
+    let settings = config.get_settings_from_file()?;
+    let severity_str = settings
+        .min_severity
+        .as_ref()
+        .map_or_else(|| "(all)".to_string(), ToString::to_string);
+    let enabled_count = settings.enabled_groups.len();
+    let disabled_count = settings.disabled_groups.len();
+
+    let items: Vec<String> = vec![
+        format!(
+            "Challenge type          (currently: {})",
+            settings.challenge
+        ),
+        format!("Minimum severity        (currently: {severity_str})"),
+        format!("Check groups            ({enabled_count} enabled, {disabled_count} disabled)"),
+        "Ignored patterns".to_string(),
+        "Denied patterns".to_string(),
+        settings.llm.as_ref().map_or_else(
+            || "LLM settings            (not configured)".to_string(),
+            |llm| format!("LLM settings            ({} / {})", llm.provider, llm.model),
+        ),
+        "Context settings".to_string(),
+        "Show full config".to_string(),
+    ];
+    let item_refs: Vec<&str> = items.iter().map(String::as_str).collect();
+
+    let idx = force_selection.map_or_else(
+        || {
+            shellfirm::prompt::select_with_default(
+                "What would you like to configure?",
+                &item_refs,
+                0,
+            )
+        },
+        Ok,
+    )?;
+
+    match idx {
+        0 => run_challenge_cmd(config, None, None),
+        1 => run_severity_cmd(config, None, None),
+        2 => run_groups_interactive(config, None),
+        3 => run_pattern_list_show(config, PatternListKind::Ignore),
+        4 => run_pattern_list_show(config, PatternListKind::Deny),
+        5 => run_llm_interactive(config, None),
+        6 => run_context_interactive(config, None),
+        7 => run_show(config),
+        _ => Ok(shellfirm::CmdExit {
+            code: exitcode::CONFIG,
+            message: Some("invalid selection".to_string()),
+        }),
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
 #[cfg(test)]
 mod test_config_cli_command {
 
@@ -243,7 +1025,6 @@ mod test_config_cli_command {
     use tree_fs::Tree;
 
     use super::*;
-    use shellfirm::Challenge;
 
     fn initialize_config_folder(temp_dir: &Tree) -> Config {
         let temp_dir = temp_dir.root.join("app");
@@ -252,21 +1033,25 @@ mod test_config_cli_command {
         config
     }
 
+    fn fresh_config(temp_dir: &Tree) -> Config {
+        let temp_dir = temp_dir.root.join("fresh");
+        Config::new(Some(&temp_dir.display().to_string())).unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // reset (kept)
+    // -----------------------------------------------------------------------
+
     #[test]
     fn can_run_reset() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        // Change challenge via generic value_set so reset has something to restore
-        let mut root = config.read_config_as_value().unwrap();
-        value_set(
-            &mut root,
-            "challenge",
-            serde_yaml::Value::String("Yes".into()),
-        )
-        .unwrap();
-        config.save_config_from_value(&root).unwrap();
+        // Change challenge so reset has something to restore
+        let mut settings = config.get_settings_from_file().unwrap();
+        settings.challenge = Challenge::Yes;
+        config.save_settings_file_from_struct(&settings).unwrap();
         assert_debug_snapshot!(run_reset(&config, Some(1)));
         assert_debug_snapshot!(config.get_settings_from_file());
     }
@@ -285,13 +1070,60 @@ mod test_config_cli_command {
         });
     }
 
+    // -----------------------------------------------------------------------
+    // show
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn can_run_set_scalar() {
+    fn show_default_config() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "challenge", "Yes").unwrap();
+        let result = run_show(&config).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+    }
+
+    #[test]
+    fn show_modified_config() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let mut settings = config.get_settings_from_file().unwrap();
+        settings.challenge = Challenge::Yes;
+        settings.min_severity = Some(Severity::High);
+        settings.ignores_patterns_ids = vec!["git:force_push".to_string()];
+        config.save_settings_file_from_struct(&settings).unwrap();
+
+        let settings = config.get_settings_from_file().unwrap();
+        let output = format_settings_display(&settings, &config.setting_file_path);
+        assert!(output.contains("challenge:      Yes"));
+        assert!(output.contains("min_severity:   HIGH"));
+        assert!(output.contains("git:force_push"));
+    }
+
+    #[test]
+    fn show_on_fresh_install() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = fresh_config(&temp_dir);
+        let result = run_show(&config).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+    }
+
+    // -----------------------------------------------------------------------
+    // challenge
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn challenge_set_valid() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_challenge(&config, "Yes").unwrap();
         assert_eq!(result.code, exitcode::OK);
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
@@ -300,189 +1132,399 @@ mod test_config_cli_command {
     }
 
     #[test]
-    fn can_run_set_bool() {
+    fn challenge_set_each_variant() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        assert!(config.get_settings_from_file().unwrap().audit_enabled);
-        let result = run_set_key_value(&config, "audit_enabled", "false").unwrap();
-        assert_eq!(result.code, exitcode::OK);
-        assert!(!config.get_settings_from_file().unwrap().audit_enabled);
+        for (input, expected) in [
+            ("Math", Challenge::Math),
+            ("Enter", Challenge::Enter),
+            ("Yes", Challenge::Yes),
+        ] {
+            let result = run_challenge(&config, input).unwrap();
+            assert_eq!(result.code, exitcode::OK);
+            assert_eq!(config.get_settings_from_file().unwrap().challenge, expected);
+        }
     }
 
     #[test]
-    fn can_run_set_nested() {
+    fn challenge_rejects_invalid() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "llm.model", "gpt-4").unwrap();
-        assert_eq!(result.code, exitcode::OK);
-        assert_eq!(config.get_settings_from_file().unwrap().llm.model, "gpt-4");
+        let result = run_challenge(&config, "Foo");
+        assert!(result.is_err());
     }
 
     #[test]
-    fn can_run_set_deep_nested() {
+    fn challenge_on_fresh_install() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "context.escalation.elevated", "Yes").unwrap();
+        let config = fresh_config(&temp_dir);
+        let result = run_challenge(&config, "Yes").unwrap();
         assert_eq!(result.code, exitcode::OK);
         assert_eq!(
-            config
-                .get_settings_from_file()
-                .unwrap()
-                .context
-                .escalation
-                .elevated,
+            config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
         );
     }
 
+    // -----------------------------------------------------------------------
+    // severity
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn can_run_set_list_value() {
+    fn severity_set_valid() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        for (input, expected) in [
+            ("Info", Some(Severity::Info)),
+            ("Low", Some(Severity::Low)),
+            ("Medium", Some(Severity::Medium)),
+            ("High", Some(Severity::High)),
+            ("Critical", Some(Severity::Critical)),
+        ] {
+            let result = run_severity(&config, input).unwrap();
+            assert_eq!(result.code, exitcode::OK);
+            assert_eq!(
+                config.get_settings_from_file().unwrap().min_severity,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn severity_set_null() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        // First set to something
+        run_severity(&config, "High").unwrap();
+        // Then clear
+        let result = run_severity(&config, "all").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert_eq!(config.get_settings_from_file().unwrap().min_severity, None);
+    }
+
+    #[test]
+    fn severity_rejects_invalid() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_severity(&config, "Foo");
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // groups
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn groups_enable() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        // First disable aws, then re-enable
+        run_groups(&config, &[], &["aws"]).unwrap();
+        assert!(config
+            .get_settings_from_file()
+            .unwrap()
+            .disabled_groups
+            .contains(&"aws".to_string()));
+        let result = run_groups(&config, &["aws"], &[]).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(settings.enabled_groups.contains(&"aws".to_string()));
+        assert!(!settings.disabled_groups.contains(&"aws".to_string()));
+    }
+
+    #[test]
+    fn groups_disable() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_groups(&config, &[], &["docker"]).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let settings = config.get_settings_from_file().unwrap();
+        assert!(!settings.enabled_groups.contains(&"docker".to_string()));
+        assert!(settings.disabled_groups.contains(&"docker".to_string()));
+    }
+
+    #[test]
+    fn groups_enable_and_disable() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_groups(&config, &["aws"], &["docker"]).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+    }
+
+    #[test]
+    fn groups_rejects_unknown() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_groups(&config, &["nonexistent"], &[]).unwrap();
+        assert_eq!(result.code, exitcode::CONFIG);
+        assert!(result.message.unwrap().contains("unknown group"));
+    }
+
+    #[test]
+    fn groups_idempotent() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let before = config.get_settings_from_file().unwrap();
+        let result = run_groups(&config, &["aws"], &[]).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        let after = config.get_settings_from_file().unwrap();
+        // aws should appear exactly once
+        assert_eq!(
+            before
+                .enabled_groups
+                .iter()
+                .filter(|g| g.as_str() == "aws")
+                .count(),
+            after
+                .enabled_groups
+                .iter()
+                .filter(|g| g.as_str() == "aws")
+                .count()
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // ignore / deny
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn ignore_add() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
         let result =
-            run_set_key_value(&config, "context.protected_branches", "[main, develop]").unwrap();
+            run_pattern_list_add(&config, PatternListKind::Ignore, "git:force_push").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert!(config
+            .get_settings_from_file()
+            .unwrap()
+            .ignores_patterns_ids
+            .contains(&"git:force_push".to_string()));
+    }
+
+    #[test]
+    fn ignore_remove() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        run_pattern_list_add(&config, PatternListKind::Ignore, "git:force_push").unwrap();
+        let result =
+            run_pattern_list_remove(&config, PatternListKind::Ignore, "git:force_push").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert!(!config
+            .get_settings_from_file()
+            .unwrap()
+            .ignores_patterns_ids
+            .contains(&"git:force_push".to_string()));
+    }
+
+    #[test]
+    fn ignore_add_duplicate() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        run_pattern_list_add(&config, PatternListKind::Ignore, "git:force_push").unwrap();
+        run_pattern_list_add(&config, PatternListKind::Ignore, "git:force_push").unwrap();
+        assert_eq!(
+            config
+                .get_settings_from_file()
+                .unwrap()
+                .ignores_patterns_ids
+                .iter()
+                .filter(|id| id.as_str() == "git:force_push")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn deny_add() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_pattern_list_add(&config, PatternListKind::Deny, "fs:rm_rf").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert!(config
+            .get_settings_from_file()
+            .unwrap()
+            .deny_patterns_ids
+            .contains(&"fs:rm_rf".to_string()));
+    }
+
+    #[test]
+    fn deny_remove() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        run_pattern_list_add(&config, PatternListKind::Deny, "fs:rm_rf").unwrap();
+        let result = run_pattern_list_remove(&config, PatternListKind::Deny, "fs:rm_rf").unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert!(!config
+            .get_settings_from_file()
+            .unwrap()
+            .deny_patterns_ids
+            .contains(&"fs:rm_rf".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // llm
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn llm_set_model() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_llm(&config, None, Some("gpt-4"), None, None).unwrap();
+        assert_eq!(result.code, exitcode::OK);
+        assert_eq!(
+            config.get_settings_from_file().unwrap().llm.unwrap().model,
+            "gpt-4"
+        );
+    }
+
+    #[test]
+    fn llm_set_provider() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_llm(&config, Some("openai"), None, None, None).unwrap();
         assert_eq!(result.code, exitcode::OK);
         assert_eq!(
             config
                 .get_settings_from_file()
                 .unwrap()
-                .context
-                .protected_branches,
-            vec!["main", "develop"]
+                .llm
+                .unwrap()
+                .provider,
+            "openai"
         );
     }
 
     #[test]
-    fn set_rejects_invalid_value() {
+    fn llm_set_multiple() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let original = config.get_settings_from_file().unwrap().challenge;
-        let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        assert!(result.message.as_ref().unwrap().contains("invalid value"));
-        // Original value is unchanged
-        assert_eq!(config.get_settings_from_file().unwrap().challenge, original);
-    }
-
-    #[test]
-    fn set_rejects_wrong_type() {
-        let temp_dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "audit_enabled", "not_a_bool").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        // Original value is unchanged
-        assert!(config.get_settings_from_file().unwrap().audit_enabled);
-    }
-
-    #[test]
-    fn can_run_set_list_flag() {
-        let temp_dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_set_list(&config).unwrap();
+        let result = run_llm(&config, Some("openai"), Some("gpt-4"), Some("10000"), None).unwrap();
         assert_eq!(result.code, exitcode::OK);
+        let llm = config
+            .get_settings_from_file()
+            .unwrap()
+            .llm
+            .expect("llm should be Some after run_llm");
+        assert_eq!(llm.provider, "openai");
+        assert_eq!(llm.model, "gpt-4");
+        assert_eq!(llm.timeout_ms, 10000);
     }
 
     #[test]
-    fn can_run_get_scalar() {
+    fn llm_on_fresh_install() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_get_key(&config, "challenge").unwrap();
+        let config = fresh_config(&temp_dir);
+        let result = run_llm(&config, None, Some("gpt-4"), None, None).unwrap();
         assert_eq!(result.code, exitcode::OK);
+        assert_eq!(
+            config.get_settings_from_file().unwrap().llm.unwrap().model,
+            "gpt-4"
+        );
     }
 
+    // -----------------------------------------------------------------------
+    // context
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn can_run_get_nested() {
+    fn context_add_branch() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let result = run_get_key(&config, "context.escalation.critical").unwrap();
+        let result =
+            run_context_list(&config, &ContextListField::Branches, Some("develop"), None).unwrap();
         assert_eq!(result.code, exitcode::OK);
+        assert!(config
+            .get_settings_from_file()
+            .unwrap()
+            .context
+            .protected_branches
+            .contains(&"develop".to_string()));
     }
 
     #[test]
-    fn get_nonexistent_returns_error() {
+    fn context_remove_branch() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let result = run_get_key(&config, "nonexistent.key").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        assert!(result.message.unwrap().contains("key not found"));
-    }
-
-    #[test]
-    fn set_rejects_unknown_key() {
-        let temp_dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "challange", "Yes").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        let msg = result.message.unwrap();
-        assert!(msg.contains("unknown configuration key: 'challange'"));
-        assert!(msg.contains("Did you mean 'challenge'?"));
-    }
-
-    #[test]
-    fn set_rejects_completely_unknown_key() {
-        let temp_dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "zzz_nonexistent_zzz", "true").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        let msg = result.message.unwrap();
-        assert!(msg.contains("unknown configuration key"));
-        assert!(!msg.contains("Did you mean"));
-    }
-
-    #[test]
-    fn set_on_fresh_install_creates_sparse_file() {
-        let temp_dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let temp_path = temp_dir.root.join("fresh");
-        let config = Config::new(Some(&temp_path.display().to_string())).unwrap();
-        // No reset_config — simulates fresh install with no file
-        assert!(!config.setting_file_path.exists());
-        let result = run_set_key_value(&config, "challenge", "Yes").unwrap();
+        let result =
+            run_context_list(&config, &ContextListField::Branches, None, Some("main")).unwrap();
         assert_eq!(result.code, exitcode::OK);
-        // File should be sparse — only contains the key we set
-        let content = config.read_config_file().unwrap();
-        assert!(content.contains("challenge"));
-        assert!(!content.contains("enabled_groups"));
-        // Settings still load correctly with defaults
+        assert!(!config
+            .get_settings_from_file()
+            .unwrap()
+            .context
+            .protected_branches
+            .contains(&"main".to_string()));
+    }
+
+    #[test]
+    fn context_set_escalation() {
+        let temp_dir = tree_fs::TreeBuilder::default()
+            .create()
+            .expect("create tree");
+        let config = initialize_config_folder(&temp_dir);
+        let result = run_context_escalation(&config, Some("Yes"), Some("Yes")).unwrap();
+        assert_eq!(result.code, exitcode::OK);
         let settings = config.get_settings_from_file().unwrap();
-        assert_eq!(settings.challenge, Challenge::Yes);
-        assert!(!settings.enabled_groups.is_empty());
+        assert_eq!(settings.context.escalation.elevated, Challenge::Yes);
+        assert_eq!(settings.context.escalation.critical, Challenge::Yes);
     }
 
+    // -----------------------------------------------------------------------
+    // interactive menu (force_selection)
+    // -----------------------------------------------------------------------
+
     #[test]
-    fn set_invalid_value_shows_enum_hint() {
+    fn config_menu_delegates_to_show() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        let result = run_set_key_value(&config, "challenge", "Foo").unwrap();
-        assert_eq!(result.code, exitcode::CONFIG);
-        let msg = result.message.unwrap();
-        assert!(msg.contains("Valid values: Math, Enter, Yes"));
+        // Selection 7 = "Show full config"
+        let result = run_interactive_menu(&config, Some(7)).unwrap();
+        assert_eq!(result.code, exitcode::OK);
     }
 }

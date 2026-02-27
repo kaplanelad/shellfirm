@@ -212,8 +212,9 @@ pub struct Settings {
     #[serde(default)]
     pub agent: AgentConfig,
     /// LLM-powered analysis configuration (requires `llm` feature).
+    /// `None` means LLM is not configured (disabled by default).
     #[serde(default)]
-    pub llm: LlmConfig,
+    pub llm: Option<LlmConfig>,
     /// PTY wrapper configuration (requires `wrap` feature).
     #[serde(default)]
     pub wrappers: WrappersConfig,
@@ -279,7 +280,7 @@ impl Default for Settings {
             blast_radius: default_blast_radius(),
             min_severity: None,
             agent: AgentConfig::default(),
-            llm: LlmConfig::default(),
+            llm: None,
             wrappers: WrappersConfig::default(),
         }
     }
@@ -331,7 +332,16 @@ impl Config {
     /// Will return `Err` has an error when loading the config file
     pub fn get_settings_from_file(&self) -> Result<Settings> {
         match self.read_config_file() {
-            Ok(content) => Ok(serde_yaml::from_str(&content)?),
+            Ok(content) => match serde_yaml::from_str(&content) {
+                Ok(settings) => Ok(settings),
+                Err(e) => {
+                    tracing::warn!(
+                        "Settings file could not be parsed, using defaults: {e}. \
+                         Run `shellfirm config reset` to fix."
+                    );
+                    Ok(Settings::default())
+                }
+            },
             Err(_) if !self.setting_file_path.exists() => Ok(Settings::default()),
             Err(e) => Err(e),
         }
@@ -381,12 +391,17 @@ impl Config {
         self.save_settings_file_from_struct(&Settings::default())
     }
 
-    /// Convert the given config to YAML format and the file.
+    /// Convert the given config to YAML format and save to file.
     ///
     /// # Arguments
     ///
     /// * `settings` - Config struct
-    fn save_settings_file_from_struct(&self, settings: &Settings) -> Result<()> {
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err` if the config directory cannot be created or the file
+    /// cannot be written.
+    pub fn save_settings_file_from_struct(&self, settings: &Settings) -> Result<()> {
         self.ensure_config_dir()?;
         let content = serde_yaml::to_string(settings)?;
         let mut file = fs::File::create(&self.setting_file_path)?;
@@ -484,18 +499,6 @@ impl Settings {
     }
 }
 
-/// Navigate a [`serde_yaml::Value`] tree by dot-notation path.
-///
-/// Returns `None` if any segment is missing.
-#[must_use]
-pub fn value_get<'a>(root: &'a serde_yaml::Value, path: &str) -> Option<&'a serde_yaml::Value> {
-    let mut current = root;
-    for segment in path.split('.') {
-        current = current.get(segment)?;
-    }
-    Some(current)
-}
-
 /// Set a value at a dot-notation path, creating intermediate mappings as
 /// needed.
 ///
@@ -535,138 +538,6 @@ pub fn value_set(
             .ok_or_else(|| Error::Config(format!("failed to descend into '{segment}'")))?;
     }
     Ok(())
-}
-
-/// Recursively collect all `(key_path, display_value)` leaf pairs from a
-/// [`serde_yaml::Value`] tree.
-#[must_use]
-pub fn value_list_paths(root: &serde_yaml::Value) -> Vec<(String, String)> {
-    let mut result = Vec::new();
-    collect_paths(root, &mut String::new(), &mut result);
-    result
-}
-
-fn collect_paths(
-    value: &serde_yaml::Value,
-    prefix: &mut String,
-    result: &mut Vec<(String, String)>,
-) {
-    if let Some(mapping) = value.as_mapping() {
-        for (k, v) in mapping {
-            let key_str = k
-                .as_str()
-                .map_or_else(|| format!("{k:?}"), ToString::to_string);
-            let old_len = prefix.len();
-            if !prefix.is_empty() {
-                prefix.push('.');
-            }
-            prefix.push_str(&key_str);
-            collect_paths(v, prefix, result);
-            prefix.truncate(old_len);
-        }
-    } else {
-        result.push((prefix.clone(), format_yaml_value(value)));
-    }
-}
-
-/// Format a [`serde_yaml::Value`] for human-readable display.
-#[must_use]
-pub fn format_yaml_value(value: &serde_yaml::Value) -> String {
-    match value {
-        serde_yaml::Value::Null => "null".to_string(),
-        serde_yaml::Value::Bool(b) => b.to_string(),
-        serde_yaml::Value::Number(n) => n.to_string(),
-        serde_yaml::Value::String(s) => s.clone(),
-        serde_yaml::Value::Sequence(seq) => {
-            let items: Vec<String> = seq.iter().map(format_yaml_value).collect();
-            format!("[{}]", items.join(", "))
-        }
-        serde_yaml::Value::Mapping(_) => {
-            serde_yaml::to_string(value).unwrap_or_else(|_| "<mapping>".to_string())
-        }
-        serde_yaml::Value::Tagged(tagged) => format_yaml_value(&tagged.value),
-    }
-}
-
-/// Return all valid dot-notation key paths derived from `Settings::default()`.
-///
-/// # Panics
-///
-/// Panics if `Settings::default()` cannot be serialized to a YAML value,
-/// which should never happen.
-#[must_use]
-pub fn valid_config_keys() -> Vec<String> {
-    let default_value =
-        serde_yaml::to_value(Settings::default()).expect("Settings::default() must serialize");
-    let paths = value_list_paths(&default_value);
-    let mut keys: Vec<String> = paths.into_iter().map(|(k, _)| k).collect();
-    // Also include intermediate mapping paths (e.g. "context", "context.escalation")
-    let mut intermediates = std::collections::BTreeSet::new();
-    for key in &keys {
-        let parts: Vec<&str> = key.split('.').collect();
-        for i in 1..parts.len() {
-            intermediates.insert(parts[..i].join("."));
-        }
-    }
-    for intermediate in intermediates {
-        if !keys.contains(&intermediate) {
-            keys.push(intermediate);
-        }
-    }
-    keys
-}
-
-/// Validate that a key is a known configuration path.
-///
-/// Returns `Ok(())` if valid, or `Err` with an error message including a
-/// "did you mean?" suggestion when a close match is found.
-///
-/// # Errors
-///
-/// Returns `Err(String)` when the key is not a known configuration path.
-pub fn validate_config_key(key: &str) -> std::result::Result<(), String> {
-    let valid = valid_config_keys();
-    if valid.iter().any(|k| k == key) {
-        return Ok(());
-    }
-
-    // Find closest match via Levenshtein distance
-    let threshold = (key.len() / 2).max(3);
-    let mut best: Option<(&str, usize)> = None;
-    for valid_key in &valid {
-        let dist = strsim::levenshtein(key, valid_key);
-        if dist <= threshold && best.is_none_or(|(_, d)| dist < d) {
-            best = Some((valid_key, dist));
-        }
-    }
-
-    let mut msg = format!("unknown configuration key: '{key}'");
-    if let Some((suggestion, _)) = best {
-        use std::fmt::Write;
-        let _ = write!(msg, "\n\n  Did you mean '{suggestion}'?");
-    }
-    msg.push_str("\n\nRun 'shellfirm config set --list' to see all valid keys.");
-    Err(msg)
-}
-
-/// Return known enum fields and their valid values.
-///
-/// This is used to show helpful hints when a user provides an invalid value.
-#[must_use]
-pub fn known_enum_values() -> Vec<(&'static str, &'static [&'static str])> {
-    vec![
-        ("challenge", &["Math", "Enter", "Yes"]),
-        (
-            "min_severity",
-            &["null", "Info", "Low", "Medium", "High", "Critical"],
-        ),
-        ("context.escalation.elevated", &["Math", "Enter", "Yes"]),
-        ("context.escalation.critical", &["Math", "Enter", "Yes"]),
-        (
-            "agent.auto_deny_severity",
-            &["Info", "Low", "Medium", "High", "Critical"],
-        ),
-    ]
 }
 
 #[cfg(test)]
@@ -716,15 +587,9 @@ mod test_config {
             .create()
             .expect("create tree");
         let config = initialize_config_folder_with_file(&temp_dir);
-        // Change challenge via generic value_set
-        let mut root = config.read_config_as_value().unwrap();
-        value_set(
-            &mut root,
-            "challenge",
-            serde_yaml::Value::String("Yes".into()),
-        )
-        .unwrap();
-        config.save_config_from_value(&root).unwrap();
+        let mut settings = config.get_settings_from_file().unwrap();
+        settings.challenge = Challenge::Yes;
+        config.save_settings_file_from_struct(&settings).unwrap();
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
@@ -743,15 +608,9 @@ mod test_config {
             .create()
             .expect("create tree");
         let config = initialize_config_folder_with_file(&temp_dir);
-        // Change challenge via generic value_set
-        let mut root = config.read_config_as_value().unwrap();
-        value_set(
-            &mut root,
-            "challenge",
-            serde_yaml::Value::String("Yes".into()),
-        )
-        .unwrap();
-        config.save_config_from_value(&root).unwrap();
+        let mut settings = config.get_settings_from_file().unwrap();
+        settings.challenge = Challenge::Yes;
+        config.save_settings_file_from_struct(&settings).unwrap();
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
@@ -762,121 +621,6 @@ mod test_config {
             Challenge::Math
         );
         assert_eq!(read_dir(&config.root_folder).unwrap().count(), 2);
-    }
-
-    #[test]
-    fn value_get_simple_key() {
-        let yaml: serde_yaml::Value =
-            serde_yaml::from_str("challenge: Math\naudit_enabled: true").unwrap();
-        assert_eq!(
-            value_get(&yaml, "challenge").and_then(|v| v.as_str()),
-            Some("Math")
-        );
-    }
-
-    #[test]
-    fn value_get_nested_key() {
-        let yaml: serde_yaml::Value =
-            serde_yaml::from_str("context:\n  escalation:\n    elevated: Enter").unwrap();
-        assert_eq!(
-            value_get(&yaml, "context.escalation.elevated").and_then(|v| v.as_str()),
-            Some("Enter")
-        );
-    }
-
-    #[test]
-    fn value_get_missing_key() {
-        let yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
-        assert!(value_get(&yaml, "nonexistent").is_none());
-        assert!(value_get(&yaml, "a.b.c").is_none());
-    }
-
-    #[test]
-    fn value_set_simple() {
-        let mut yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
-        value_set(
-            &mut yaml,
-            "challenge",
-            serde_yaml::Value::String("Yes".into()),
-        )
-        .unwrap();
-        assert_eq!(
-            value_get(&yaml, "challenge").and_then(|v| v.as_str()),
-            Some("Yes")
-        );
-    }
-
-    #[test]
-    fn value_set_nested() {
-        let mut yaml: serde_yaml::Value =
-            serde_yaml::from_str("context:\n  escalation:\n    elevated: Enter").unwrap();
-        value_set(
-            &mut yaml,
-            "context.escalation.elevated",
-            serde_yaml::Value::String("Yes".into()),
-        )
-        .unwrap();
-        assert_eq!(
-            value_get(&yaml, "context.escalation.elevated").and_then(|v| v.as_str()),
-            Some("Yes")
-        );
-    }
-
-    #[test]
-    fn value_set_creates_intermediate() {
-        let mut yaml: serde_yaml::Value = serde_yaml::from_str("challenge: Math").unwrap();
-        value_set(
-            &mut yaml,
-            "new.nested.key",
-            serde_yaml::Value::String("hello".into()),
-        )
-        .unwrap();
-        assert_eq!(
-            value_get(&yaml, "new.nested.key").and_then(|v| v.as_str()),
-            Some("hello")
-        );
-    }
-
-    #[test]
-    fn value_list_paths_collects_all_leaves() {
-        let yaml: serde_yaml::Value =
-            serde_yaml::from_str("challenge: Math\ncontext:\n  escalation:\n    elevated: Enter")
-                .unwrap();
-        let paths = value_list_paths(&yaml);
-        let keys: Vec<&str> = paths.iter().map(|(k, _)| k.as_str()).collect();
-        assert!(keys.contains(&"challenge"));
-        assert!(keys.contains(&"context.escalation.elevated"));
-    }
-
-    #[test]
-    fn validate_config_key_accepts_known_keys() {
-        assert!(validate_config_key("challenge").is_ok());
-        assert!(validate_config_key("llm.model").is_ok());
-        assert!(validate_config_key("context.escalation.elevated").is_ok());
-        assert!(validate_config_key("agent.auto_deny_severity").is_ok());
-        assert!(validate_config_key("audit_enabled").is_ok());
-    }
-
-    #[test]
-    fn validate_config_key_accepts_intermediate_paths() {
-        assert!(validate_config_key("context").is_ok());
-        assert!(validate_config_key("context.escalation").is_ok());
-        assert!(validate_config_key("llm").is_ok());
-        assert!(validate_config_key("agent").is_ok());
-    }
-
-    #[test]
-    fn validate_config_key_rejects_unknown_with_suggestion() {
-        let err = validate_config_key("challange").unwrap_err();
-        assert!(err.contains("unknown configuration key: 'challange'"));
-        assert!(err.contains("Did you mean 'challenge'?"));
-    }
-
-    #[test]
-    fn validate_config_key_rejects_completely_unknown() {
-        let err = validate_config_key("zzz_nonexistent_zzz").unwrap_err();
-        assert!(err.contains("unknown configuration key"));
-        assert!(!err.contains("Did you mean"));
     }
 
     #[test]

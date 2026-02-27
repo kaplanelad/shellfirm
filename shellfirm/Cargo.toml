@@ -44,7 +44,6 @@ tokio = { version = "1", features = [
     "io-util",
 ], optional = true }
 uuid = { version = "1", features = ["v4"] }
-strsim = "0.11"
 libc = { version = "0.2", optional = true }
 
 [target.'cfg(unix)'.dependencies]

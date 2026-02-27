@@ -471,7 +471,7 @@ mod tests {
             blast_radius: true,
             min_severity: None,
             agent: AgentConfig::default(),
-            llm: crate::config::LlmConfig::default(),
+            llm: None,
             wrappers: crate::config::WrappersConfig::default(),
         }
     }

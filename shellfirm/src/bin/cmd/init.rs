@@ -838,7 +838,7 @@ fn detect_installed_shells() -> Vec<Shell> {
 const fn zsh_hook() -> &'static str {
     r#"# shellfirm hook for zsh — intercepts Enter via the accept-line widget
 shellfirm-pre-command() {
-    if [[ -z "${BUFFER}" || "${BUFFER}" == *"shellfirm pre-command"* ]]; then
+    if [[ -z "${BUFFER}" || "${BUFFER}" == *"shellfirm"* ]]; then
         zle .accept-line
         return
     fi
@@ -920,7 +920,7 @@ const fn fish_hook() -> &'static str {
     r#"# shellfirm hook for fish — intercepts Enter via key binding
 function _shellfirm_check
     set -l cmd (commandline)
-    if test -z "$cmd"; or string match -q '*shellfirm pre-command*' -- $cmd
+    if test -z "$cmd"; or string match -q '*shellfirm*' -- $cmd
         commandline -f execute
         return
     end
@@ -945,7 +945,7 @@ $env.config.hooks.pre_execution = (
         if ($cmd | str trim | is-empty) {
             return
         }
-        if ($cmd | str contains "shellfirm pre-command") {
+        if ($cmd | str contains "shellfirm") {
             return
         }
         let result = (do { shellfirm pre-command -c $cmd } | complete)
@@ -969,7 +969,7 @@ if (Get-Command shellfirm -ErrorAction SilentlyContinue) {
             return
         }
 
-        if ($line -match 'shellfirm pre-command') {
+        if ($line -match 'shellfirm') {
             [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
             return
         }
@@ -998,7 +998,7 @@ if (not ?(which shellfirm &>/dev/null)) {
             edit:smart-enter
             return
         }
-        if (str:contains $cmd "shellfirm pre-command") {
+        if (str:contains $cmd "shellfirm") {
             edit:smart-enter
             return
         }
@@ -1025,7 +1025,7 @@ else:
     def _shellfirm_precommand(cmd, **kwargs):
         if not cmd or not cmd.strip():
             return
-        if "shellfirm pre-command" in cmd:
+        if "shellfirm" in cmd:
             return
         result = subprocess.run(
             ["shellfirm", "pre-command", "-c", cmd],

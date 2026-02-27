@@ -79,7 +79,10 @@ pub fn run(
             || env.var("ANTHROPIC_API_KEY").is_some()
             || env.var("OPENAI_API_KEY").is_some();
         if has_key {
-            format!("available (provider: {})", settings.llm.provider)
+            settings.llm.as_ref().map_or_else(
+                || "available (no API key configured, LLM not configured)".to_string(),
+                |llm| format!("available (provider: {})", llm.provider),
+            )
         } else {
             "available (no API key configured)".to_string()
         }
