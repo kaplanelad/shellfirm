@@ -322,12 +322,10 @@ pub fn handle_statement(
 
     // Run challenge
     let result = match checks::challenge_with_context(
-        &settings.challenge,
+        settings,
         &active_refs,
-        &settings.deny_patterns_ids,
         &pipeline.context,
         &pipeline.merged_policy,
-        &settings.context.escalation,
         prompter,
         &pipeline.blast_radii,
     ) {

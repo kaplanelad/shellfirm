@@ -456,23 +456,13 @@ impl<'a> McpServer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AgentConfig;
     use crate::env::MockEnvironment;
 
     fn test_settings() -> Settings {
         Settings {
-            challenge: crate::config::Challenge::Math,
             enabled_groups: vec!["base".into(), "fs".into(), "git".into()],
-            disabled_groups: vec![],
-            ignores_patterns_ids: vec![],
-            deny_patterns_ids: vec![],
-            context: crate::context::ContextConfig::default(),
             audit_enabled: false,
-            blast_radius: true,
-            min_severity: None,
-            agent: AgentConfig::default(),
-            llm: None,
-            wrappers: crate::config::WrappersConfig::default(),
+            ..Settings::default()
         }
     }
 

@@ -62,5 +62,15 @@ Ok(
         wrappers: WrappersConfig {
             tools: {},
         },
+        severity_escalation: SeverityEscalationConfig {
+            enabled: true,
+            critical: Yes,
+            high: Enter,
+            medium: Math,
+            low: Math,
+            info: Math,
+        },
+        group_escalation: {},
+        check_escalation: {},
     },
 )

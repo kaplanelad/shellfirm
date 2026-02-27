@@ -2,12 +2,14 @@
 # This is the single source of truth for shellfirm's behavior.
 
 # --- Basic pattern matching (no context, no policy) ---
+# Note: severity escalation is ON by default, so:
+#   High severity → Enter, Critical severity → Yes
 - name: "force push detected with default settings"
   command: "git push -f origin main"
   context: {}
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Math
+    effective_challenge: Enter   # High severity → Enter
     risk_level: Normal
 
 - name: "safe command passes through"
@@ -21,7 +23,7 @@
   context: {}
   expected:
     matched_ids: ["kubernetes:delete_namespace"]
-    effective_challenge: Math
+    effective_challenge: "Yes"   # Critical severity → Yes
     risk_level: Normal
 
 - name: "docker system prune detected"
@@ -29,7 +31,7 @@
   context: {}
   expected:
     matched_ids: ["docker:system_prune_all"]
-    effective_challenge: Math
+    effective_challenge: Enter   # High severity → Enter
     risk_level: Normal
 
 - name: "terraform auto-approve detected"
@@ -37,7 +39,7 @@
   context: {}
   expected:
     matched_ids: ["terraform:apply_with_auto_approve"]
-    effective_challenge: Math
+    effective_challenge: "Yes"   # Critical severity → Yes
     risk_level: Normal
 
 - name: "AWS S3 recursive delete detected"
@@ -45,7 +47,7 @@
   context: {}
   expected:
     matched_ids: ["aws:s3_recursive_delete"]
-    effective_challenge: Math
+    effective_challenge: Enter   # High severity → Enter
     risk_level: Normal
 
 - name: "database drop detected"
@@ -53,7 +55,7 @@
   context: {}
   expected:
     matched_ids: ["database:drop_database"]
-    effective_challenge: Math
+    effective_challenge: "Yes"   # Critical severity → Yes
     risk_level: Normal
 
 # --- Context escalation ---
@@ -81,7 +83,7 @@
     k8s_context: minikube
   expected:
     matched_ids: ["kubernetes:delete_namespace"]
-    effective_challenge: Math
+    effective_challenge: "Yes"   # Critical severity → Yes (even in normal context)
     risk_level: Normal
 
 - name: "SSH session elevates to Enter"
@@ -119,7 +121,7 @@
     k8s_context: minikube
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Math
+    effective_challenge: Enter   # High severity → Enter (no context escalation)
     risk_level: Normal
 
 - name: "release wildcard branch is Critical"
@@ -248,3 +250,39 @@
   context: {}
   expected:
     matched_ids: []
+
+# --- Severity escalation ---
+- name: "Critical severity gets Yes challenge on normal context"
+  command: "DROP DATABASE production"
+  context: {}
+  expected:
+    matched_ids: ["database:drop_database"]
+    effective_challenge: "Yes"
+    risk_level: Normal
+
+- name: "High severity gets Enter challenge on normal context"
+  command: "git push -f origin feature/foo"
+  context:
+    git_branch: "feature/foo"
+  expected:
+    matched_ids: ["git:force_push"]
+    effective_challenge: Enter
+    risk_level: Normal
+
+- name: "High severity + Critical context stacks correctly"
+  command: "git push -f origin main"
+  context:
+    git_branch: main
+  expected:
+    matched_ids: ["git:force_push"]
+    effective_challenge: "Yes"  # max(Enter from severity, Yes from context)
+    risk_level: Critical
+
+- name: "Critical severity + Elevated context takes max"
+  command: "kubectl delete namespace payments"
+  context:
+    ssh: true
+  expected:
+    matched_ids: ["kubernetes:delete_namespace"]
+    effective_challenge: "Yes"  # max(Yes from severity, Enter from SSH)
+    risk_level: Elevated

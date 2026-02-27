@@ -22,7 +22,6 @@ use shellfirm::{
 
 fn default_settings() -> Settings {
     Settings {
-        challenge: Challenge::Math,
         enabled_groups: vec![
             "base".into(),
             "fs".into(),
@@ -31,16 +30,8 @@ fn default_settings() -> Settings {
             "docker".into(),
             "aws".into(),
         ],
-        disabled_groups: vec![],
-        ignores_patterns_ids: vec![],
-        deny_patterns_ids: vec![],
-        context: ContextConfig::default(),
         audit_enabled: false,
-        blast_radius: true,
-        min_severity: None,
-        agent: shellfirm::AgentConfig::default(),
-        llm: None,
-        wrappers: shellfirm::WrappersConfig::default(),
+        ..Settings::default()
     }
 }
 
@@ -120,12 +111,10 @@ fn run_pipeline(
 
     // Run challenge
     let result = checks::challenge_with_context(
-        &settings.challenge,
+        settings,
         &matches,
-        &settings.deny_patterns_ids,
         &runtime_context,
         &merged_policy,
-        &settings.context.escalation,
         prompter,
         &[],
     )
@@ -181,10 +170,10 @@ fn test_pipeline_local_dev_force_push_passes() {
 
     assert_eq!(result, Some(ChallengeResult::Passed));
 
-    // Verify the display showed Math challenge (no escalation on feature branch)
+    // Verify the display showed Enter challenge (High severity → Enter, no context escalation)
     let displays = prompter.captured_displays.borrow();
     assert_eq!(displays.len(), 1);
-    assert_eq!(displays[0].effective_challenge, Challenge::Math);
+    assert_eq!(displays[0].effective_challenge, Challenge::Enter);
     assert!(!displays[0].is_denied);
 }
 
@@ -485,6 +474,122 @@ fn test_multiple_critical_signals() {
 // ---------------------------------------------------------------------------
 // Command-aware context filtering (relevant_context) tests
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Severity-based escalation tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pipeline_high_severity_escalates_to_enter() {
+    // git push -f is High severity → Enter on a normal local dev environment
+    let env = mock_env_local_dev();
+    let prompter = MockPrompter::passing();
+    let settings = default_settings();
+
+    let result = run_pipeline(
+        "git push -f origin feature/my-thing",
+        &settings,
+        &env,
+        &prompter,
+        None,
+    );
+
+    assert_eq!(result, Some(ChallengeResult::Passed));
+    let displays = prompter.captured_displays.borrow();
+    assert_eq!(displays.len(), 1);
+    assert_eq!(displays[0].effective_challenge, Challenge::Enter);
+}
+
+#[test]
+fn test_pipeline_severity_disabled_stays_math() {
+    // With severity escalation disabled, High severity stays at Math
+    let env = mock_env_local_dev();
+    let prompter = MockPrompter::passing();
+    let mut settings = default_settings();
+    settings.severity_escalation.enabled = false;
+
+    let result = run_pipeline(
+        "git push -f origin feature/my-thing",
+        &settings,
+        &env,
+        &prompter,
+        None,
+    );
+
+    assert_eq!(result, Some(ChallengeResult::Passed));
+    let displays = prompter.captured_displays.borrow();
+    assert_eq!(displays.len(), 1);
+    assert_eq!(displays[0].effective_challenge, Challenge::Math);
+}
+
+#[test]
+fn test_pipeline_group_escalation() {
+    // Group escalation: git → Yes
+    let env = mock_env_local_dev();
+    let prompter = MockPrompter::passing();
+    let mut settings = default_settings();
+    settings.severity_escalation.enabled = false; // disable severity to isolate group
+    settings
+        .group_escalation
+        .insert("git".into(), Challenge::Yes);
+
+    let result = run_pipeline(
+        "git push -f origin feature/my-thing",
+        &settings,
+        &env,
+        &prompter,
+        None,
+    );
+
+    assert_eq!(result, Some(ChallengeResult::Passed));
+    let displays = prompter.captured_displays.borrow();
+    assert_eq!(displays.len(), 1);
+    assert_eq!(displays[0].effective_challenge, Challenge::Yes);
+}
+
+#[test]
+fn test_pipeline_check_id_escalation() {
+    // Check-ID escalation: git:force_push → Yes
+    let env = mock_env_local_dev();
+    let prompter = MockPrompter::passing();
+    let mut settings = default_settings();
+    settings.severity_escalation.enabled = false; // disable severity to isolate check-id
+    settings
+        .check_escalation
+        .insert("git:force_push".into(), Challenge::Yes);
+
+    let result = run_pipeline(
+        "git push -f origin feature/my-thing",
+        &settings,
+        &env,
+        &prompter,
+        None,
+    );
+
+    assert_eq!(result, Some(ChallengeResult::Passed));
+    let displays = prompter.captured_displays.borrow();
+    assert_eq!(displays.len(), 1);
+    assert_eq!(displays[0].effective_challenge, Challenge::Yes);
+}
+
+#[test]
+fn test_pipeline_all_layers_compose() {
+    // All layers composing: severity(Enter) + group(ignored, less than Enter) + context(Yes)
+    let env = mock_env_production_ssh();
+    let prompter = MockPrompter::passing();
+    let mut settings = default_settings();
+    settings
+        .group_escalation
+        .insert("git".into(), Challenge::Enter); // less than severity
+
+    let result = run_pipeline("git push -f origin main", &settings, &env, &prompter, None);
+
+    assert_eq!(result, Some(ChallengeResult::Passed));
+    let displays = prompter.captured_displays.borrow();
+    assert_eq!(displays.len(), 1);
+    // max(Enter from severity, Enter from group, Yes from context) = Yes
+    assert_eq!(displays[0].effective_challenge, Challenge::Yes);
+}
 
 fn strip_quotes_regex() -> regex::Regex {
     regex::Regex::new(r#"'[^']*'|"[^"]*""#).unwrap()

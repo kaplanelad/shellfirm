@@ -4,10 +4,10 @@
 //! policy merging, command splitting, and alternative formatting.
 
 use shellfirm::{
-    checks,
+    checks::{self, Severity},
     context::{self, EscalationConfig, RiskLevel},
     policy::{self, Override, ProjectPolicy},
-    Challenge,
+    Challenge, SeverityEscalationConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -161,18 +161,9 @@ fn test_escalate_cannot_lower() {
 
 fn default_settings() -> shellfirm::Settings {
     shellfirm::Settings {
-        challenge: Challenge::Math,
         enabled_groups: vec!["base".into(), "fs".into(), "git".into()],
-        disabled_groups: vec![],
-        ignores_patterns_ids: vec![],
-        deny_patterns_ids: vec![],
-        context: context::ContextConfig::default(),
         audit_enabled: false,
-        blast_radius: true,
-        min_severity: None,
-        agent: shellfirm::AgentConfig::default(),
-        llm: None,
-        wrappers: shellfirm::WrappersConfig::default(),
+        ..shellfirm::Settings::default()
     }
 }
 
@@ -393,4 +384,111 @@ checks:
 "#;
     let warnings = policy::validate_policy(yaml).unwrap();
     assert!(warnings.iter().any(|w| w.contains("empty id")));
+}
+
+// ---------------------------------------------------------------------------
+// Severity escalation config
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_severity_escalation_defaults() {
+    let config = SeverityEscalationConfig::default();
+    assert!(config.enabled);
+    assert_eq!(
+        config.challenge_for_severity(Severity::Critical),
+        Some(Challenge::Yes)
+    );
+    assert_eq!(
+        config.challenge_for_severity(Severity::High),
+        Some(Challenge::Enter)
+    );
+    assert_eq!(
+        config.challenge_for_severity(Severity::Medium),
+        Some(Challenge::Math)
+    );
+    assert_eq!(
+        config.challenge_for_severity(Severity::Low),
+        Some(Challenge::Math)
+    );
+    assert_eq!(
+        config.challenge_for_severity(Severity::Info),
+        Some(Challenge::Math)
+    );
+}
+
+#[test]
+fn test_severity_escalation_disabled_returns_none() {
+    let config = SeverityEscalationConfig {
+        enabled: false,
+        ..SeverityEscalationConfig::default()
+    };
+    assert_eq!(config.challenge_for_severity(Severity::Critical), None);
+    assert_eq!(config.challenge_for_severity(Severity::High), None);
+    assert_eq!(config.challenge_for_severity(Severity::Medium), None);
+}
+
+#[test]
+fn test_severity_escalation_custom_values() {
+    let config = SeverityEscalationConfig {
+        enabled: true,
+        critical: Challenge::Yes,
+        high: Challenge::Yes,
+        medium: Challenge::Enter,
+        low: Challenge::Math,
+        info: Challenge::Math,
+    };
+    assert_eq!(
+        config.challenge_for_severity(Severity::High),
+        Some(Challenge::Yes)
+    );
+    assert_eq!(
+        config.challenge_for_severity(Severity::Medium),
+        Some(Challenge::Enter)
+    );
+}
+
+#[test]
+fn test_severity_escalation_yaml_roundtrip() {
+    let original = SeverityEscalationConfig::default();
+    let yaml = serde_yaml::to_string(&original).unwrap();
+    let restored: SeverityEscalationConfig = serde_yaml::from_str(&yaml).unwrap();
+    assert_eq!(restored.enabled, original.enabled);
+    assert_eq!(restored.critical, original.critical);
+    assert_eq!(restored.high, original.high);
+    assert_eq!(restored.medium, original.medium);
+    assert_eq!(restored.low, original.low);
+    assert_eq!(restored.info, original.info);
+}
+
+#[test]
+fn test_settings_yaml_roundtrip_preserves_new_fields() {
+    let mut settings = default_settings();
+    settings
+        .group_escalation
+        .insert("fs".into(), Challenge::Yes);
+    settings
+        .check_escalation
+        .insert("git:force_push".into(), Challenge::Yes);
+    settings.severity_escalation.high = Challenge::Yes;
+
+    let yaml = serde_yaml::to_string(&settings).unwrap();
+    let restored: shellfirm::Settings = serde_yaml::from_str(&yaml).unwrap();
+    assert_eq!(restored.severity_escalation.high, Challenge::Yes);
+    assert_eq!(restored.group_escalation.get("fs"), Some(&Challenge::Yes));
+    assert_eq!(
+        restored.check_escalation.get("git:force_push"),
+        Some(&Challenge::Yes)
+    );
+}
+
+#[test]
+fn test_sparse_config_deserializes_new_fields_with_defaults() {
+    // Simulates an old config file that doesn't have the new fields
+    let yaml = "challenge: Math\n";
+    let settings: shellfirm::Settings = serde_yaml::from_str(yaml).unwrap();
+    assert!(settings.severity_escalation.enabled);
+    assert_eq!(settings.severity_escalation.critical, Challenge::Yes);
+    assert_eq!(settings.severity_escalation.high, Challenge::Enter);
+    assert!(settings.group_escalation.is_empty());
+    assert!(settings.check_escalation.is_empty());
 }
