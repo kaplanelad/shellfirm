@@ -1708,7 +1708,7 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
 name = "shellfirm"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "clap",
  "clap_complete",
