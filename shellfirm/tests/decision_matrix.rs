@@ -156,7 +156,7 @@ fn default_settings() -> Settings {
         blast_radius: true,
         min_severity: None,
         agent: shellfirm::AgentConfig::default(),
-        llm: shellfirm::LlmConfig::default(),
+        llm: None,
         wrappers: shellfirm::WrappersConfig::default(),
     }
 }

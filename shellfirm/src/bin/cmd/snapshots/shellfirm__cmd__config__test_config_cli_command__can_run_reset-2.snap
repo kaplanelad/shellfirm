@@ -58,13 +58,7 @@ Ok(
             auto_deny_severity: High,
             require_human_approval: false,
         },
-        llm: LlmConfig {
-            provider: "anthropic",
-            model: "claude-sonnet-4-20250514",
-            base_url: None,
-            timeout_ms: 5000,
-            max_tokens: 512,
-        },
+        llm: None,
         wrappers: WrappersConfig {
             tools: {},
         },

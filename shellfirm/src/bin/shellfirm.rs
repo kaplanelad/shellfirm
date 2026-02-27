@@ -62,11 +62,10 @@ fn main() {
         }
     };
 
-    if let Some((command_name, subcommand_matches)) = matches.subcommand() {
-        if command_name == "config" && subcommand_matches.subcommand_name() == Some("reset") {
-            let c = cmd::config::run_reset(&config, None);
-            shellfirm_exit(Ok(c));
-        }
+    // Handle config commands early — some subcommands (like reset, show, challenge, etc.)
+    // don't need loaded checks, and `config` (no subcommand) should show the interactive menu.
+    if let Some(("config", subcommand_matches)) = matches.subcommand() {
+        shellfirm_exit(cmd::config::run(subcommand_matches, &config));
     }
 
     let settings = match config.get_settings_from_file() {
@@ -110,7 +109,6 @@ fn main() {
             ("pre-command", subcommand_matches) => {
                 cmd::command::run(subcommand_matches, &settings, &checks, &config)
             }
-            ("config", subcommand_matches) => cmd::config::run(subcommand_matches, &config),
             ("audit", subcommand_matches) => cmd::audit_cmd::run(subcommand_matches, &config),
             ("check", subcommand_matches) => {
                 cmd::check_cmd::run(subcommand_matches, &settings, &checks)

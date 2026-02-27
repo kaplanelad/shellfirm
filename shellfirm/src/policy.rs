@@ -289,7 +289,7 @@ deny:
             blast_radius: true,
             min_severity: None,
             agent: crate::config::AgentConfig::default(),
-            llm: crate::config::LlmConfig::default(),
+            llm: None,
             wrappers: crate::config::WrappersConfig::default(),
         };
         let policy = ProjectPolicy {
@@ -344,7 +344,7 @@ deny:
             blast_radius: true,
             min_severity: None,
             agent: crate::config::AgentConfig::default(),
-            llm: crate::config::LlmConfig::default(),
+            llm: None,
             wrappers: crate::config::WrappersConfig::default(),
         };
         let policy = ProjectPolicy {
