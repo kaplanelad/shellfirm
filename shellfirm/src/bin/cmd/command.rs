@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::sync::OnceLock;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
@@ -42,18 +43,23 @@ pub fn run(
     config: &shellfirm::Config,
 ) -> Result<shellfirm::CmdExit> {
     let env = RealEnvironment;
+    let command = arg_matches
+        .get_one::<String>("command")
+        .map_or("", String::as_str);
+    let dryrun = arg_matches.get_flag("test");
+
+    // When stdin is not a terminal (e.g., inside zsh zle widgets), crossterm's
+    // raw-mode event system hangs on macOS. Fall back to DirectTtyPrompter
+    // which reads from /dev/tty with simple cooked-mode line I/O.
+    // See: https://github.com/kaplanelad/shellfirm/issues/160
+    #[cfg(unix)]
+    if !std::io::stdin().is_terminal() {
+        let prompter = shellfirm::prompt::DirectTtyPrompter;
+        return execute(command, settings, checks, dryrun, &env, &prompter, config);
+    }
+
     let prompter = TerminalPrompter;
-    execute(
-        arg_matches
-            .get_one::<String>("command")
-            .map_or("", String::as_str),
-        settings,
-        checks,
-        arg_matches.get_flag("test"),
-        &env,
-        &prompter,
-        config,
-    )
+    execute(command, settings, checks, dryrun, &env, &prompter, config)
 }
 
 #[allow(clippy::too_many_lines)]

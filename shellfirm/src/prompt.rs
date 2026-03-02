@@ -67,6 +67,91 @@ pub trait Prompter {
 }
 
 // ---------------------------------------------------------------------------
+// Shared banner display
+// ---------------------------------------------------------------------------
+
+/// Print the warning banner to stderr.
+///
+/// Shared by all interactive prompter implementations.
+fn display_banner(display: &DisplayContext) {
+    // Move to a new line and clear everything below the cursor.
+    // This erases leftover terminal artifacts (e.g., fzf inline display)
+    // so the challenge renders cleanly.
+    eprint!("\n\x1b[J");
+
+    // Banner
+    let separator = "=".repeat(12);
+    if display.is_denied {
+        eprintln!(
+            "{}",
+            style(format!("{separator} COMMAND DENIED {separator}"))
+                .red()
+                .bold()
+        );
+    } else {
+        eprintln!(
+            "{}",
+            style(format!("{separator} RISKY COMMAND DETECTED {separator}"))
+                .red()
+                .bold()
+        );
+    }
+
+    // Severity label
+    if let Some(ref sev) = display.severity_label {
+        eprintln!("{} {}", style("Severity:").red().bold(), style(sev).red());
+    }
+
+    // Blast radius
+    if let Some(ref br) = display.blast_radius_label {
+        eprintln!(
+            "{} {}",
+            style("Blast radius:").red().bold(),
+            style(br).dim()
+        );
+    }
+
+    // Context labels
+    if !display.context_labels.is_empty() {
+        let labels = display.context_labels.join(", ");
+        eprintln!(
+            "{} {}",
+            style("Context:").cyan().bold(),
+            style(labels).cyan()
+        );
+    }
+
+    // Descriptions
+    for desc in &display.descriptions {
+        eprintln!("{} {desc}", style("Description:").white().bold());
+    }
+
+    // Alternatives
+    for alt in &display.alternatives {
+        eprintln!(
+            "{} {}",
+            style("Alternative:").green().bold(),
+            alt.suggestion
+        );
+        if let Some(ref info) = alt.explanation {
+            eprintln!("  {}", style(format!("({info})")).dim());
+        }
+    }
+
+    // Escalation note
+    if let Some(ref note) = display.escalation_note {
+        eprintln!(
+            "{}",
+            style(format!("Challenge ESCALATED: {note}"))
+                .magenta()
+                .bold()
+        );
+    }
+
+    eprintln!();
+}
+
+// ---------------------------------------------------------------------------
 // TerminalPrompter (real implementation)
 // ---------------------------------------------------------------------------
 
@@ -75,81 +160,7 @@ pub struct TerminalPrompter;
 
 impl Prompter for TerminalPrompter {
     fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
-        // Move to a new line and clear everything below the cursor.
-        // This erases leftover terminal artifacts (e.g., fzf inline display)
-        // so the challenge renders cleanly.
-        eprint!("\n\x1b[J");
-
-        // Banner
-        let separator = "=".repeat(12);
-        if display.is_denied {
-            eprintln!(
-                "{}",
-                style(format!("{separator} COMMAND DENIED {separator}"))
-                    .red()
-                    .bold()
-            );
-        } else {
-            eprintln!(
-                "{}",
-                style(format!("{separator} RISKY COMMAND DETECTED {separator}"))
-                    .red()
-                    .bold()
-            );
-        }
-
-        // Severity label
-        if let Some(ref sev) = display.severity_label {
-            eprintln!("{} {}", style("Severity:").red().bold(), style(sev).red());
-        }
-
-        // Blast radius
-        if let Some(ref br) = display.blast_radius_label {
-            eprintln!(
-                "{} {}",
-                style("Blast radius:").red().bold(),
-                style(br).dim()
-            );
-        }
-
-        // Context labels
-        if !display.context_labels.is_empty() {
-            let labels = display.context_labels.join(", ");
-            eprintln!(
-                "{} {}",
-                style("Context:").cyan().bold(),
-                style(labels).cyan()
-            );
-        }
-
-        // Descriptions
-        for desc in &display.descriptions {
-            eprintln!("{} {desc}", style("Description:").white().bold());
-        }
-
-        // Alternatives
-        for alt in &display.alternatives {
-            eprintln!(
-                "{} {}",
-                style("Alternative:").green().bold(),
-                alt.suggestion
-            );
-            if let Some(ref info) = alt.explanation {
-                eprintln!("  {}", style(format!("({info})")).dim());
-            }
-        }
-
-        // Escalation note
-        if let Some(ref note) = display.escalation_note {
-            eprintln!(
-                "{}",
-                style(format!("Challenge ESCALATED: {note}"))
-                    .magenta()
-                    .bold()
-            );
-        }
-
-        eprintln!();
+        display_banner(display);
 
         // Deny
         if display.is_denied {
@@ -207,6 +218,58 @@ impl Prompter for MockPrompter {
             return ChallengeResult::Denied;
         }
         self.response
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DirectTtyPrompter — fallback when stdin is not a terminal
+// ---------------------------------------------------------------------------
+
+/// Prompter that reads directly from `/dev/tty` using line-buffered I/O.
+///
+/// Used when stdin is not a terminal (e.g., inside zsh zle widgets on macOS).
+/// This bypasses crossterm's event system entirely — crossterm uses
+/// `select(2)`/`poll(2)` on `/dev/tty` which hangs in certain shell contexts.
+/// Simple cooked-mode `read_line()` works where crossterm's raw-mode event
+/// loop does not.
+///
+/// See: <https://github.com/kaplanelad/shellfirm/issues/160>
+#[cfg(unix)]
+pub struct DirectTtyPrompter;
+
+#[cfg(unix)]
+impl Prompter for DirectTtyPrompter {
+    fn run_challenge(&self, display: &DisplayContext) -> ChallengeResult {
+        display_banner(display);
+
+        // Deny
+        if display.is_denied {
+            eprintln!(
+                "{DENIED_TEXT} {}",
+                style("Press ^C to exit.").underlined().bold().italic()
+            );
+            loop {
+                thread::sleep(Duration::from_secs(60));
+            }
+        }
+
+        // Open /dev/tty for reading — bypasses crossterm entirely.
+        let Ok(tty) = std::fs::OpenOptions::new().read(true).open("/dev/tty") else {
+            std::process::exit(exitcode::DATAERR);
+        };
+        let mut reader = std::io::BufReader::new(tty);
+
+        let passed = match display.effective_challenge {
+            Challenge::Math => direct_math_challenge(&mut reader),
+            Challenge::Enter => direct_enter_challenge(&mut reader),
+            Challenge::Yes => direct_yes_challenge(&mut reader),
+        };
+
+        if passed {
+            ChallengeResult::Passed
+        } else {
+            std::process::exit(exitcode::DATAERR)
+        }
     }
 }
 
@@ -279,6 +342,79 @@ fn yes_challenge() -> bool {
     match requestty::prompt_one(question) {
         Ok(_) => true,
         Err(_) => std::process::exit(exitcode::DATAERR),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Direct-tty challenge implementations (used by DirectTtyPrompter)
+// ---------------------------------------------------------------------------
+
+/// Read one line from a buffered reader, returning `None` on EOF or error.
+#[cfg(unix)]
+fn read_tty_line(reader: &mut impl std::io::BufRead) -> Option<String> {
+    let mut line = String::new();
+    match reader.read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line),
+    }
+}
+
+/// Math challenge via direct `/dev/tty` I/O.
+#[cfg(unix)]
+fn direct_math_challenge(reader: &mut impl std::io::BufRead) -> bool {
+    let mut rng = rand::rng();
+    let num_a = rng.random_range(0..10);
+    let num_b = rng.random_range(0..10);
+    let expected: i64 = (num_a + num_b).into();
+
+    loop {
+        eprint!("{SOLVE_MATH_TEXT} {num_a} + {num_b} = ? (^C to cancel) ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+
+        let Some(line) = read_tty_line(reader) else {
+            return false;
+        };
+
+        match line.trim().parse::<i64>() {
+            Ok(n) if n == expected => return true,
+            _ => eprintln!("{WRONG_ANSWER}"),
+        }
+    }
+}
+
+/// Enter challenge via direct `/dev/tty` I/O.
+#[cfg(unix)]
+fn direct_enter_challenge(reader: &mut impl std::io::BufRead) -> bool {
+    loop {
+        eprint!("{SOLVE_ENTER_TEXT} (^C to cancel) ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+
+        let Some(line) = read_tty_line(reader) else {
+            return false;
+        };
+
+        if line.trim().is_empty() {
+            return true;
+        }
+        eprintln!("{WRONG_ANSWER}");
+    }
+}
+
+/// Yes challenge via direct `/dev/tty` I/O.
+#[cfg(unix)]
+fn direct_yes_challenge(reader: &mut impl std::io::BufRead) -> bool {
+    loop {
+        eprint!("{SOLVE_YES_TEXT} (^C to cancel) ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+
+        let Some(line) = read_tty_line(reader) else {
+            return false;
+        };
+
+        if line.trim() == "yes" {
+            return true;
+        }
+        eprintln!("{WRONG_ANSWER}");
     }
 }
 
