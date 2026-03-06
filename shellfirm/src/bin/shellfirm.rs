@@ -13,6 +13,7 @@ fn main() {
         .subcommand(cmd::command::command())
         .subcommand(cmd::config::command())
         .subcommand(cmd::init::command())
+        .subcommand(cmd::connect_cmd::command())
         .subcommand(cmd::audit_cmd::command())
         .subcommand(cmd::policy_cmd::command())
         .subcommand(cmd::check_cmd::command())
@@ -46,6 +47,11 @@ fn main() {
     // Handle init command early (doesn't need config)
     if let Some(("init", sub_matches)) = matches.subcommand() {
         shellfirm_exit(cmd::init::run(sub_matches));
+    }
+
+    // Handle connect command early (doesn't need config)
+    if let Some(("connect", sub_matches)) = matches.subcommand() {
+        shellfirm_exit(cmd::connect_cmd::run(sub_matches));
     }
 
     // Handle policy command early (doesn't need full config)
