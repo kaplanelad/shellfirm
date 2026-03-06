@@ -1,4 +1,5 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use console::style;
 use shellfirm::checks::Severity;
 use shellfirm::error::{Error, Result};
 use shellfirm::{Challenge, Config, Settings, DEFAULT_ENABLED_GROUPS};
@@ -228,7 +229,7 @@ pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> 
         || run_interactive_menu(config, None),
         |tup| match tup {
             ("show", _) => run_show(config),
-            ("reset", _) => Ok(run_reset(config, None)),
+            ("reset", _) => Ok(run_reset(config)),
             ("edit", _) => run_edit(config),
             ("challenge", sub) => {
                 let value = sub.get_one::<String>("value");
@@ -262,20 +263,127 @@ pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> 
 }
 
 // ---------------------------------------------------------------------------
-// reset (kept as-is)
+// reset
 // ---------------------------------------------------------------------------
 
-pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::CmdExit {
-    match config.reset_config(force_selection) {
-        Ok(()) => shellfirm::CmdExit {
-            code: exitcode::OK,
-            message: Some("shellfirm configuration reset successfully".to_string()),
-        },
-        Err(e) => shellfirm::CmdExit {
+pub fn run_reset(config: &Config) -> shellfirm::CmdExit {
+    // Confirm with the user before resetting
+    match shellfirm::prompt::confirm(
+        "Are you sure you want to reset? This will override your current settings.",
+        false,
+    ) {
+        Ok(true) => {}
+        Ok(false) => {
+            return shellfirm::CmdExit {
+                code: exitcode::OK,
+                message: Some("Reset cancelled.".to_string()),
+            };
+        }
+        Err(e) => {
+            return shellfirm::CmdExit {
+                code: exitcode::CONFIG,
+                message: Some(format!("reset settings error: {e:?}")),
+            };
+        }
+    }
+
+    // Wipe settings to defaults
+    if let Err(e) = config.reset_config() {
+        return shellfirm::CmdExit {
             code: exitcode::CONFIG,
             message: Some(format!("reset settings error: {e:?}")),
-        },
+        };
     }
+
+    // Run shared interactive setup (challenge type + protection level)
+    if let Err(e) = run_interactive_setup(config) {
+        eprintln!("  {}: {e}", style("warning").yellow());
+    }
+
+    shellfirm::CmdExit {
+        code: exitcode::OK,
+        message: Some("shellfirm configuration reset successfully".to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared interactive setup (used by both init and config reset)
+// ---------------------------------------------------------------------------
+
+/// Prompt the user to choose a challenge type and protection level, then save.
+///
+/// Loads the current settings, applies the user's choices, and writes back
+/// the full config. When new questions are added here, both `init` and
+/// `config reset` automatically pick them up.
+///
+/// Skipped when stderr is not a terminal (piped / non-interactive).
+///
+/// # Errors
+///
+/// Will return `Err` if settings cannot be saved.
+pub fn run_interactive_setup(config: &Config) -> Result<()> {
+    if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+        return Ok(());
+    }
+
+    let mut root = config
+        .read_config_as_value()
+        .unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::default()));
+
+    // --- Challenge type ---
+    let challenge_set = if let Ok(idx) = shellfirm::prompt::select_with_default(
+        "Choose your challenge type:",
+        &[
+            "Math  — solve a quick math problem (e.g. 3 + 7 = ?)",
+            "Enter — just press Enter to confirm",
+            "Yes   — type \"yes\" to confirm",
+        ],
+        0,
+    ) {
+        let challenge = match idx {
+            1 => Challenge::Enter,
+            2 => Challenge::Yes,
+            _ => Challenge::Math,
+        };
+        shellfirm::value_set(&mut root, "challenge", serde_yaml::to_value(challenge)?)?;
+        true
+    } else {
+        false
+    };
+
+    // --- Protection level ---
+    let severity_set = if let Ok(idx) = shellfirm::prompt::select_with_default(
+        "Choose your protection level:",
+        &[
+            "Paranoid — catches everything, even low-risk commands",
+            "Balanced — catches medium-risk and above (Recommended)",
+            "Chill    — only high-risk and critical commands",
+            "YOLO     — only critical, truly destructive commands",
+        ],
+        1,
+    ) {
+        let severity: Option<Severity> = match idx {
+            0 => None,
+            2 => Some(Severity::High),
+            3 => Some(Severity::Critical),
+            _ => Some(Severity::Medium),
+        };
+        shellfirm::value_set(&mut root, "min_severity", serde_yaml::to_value(severity)?)?;
+        true
+    } else {
+        false
+    };
+
+    if challenge_set || severity_set {
+        config.save_config_from_value(&root)?;
+        println!(
+            "\n  {} saved to {}\n",
+            style("Settings").green().bold(),
+            style(config.setting_file_path.display().to_string()).cyan(),
+        );
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +392,7 @@ pub fn run_reset(config: &Config, force_selection: Option<usize>) -> shellfirm::
 
 pub fn run_edit(config: &Config) -> Result<shellfirm::CmdExit> {
     if !config.setting_file_path.exists() {
-        config.reset_config(Some(0))?;
+        config.reset_config()?;
     }
     let original = config.read_config_file()?;
     let editor = std::env::var("EDITOR")
@@ -1399,9 +1507,7 @@ fn run_interactive_menu(
 #[cfg(test)]
 mod test_config_cli_command {
 
-    use std::fs;
-
-    use insta::{assert_debug_snapshot, with_settings};
+    use insta::assert_debug_snapshot;
     use tree_fs::Tree;
 
     use super::*;
@@ -1409,7 +1515,7 @@ mod test_config_cli_command {
     fn initialize_config_folder(temp_dir: &Tree) -> Config {
         let temp_dir = temp_dir.root.join("app");
         let config = Config::new(Some(&temp_dir.display().to_string())).unwrap();
-        config.reset_config(Some(0)).unwrap();
+        config.reset_config().unwrap();
         config
     }
 
@@ -1419,11 +1525,11 @@ mod test_config_cli_command {
     }
 
     // -----------------------------------------------------------------------
-    // reset (kept)
+    // reset
     // -----------------------------------------------------------------------
 
     #[test]
-    fn can_run_reset() {
+    fn reset_config_restores_defaults() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
@@ -1432,22 +1538,57 @@ mod test_config_cli_command {
         let mut settings = config.get_settings_from_file().unwrap();
         settings.challenge = Challenge::Yes;
         config.save_settings_file_from_struct(&settings).unwrap();
-        assert_debug_snapshot!(run_reset(&config, Some(1)));
+        assert_eq!(
+            config.get_settings_from_file().unwrap().challenge,
+            Challenge::Yes
+        );
+        config.reset_config().unwrap();
         assert_debug_snapshot!(config.get_settings_from_file());
     }
 
     #[test]
-    fn can_run_reset_with_error() {
+    fn reset_then_sparse_setup_round_trip() {
+        // Simulates the non-interactive part of run_interactive_setup after
+        // reset: read empty config → value_set challenge → value_set
+        // min_severity → save → verify sparse file → verify defaults fill in.
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder(&temp_dir);
-        fs::remove_file(&config.setting_file_path).unwrap();
-        with_settings!({filters => vec![
-            (r"error:.+", "error message"),
-        ]}, {
-            assert_debug_snapshot!(run_reset(&config, Some(1)));
-        });
+
+        // After reset the file is empty — read_config_as_value returns empty mapping
+        let mut root = config.read_config_as_value().unwrap();
+        assert!(root.as_mapping().unwrap().is_empty());
+
+        // Set only challenge and min_severity (what run_interactive_setup does)
+        shellfirm::value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::to_value(Challenge::Enter).unwrap(),
+        )
+        .unwrap();
+        shellfirm::value_set(
+            &mut root,
+            "min_severity",
+            serde_yaml::to_value(Some(Severity::Medium)).unwrap(),
+        )
+        .unwrap();
+        config.save_config_from_value(&root).unwrap();
+
+        // The file should be sparse — only the two keys we set
+        let content = config.read_config_file().unwrap();
+        assert!(content.contains("challenge"));
+        assert!(content.contains("min_severity"));
+        assert!(!content.contains("enabled_groups"), "file should be sparse");
+
+        // Loading via get_settings_from_file should fill in all defaults
+        let settings = config.get_settings_from_file().unwrap();
+        assert_eq!(settings.challenge, Challenge::Enter);
+        assert_eq!(settings.min_severity, Some(Severity::Medium));
+        let expected_groups: Vec<String> =
+            DEFAULT_ENABLED_GROUPS.iter().map(|s| (*s).to_string()).collect();
+        assert_eq!(settings.enabled_groups, expected_groups);
+        assert!(settings.audit_enabled);
     }
 
     // -----------------------------------------------------------------------

@@ -6,11 +6,10 @@ use std::{
     env, fmt, fs,
     io::{Read, Write},
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::error::{Error, Result};
-use crate::{checks, checks::Severity, context::ContextConfig, prompt};
+use crate::{checks, checks::Severity, context::ContextConfig};
 use serde_derive::{Deserialize, Serialize};
 use tracing::debug;
 
@@ -440,22 +439,13 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Will return `Err` create config folder return an error
-    pub fn reset_config(&self, force_selection: Option<usize>) -> Result<()> {
-        let selected = if let Some(force_selection) = force_selection {
-            force_selection
-        } else {
-            prompt::reset_config()?
-        };
-
-        match selected {
-            0 => self.create_default_settings_file()?,
-            1 => {
-                self.backup()?;
-                self.create_default_settings_file()?;
-            }
-            _ => return Err(Error::Config("unexpected option".into())),
-        }
+    /// Will return `Err` if the config directory cannot be created or the file
+    /// cannot be written.
+    pub fn reset_config(&self) -> Result<()> {
+        self.ensure_config_dir()?;
+        // Write an empty file — serde defaults fill in all fields at load time.
+        // The interactive setup will add only the keys the user picks.
+        fs::File::create(&self.setting_file_path)?;
         Ok(())
     }
 
@@ -473,11 +463,6 @@ impl Config {
             );
         }
         Ok(())
-    }
-
-    /// Create config file from default template.
-    fn create_default_settings_file(&self) -> Result<()> {
-        self.save_settings_file_from_struct(&Settings::default())
     }
 
     /// Convert the given config to YAML format and save to file.
@@ -521,11 +506,18 @@ impl Config {
     ///
     /// Will return `Err` if the config file cannot be read or parsed.
     pub fn read_config_as_value(&self) -> Result<serde_yaml::Value> {
+        let empty_mapping = || serde_yaml::Value::Mapping(serde_yaml::Mapping::default());
         match self.read_config_file() {
-            Ok(content) => Ok(serde_yaml::from_str(&content)?),
-            Err(_) if !self.setting_file_path.exists() => {
-                Ok(serde_yaml::Value::Mapping(serde_yaml::Mapping::default()))
+            Ok(content) => {
+                let value: serde_yaml::Value = serde_yaml::from_str(&content)?;
+                // serde_yaml::from_str("") returns Null — treat as empty mapping
+                if value.is_null() {
+                    Ok(empty_mapping())
+                } else {
+                    Ok(value)
+                }
             }
+            Err(_) if !self.setting_file_path.exists() => Ok(empty_mapping()),
             Err(e) => Err(e),
         }
     }
@@ -544,16 +536,6 @@ impl Config {
         let mut file = fs::File::create(&self.setting_file_path)?;
         file.write_all(yaml_str.as_bytes())?;
         Ok(())
-    }
-
-    fn backup(&self) -> Result<PathBuf> {
-        let backup_to = PathBuf::from(format!(
-            "{}.{}.bak",
-            self.setting_file_path.display(),
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
-        ));
-        fs::rename(&self.setting_file_path, &backup_to)?;
-        Ok(backup_to)
     }
 }
 
@@ -644,7 +626,7 @@ mod test_config {
 
     fn initialize_config_folder_with_file(temp_dir: &Tree) -> Config {
         let config = initialize_config_folder(temp_dir);
-        config.reset_config(Some(0)).unwrap();
+        config.reset_config().unwrap();
         config
     }
 
@@ -671,7 +653,7 @@ mod test_config {
     }
 
     #[test]
-    fn can_reset_config_with_override() {
+    fn can_reset_config() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
@@ -683,7 +665,7 @@ mod test_config {
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Yes
         );
-        config.reset_config(Some(0)).unwrap();
+        config.reset_config().unwrap();
         assert_eq!(
             config.get_settings_from_file().unwrap().challenge,
             Challenge::Math
@@ -692,24 +674,30 @@ mod test_config {
     }
 
     #[test]
-    fn can_reset_config_with_with_backup() {
+    fn read_config_as_value_empty_file_returns_empty_mapping() {
         let temp_dir = tree_fs::TreeBuilder::default()
             .create()
             .expect("create tree");
         let config = initialize_config_folder_with_file(&temp_dir);
-        let mut settings = config.get_settings_from_file().unwrap();
-        settings.challenge = Challenge::Yes;
-        config.save_settings_file_from_struct(&settings).unwrap();
+        // reset_config writes an empty file — read_config_as_value must return
+        // an empty Mapping (not Null) so that value_set can work on it.
+        let root = config.read_config_as_value().unwrap();
+        let mapping = root
+            .as_mapping()
+            .expect("should be a Mapping, not Null");
+        assert!(mapping.is_empty());
+        // Verify value_set succeeds on the result
+        let mut root = root;
+        value_set(
+            &mut root,
+            "challenge",
+            serde_yaml::Value::String("Enter".into()),
+        )
+        .unwrap();
         assert_eq!(
-            config.get_settings_from_file().unwrap().challenge,
-            Challenge::Yes
+            root.get("challenge").unwrap().as_str().unwrap(),
+            "Enter"
         );
-        config.reset_config(Some(1)).unwrap();
-        assert_eq!(
-            config.get_settings_from_file().unwrap().challenge,
-            Challenge::Math
-        );
-        assert_eq!(read_dir(&config.root_folder).unwrap().count(), 2);
     }
 
     #[test]
@@ -809,7 +797,7 @@ mod test_settings {
             .create()
             .expect("create tree");
         let config = Config::new(Some(&temp.root.join("app").display().to_string())).unwrap();
-        config.reset_config(Some(0)).unwrap();
+        config.reset_config().unwrap();
         let settings = config.get_settings_from_file().unwrap();
         let checks = settings.get_active_checks().unwrap();
         assert!(

@@ -4,9 +4,8 @@ use std::path::PathBuf;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use console::style;
-use shellfirm::checks::Severity;
 use shellfirm::error::Result;
-use shellfirm::{Challenge, Config};
+use shellfirm::Config;
 
 const MARKER: &str = "# Added by shellfirm init";
 
@@ -580,72 +579,12 @@ fn run_interactive_setup() -> Result<()> {
 
     let config = Config::new(None)?;
 
-    // Load the raw YAML tree so we only write the keys the user picks,
-    // keeping the settings file sparse (no bloat from defaults).
-    let mut root = config
-        .read_config_as_value()
-        .unwrap_or_else(|_| serde_yaml::Value::Mapping(serde_yaml::Mapping::default()));
-    let has_challenge = root.get("challenge").is_some();
-    let has_severity = root.get("min_severity").is_some();
-
-    if has_challenge && has_severity {
+    // Skip if a settings file already exists (user already configured)
+    if config.setting_file_path.exists() {
         return Ok(());
     }
 
-    let mut changed = false;
-
-    if !has_challenge {
-        if let Ok(idx) = shellfirm::prompt::select_with_default(
-            "Choose your challenge type:",
-            &[
-                "Math  — solve a quick math problem (e.g. 3 + 7 = ?)",
-                "Enter — just press Enter to confirm",
-                "Yes   — type \"yes\" to confirm",
-            ],
-            0,
-        ) {
-            let challenge = match idx {
-                1 => Challenge::Enter,
-                2 => Challenge::Yes,
-                _ => Challenge::Math,
-            };
-            shellfirm::value_set(&mut root, "challenge", serde_yaml::to_value(challenge)?)?;
-            changed = true;
-        }
-    }
-
-    if !has_severity {
-        if let Ok(idx) = shellfirm::prompt::select_with_default(
-            "Choose your protection level:",
-            &[
-                "Paranoid — catches everything, even low-risk commands",
-                "Balanced — catches medium-risk and above (Recommended)",
-                "Chill    — only high-risk and critical commands",
-                "YOLO     — only critical, truly destructive commands",
-            ],
-            1,
-        ) {
-            let severity: Option<Severity> = match idx {
-                0 => None,
-                2 => Some(Severity::High),
-                3 => Some(Severity::Critical),
-                _ => Some(Severity::Medium),
-            };
-            shellfirm::value_set(&mut root, "min_severity", serde_yaml::to_value(severity)?)?;
-            changed = true;
-        }
-    }
-
-    if changed {
-        config.save_config_from_value(&root)?;
-        println!(
-            "\n  {} saved to {}\n",
-            style("Settings").green().bold(),
-            style(config.setting_file_path.display().to_string()).cyan(),
-        );
-    }
-
-    Ok(())
+    super::config::run_interactive_setup(&config)
 }
 
 fn is_already_installed(rc_path: &std::path::Path) -> bool {
