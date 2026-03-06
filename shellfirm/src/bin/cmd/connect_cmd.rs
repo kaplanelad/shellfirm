@@ -889,9 +889,11 @@ mod tests {
     fn windsurf_config_path() {
         let provider = WindsurfProvider;
         let path = provider.config_path().unwrap();
-        assert!(path
-            .to_string_lossy()
-            .contains(".codeium/windsurf/mcp_config.json"));
+        assert!(path.ends_with(
+            std::path::Path::new(".codeium")
+                .join("windsurf")
+                .join("mcp_config.json"),
+        ));
     }
 
     // -- Zed provider tests --
@@ -939,7 +941,11 @@ mod tests {
     fn zed_config_path() {
         let provider = ZedProvider;
         let path = provider.config_path().unwrap();
-        assert!(path.to_string_lossy().contains(".config/zed/settings.json"));
+        assert!(path.ends_with(
+            std::path::Path::new(".config")
+                .join("zed")
+                .join("settings.json"),
+        ));
     }
 
     // -- Cline provider tests --
