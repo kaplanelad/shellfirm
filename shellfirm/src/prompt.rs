@@ -422,28 +422,21 @@ fn direct_yes_challenge(reader: &mut impl std::io::BufRead) -> bool {
 // Interactive selection helpers (requestty-based)
 // ---------------------------------------------------------------------------
 
-/// Prompt the user to confirm or cancel a configuration reset.
+/// Present a yes/no confirmation prompt with a custom message.
 ///
 /// # Errors
 ///
 /// Will return `Err` when the interactive prompt fails.
-pub fn reset_config() -> crate::error::Result<usize> {
-    let answer = requestty::prompt_one(
-        requestty::Question::raw_select("reset")
-            .message("Rest configuration will reset all checks settings. Select how to continue...")
-            .choices(vec![
-                "Yes, i want to override the current configuration".into(),
-                "Override and backup the existing file".into(),
-                requestty::DefaultSeparator,
-                "Cancel Or ^C".into(),
-            ])
-            .build(),
-    )
-    .map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
-    answer.as_list_item().map_or_else(
-        || Err(crate::error::Error::Prompt("select option is empty".into())),
-        |a| Ok(a.index),
-    )
+pub fn confirm(message: &str, default: bool) -> crate::error::Result<bool> {
+    let question = requestty::Question::confirm("confirm")
+        .message(message)
+        .default(default)
+        .build();
+    let answer =
+        requestty::prompt_one(question).map_err(|e| crate::error::Error::Prompt(e.to_string()))?;
+    answer
+        .as_bool()
+        .ok_or_else(|| crate::error::Error::Prompt("confirm result is empty".into()))
 }
 
 /// Present a select prompt and return the chosen index.
