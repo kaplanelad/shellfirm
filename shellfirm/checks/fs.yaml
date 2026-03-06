@@ -24,6 +24,8 @@
   filters:
     - type: PathExists
       value: 1
+    - type: NotContains
+      value: ">/dev/null"
 - from: fs
   test: chmod\s{1,}(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(\*|\.{1,}|/)
   description: "Change permission to all root files can brake your some thinks like SSH keys."

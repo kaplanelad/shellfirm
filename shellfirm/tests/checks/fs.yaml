@@ -356,6 +356,18 @@
 - test: 'cat "test" >> file.txt'
   description: "append redirect should not match (only single > triggers)"
   expect_ids: []
+- test: "which cargo-tauri 2>/dev/null"
+  description: "redirect stderr to /dev/null should not match"
+  expect_ids: []
+- test: "npx tauri --version 2>/dev/null"
+  description: "redirect stderr to /dev/null should not match"
+  expect_ids: []
+- test: "echo test >/dev/null"
+  description: "redirect stdout to /dev/null should not match"
+  expect_ids: []
+- test: "command -v foo &>/dev/null"
+  description: "redirect all to /dev/null should not match"
+  expect_ids: []
 
 # -- fs:gdisk_disk_modify --
 - test: "gdisk /dev/sda"
