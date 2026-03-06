@@ -8,6 +8,7 @@ pub mod init;
 #[cfg(feature = "mcp")]
 pub mod mcp_cmd;
 pub mod policy_cmd;
+pub mod connect_cmd;
 pub mod status_cmd;
 #[cfg(feature = "wrap")]
 pub mod wrap_cmd;

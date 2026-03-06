@@ -47,9 +47,19 @@ Solve the challenge: 3 + 5 = ? (^C to cancel)
 
 ---
 
-## AI Agent Integration
+## AI Tool Integration
 
-shellfirm ships as an [MCP](https://modelcontextprotocol.io/) server so AI coding agents can check commands before running them.
+### Claude Code
+
+One command sets up both automatic safety (hooks) and on-demand analysis (MCP):
+
+```bash
+shellfirm connect claude-code
+```
+
+This adds:
+- **Hooks** — every Bash command is checked before execution; risky commands are blocked
+- **MCP** — Claude can call shellfirm tools to explain risks and suggest alternatives
 
 ### MCP Tools
 
@@ -59,25 +69,6 @@ shellfirm ships as an [MCP](https://modelcontextprotocol.io/) server so AI codin
 | `suggest_alternative` | Get safer replacement commands |
 | `explain_risk` | Detailed explanation of why a command is dangerous |
 | `get_policy` | Read the active shellfirm configuration and project policy |
-
-### MCP Setup
-
-#### Claude Code
-
-Add to `~/.claude.json` (global) or `.claude.json` (per-project):
-
-```json
-{
-  "mcpServers": {
-    "shellfirm": {
-      "command": "shellfirm",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-For Cursor, Windsurf, Zed, Cline, Continue, Amazon Q, and other MCP-compatible tools, see the [integration guides](https://shellfirm.vercel.app/docs/agents-and-automation/cursor-and-others).
 
 ---
 
