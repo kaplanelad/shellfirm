@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      npm_ready: ${{ steps.npm-check.outputs.npm_ready }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,11 +55,14 @@ jobs:
           for pkg in npm/shellfirm npm/cli-darwin-arm64 npm/cli-darwin-x64 npm/cli-linux-x64 npm/cli-win32-x64; do
             PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
             if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-              echo "::warning::$pkg version ($PKG_VERSION) does not match tag (v$TAG_VERSION). Run scripts/bump-npm-version.sh"
+              echo "::error::$pkg version ($PKG_VERSION) does not match tag (v$TAG_VERSION). Run: ./scripts/bump-npm-version.sh $TAG_VERSION"
               ALL_MATCH=false
             fi
           done
-          echo "npm_ready=$ALL_MATCH" >> "$GITHUB_OUTPUT"
+          if [ "$ALL_MATCH" != "true" ]; then
+            echo "::error::npm package versions are out of sync. Release aborted."
+            exit 1
+          fi
 
   dist:
     name: Dist
@@ -235,7 +237,6 @@ jobs:
   publish-npm:
     name: Publish to npm
     needs: [validate, dist]
-    if: needs.validate.outputs.npm_ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
