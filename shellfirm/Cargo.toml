@@ -46,14 +46,7 @@ tokio = { version = "1", features = [
 uuid = { version = "1", features = ["v4"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-nix = { version = "0.31", features = [
-    "term",
-    "signal",
-    "process",
-    "poll",
-    "fs",
-    "ioctl",
-], optional = true }
+nix = { version = "0.31", features = ["term"] }
 rustix = { version = "1.0", features = ["termios"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -75,7 +68,7 @@ cli = ["clap", "clap_complete", "clap_complete_nushell"]
 llm = ["reqwest"]
 mcp = ["tokio"]
 ai = ["mcp", "llm"]
-wrap = ["nix", "rustix", "portable-pty", "windows-sys"]
+wrap = ["nix/signal", "nix/process", "nix/poll", "nix/fs", "nix/ioctl", "rustix", "portable-pty", "windows-sys"]
 all = ["cli", "llm", "mcp", "ai", "wrap"]
 
 [[bin]]
