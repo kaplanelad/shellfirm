@@ -6,6 +6,8 @@ use console::style;
 use rand::RngExt;
 
 use crate::config::Challenge;
+#[cfg(unix)]
+use nix::sys::termios::{self, LocalFlags, SetArg};
 
 /// wrong answer text show when user solve the challenge incorrectly
 const WRONG_ANSWER: &str = "wrong answer, try again...";
@@ -257,6 +259,22 @@ impl Prompter for DirectTtyPrompter {
         let Ok(tty) = std::fs::OpenOptions::new().read(true).open("/dev/tty") else {
             std::process::exit(exitcode::DATAERR);
         };
+
+        // Ensure ECHO and ICANON are enabled on /dev/tty.
+        // Inside zsh zle widgets, the terminal may have ECHO disabled,
+        // causing typed text to be invisible (like password input).
+        let original = termios::tcgetattr(&tty)
+            .inspect_err(|e| tracing::debug!("tcgetattr failed: {e}"))
+            .ok();
+
+        if let Some(ref orig) = original {
+            let mut attrs = orig.clone();
+            attrs.local_flags |= LocalFlags::ECHO | LocalFlags::ICANON;
+            if let Err(e) = termios::tcsetattr(&tty, SetArg::TCSANOW, &attrs) {
+                tracing::debug!("tcsetattr failed: {e}");
+            }
+        }
+
         let mut reader = std::io::BufReader::new(tty);
 
         let passed = match display.effective_challenge {
@@ -264,6 +282,14 @@ impl Prompter for DirectTtyPrompter {
             Challenge::Enter => direct_enter_challenge(&mut reader),
             Challenge::Yes => direct_yes_challenge(&mut reader),
         };
+
+        // Restore original terminal attributes.
+        if let Some(ref orig) = original {
+            let tty = reader.get_ref();
+            if let Err(e) = termios::tcsetattr(tty, SetArg::TCSANOW, orig) {
+                tracing::debug!("tcsetattr restore failed: {e}");
+            }
+        }
 
         if passed {
             ChallengeResult::Passed
