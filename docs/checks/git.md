@@ -7,6 +7,8 @@
 - `git push -f` - This command will force push and overwrite remote history and prompts for confirmation.
 - `git branch -D {BRANCH}` - This command will force delete a branch and prompts for confirmation.
 - `git checkout -f` - This command will force checkout and discard local changes and prompts for confirmation.
+- `git checkout -- .` - This command will discard all local changes in the working directory. Specific files like `git checkout -- file.txt` are allowed.
+- `git restore .` - This command will discard all local changes in the working directory. Specific files like `git restore file.txt` are allowed.
 - `git rebase -i` - This command will start an interactive rebase which can modify commit history and prompts for confirmation.
 - `git filter-branch` - This command will rewrite Git history and can be dangerous if used incorrectly, prompting for confirmation.
 - `git gc --prune=now` - This command will permanently delete unreachable objects and prompts for confirmation.

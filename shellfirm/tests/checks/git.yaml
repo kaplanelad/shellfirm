@@ -308,6 +308,73 @@
   description: "force checkout with -- separator"
   expect_ids: ["git:force_checkout"]
 
+# -- git:checkout_discard_all --
+- test: "git checkout -- ."
+  description: "match checkout discard all changes"
+  expect_ids: ["git:checkout_discard_all"]
+- test: "git checkout -- ./"
+  description: "match checkout discard all with trailing slash"
+  expect_ids: ["git:checkout_discard_all"]
+- test: "git checkout -- *"
+  description: "match checkout discard with glob"
+  expect_ids: ["git:checkout_discard_all"]
+- test: "git  checkout  --  ."
+  description: "match checkout discard all with extra spaces"
+  expect_ids: ["git:checkout_discard_all"]
+- test: "git checkout -- file.txt"
+  description: "negative: checkout specific file should not match"
+  expect_ids: []
+- test: "git checkout -- src/main.rs"
+  description: "negative: checkout specific file path should not match"
+  expect_ids: []
+- test: "git checkout -- .gitignore"
+  description: "negative: checkout dotfile should not match"
+  expect_ids: []
+- test: "git checkout -- .env"
+  description: "negative: checkout .env file should not match"
+  expect_ids: []
+
+# -- git:restore_discard_all --
+- test: "git restore ."
+  description: "match restore discard all changes"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore ./"
+  description: "match restore discard all with trailing slash"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore *"
+  description: "match restore discard with glob"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore --staged ."
+  description: "match restore staged discard all"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore --staged ./"
+  description: "match restore staged with trailing slash"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore --source=HEAD ."
+  description: "match restore with source flag"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore --staged --worktree ."
+  description: "match restore with multiple flags"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git  restore  ."
+  description: "match restore discard all with extra spaces"
+  expect_ids: ["git:restore_discard_all"]
+- test: "git restore file.txt"
+  description: "negative: restore specific file should not match"
+  expect_ids: []
+- test: "git restore --staged file.txt"
+  description: "negative: restore staged specific file should not match"
+  expect_ids: []
+- test: "git restore src/main.rs"
+  description: "negative: restore specific file path should not match"
+  expect_ids: []
+- test: "git restore .gitignore"
+  description: "negative: restore dotfile should not match"
+  expect_ids: []
+- test: "git restore .env"
+  description: "negative: restore .env file should not match"
+  expect_ids: []
+
 # -- git:reset — more variants --
 - test: "git reset --hard"
   description: "hard reset, most dangerous variant"
