@@ -50,6 +50,20 @@
   alternative: "git stash && git checkout <branch>"
   alternative_info: "Stash your changes first so they can be recovered later."
 - from: git
+  test: git\s{1,}checkout\s{1,}--\s{1,}(\.\/?|\*)(\s|$)
+  description: "This command will discard all local changes in the working directory."
+  id: git:checkout_discard_all
+  severity: High
+  alternative: "git stash"
+  alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
+- from: git
+  test: git\s{1,}restore\s{1,}(.*\s)?(\.\/?|\*)(\s|$)
+  description: "This command will discard all local changes in the working directory."
+  id: git:restore_discard_all
+  severity: High
+  alternative: "git stash"
+  alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
+- from: git
   test: git\s{1,}rebase\s{1,}-i
   description: "This command will start an interactive rebase which can modify commit history."
   id: git:interactive_rebase
