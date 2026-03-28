@@ -167,3 +167,60 @@
 - test: "ufw reset --force"
   description: "BUG: --force after reset, not matched"
   expect_ids: []
+
+# -- network:flush_nftables --
+- test: "nft flush ruleset"
+  description: "match nft flush ruleset"
+  expect_ids: ["network:flush_nftables"]
+- test: "sudo nft flush ruleset"
+  description: "match nft flush ruleset with sudo"
+  expect_ids: ["network:flush_nftables"]
+- test: "nft  flush  ruleset"
+  description: "match nft flush ruleset with extra spaces"
+  expect_ids: ["network:flush_nftables"]
+- test: "nft list ruleset"
+  description: "negative: nft list should not match"
+  expect_ids: []
+- test: "nft flush chain filter input"
+  description: "negative: flushing specific chain should not match"
+  expect_ids: []
+
+# -- network:flush_routes --
+- test: "ip route flush table main"
+  description: "match flush routing table"
+  expect_ids: ["network:flush_routes"]
+- test: "sudo ip route flush table main"
+  description: "match flush routing table with sudo"
+  expect_ids: ["network:flush_routes"]
+- test: "ip  route  flush  table main"
+  description: "match flush routing table with extra spaces"
+  expect_ids: ["network:flush_routes"]
+- test: "ip route flush cache"
+  description: "match flush route cache"
+  expect_ids: ["network:flush_routes"]
+- test: "ip route show"
+  description: "negative: ip route show should not match"
+  expect_ids: []
+- test: "ip route add default via 192.168.1.1"
+  description: "negative: ip route add should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- network:bring_down_interface_ip edge cases --
+- test: "ip link set br-abc123 down"
+  description: "match hyphenated interface name"
+  expect_ids: ["network:bring_down_interface_ip"]
+- test: "ip link set docker0 down"
+  description: "EDGE: docker bridge interface"
+  expect_ids: ["network:bring_down_interface_ip"]
+
+# -- network:disable_firewall edge cases --
+- test: "ufw disabled"
+  description: "negative: 'ufw disabled' should not match - requires word boundary after disable"
+  expect_ids: []
+
+# -- network:flush_iptables edge cases --
+- test: "ip6tables -F"
+  description: "match ip6tables flush rules"
+  expect_ids: ["network:flush_iptables"]

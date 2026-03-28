@@ -62,3 +62,57 @@
 - test: "terraform workspace delete"
   description: "invalid command"
   expect_ids: []
+
+# -- terraform:destroy_auto_approve --
+- test: "terraform destroy -auto-approve"
+  description: "match destroy with auto-approve"
+  expect_ids: ["terraform:destroy_auto_approve"]
+- test: "terraform  destroy  -auto-approve"
+  description: "match destroy with extra spaces"
+  expect_ids: ["terraform:destroy_auto_approve"]
+- test: "terraform destroy -target=aws_instance.foo -auto-approve"
+  description: "match destroy with target and auto-approve"
+  expect_ids: ["terraform:destroy_auto_approve"]
+- test: "terraform destroy"
+  description: "negative: destroy without auto-approve should not match"
+  expect_ids: []
+- test: "terraform destroy -target=aws_instance.foo"
+  description: "negative: destroy with target but no auto-approve should not match"
+  expect_ids: []
+
+# -- terraform:state_rm --
+- test: "terraform state rm aws_instance.foo"
+  description: "match state rm"
+  expect_ids: ["terraform:state_rm"]
+- test: "terraform  state  rm  aws_instance.foo"
+  description: "match state rm with extra spaces"
+  expect_ids: ["terraform:state_rm"]
+- test: "terraform state rm module.foo"
+  description: "match state rm with module"
+  expect_ids: ["terraform:state_rm"]
+- test: "terraform state list"
+  description: "negative: state list should not match"
+  expect_ids: []
+- test: "terraform state show aws_instance.foo"
+  description: "negative: state show should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- terraform:apply_with_auto_approve edge cases --
+- test: "terraform apply -var='foo=bar' -auto-approve"
+  description: "EDGE: -var before -auto-approve"
+  expect_ids: ["terraform:apply_with_auto_approve"]
+- test: "terraform apply plan.tfplan"
+  description: "EDGE: applying from saved plan should NOT match"
+  expect_ids: []
+
+# -- terraform:destroy_auto_approve edge cases --
+- test: "terraform destroy -target=aws_instance.foo -auto-approve"
+  description: "EDGE: target before auto-approve"
+  expect_ids: ["terraform:destroy_auto_approve"]
+
+# -- terraform:force_unlock edge cases --
+- test: "terraform force-unlock LOCK_ID -force"
+  description: "match force-unlock with -force after lock ID"
+  expect_ids: ["terraform:force_unlock_with_force_flag"]

@@ -14,7 +14,7 @@
     - type: NotContains
       value: "--dryrun"
 - from: aws
-  test: aws\s+ec2\s+terminate-instances
+  test: aws\s+(?:--\S+\s+\S+\s+)*ec2\s+terminate-instances
   description: "Terminating EC2 instances permanently destroys them and their local storage."
   id: aws:ec2_terminate
   severity: High
@@ -28,7 +28,7 @@
   alternative: "aws rds delete-db-instance --skip-final-snapshot=false --final-db-snapshot-identifier <name>"
   alternative_info: "Create a final snapshot before deletion so data can be recovered."
 - from: aws
-  test: aws\s+iam\s+delete-(user|role|policy|group)
+  test: aws\s+iam\s+delete-(user|role|policy|group)(\s|$)
   description: "Deleting IAM resources can break access for services and users."
   id: aws:iam_delete
   severity: High

@@ -18,3 +18,13 @@
 - test: "mysql --execute 'DROP TABLE users'"
   description: "BUG: --execute long form not matched"
   expect_ids: ["database:drop_table"]
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- mysql:drop edge cases --
+- test: "mysql -e 'SELECT * FROM dropdown'"
+  description: "negative: table named 'dropdown' should not match - DROP requires word boundary"
+  expect_ids: []
+- test: "mysql -h localhost -e 'DROP DATABASE test'"
+  description: "EDGE: -h flag before -e"
+  expect_ids: ["database:drop_database", "mysql:drop"]

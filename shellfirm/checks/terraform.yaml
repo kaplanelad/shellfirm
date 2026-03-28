@@ -8,6 +8,15 @@
   alternative: "terraform plan -out=plan.tfplan && terraform apply plan.tfplan"
   alternative_info: "Review the plan first, then apply from the saved plan file for a controlled deployment."
 - from: terraform
+  test: terraform\s+destroy\s+.*-auto-approve
+  method: Regex
+  enable: true
+  description: "This command will destroy all managed infrastructure without asking for confirmation."
+  id: terraform:destroy_auto_approve
+  severity: Critical
+  alternative: "terraform plan -destroy"
+  alternative_info: "Preview what would be destroyed first, then run 'terraform destroy' with manual approval."
+- from: terraform
   test: terraform\s+state\s+(mv|replace-provider)
   method: Regex
   enable: true
@@ -19,6 +28,15 @@
       value: "-dry-run"
   alternative: "terraform state <cmd> -dry-run"
   alternative_info: "Preview the state change with -dry-run before actually modifying state."
+- from: terraform
+  test: terraform\s+state\s+rm\s
+  method: Regex
+  enable: true
+  description: "Removing a resource from state causes Terraform to lose track of existing infrastructure."
+  id: terraform:state_rm
+  severity: High
+  alternative: "terraform state list"
+  alternative_info: "List resources in state first to verify what you're removing."
 - from: terraform
   test: terraform\s+workspace\s+delete.*(-force)
   method: Regex
@@ -34,7 +52,7 @@
   id: terraform:workspace_delete_without_lock
   severity: High
 - from: terraform
-  test: terraform\s+force-unlock\s+(-force)
+  test: terraform\s+force-unlock\s+.*(-force)
   method: Regex
   enable: true
   description: "Manually unlock the state for the defined configuration. without asking for confirmation."

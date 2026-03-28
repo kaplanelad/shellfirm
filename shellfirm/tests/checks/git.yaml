@@ -433,3 +433,115 @@
 - test: "git reflog expire --expire=90.days"
   description: "negative: normal expire should not match"
   expect_ids: []
+
+# -- git:stash_clear --
+- test: "git stash clear"
+  description: "match stash clear"
+  expect_ids: ["git:stash_clear"]
+- test: "git  stash  clear"
+  description: "match stash clear with extra spaces"
+  expect_ids: ["git:stash_clear"]
+- test: "git stash list"
+  description: "negative: stash list should not match"
+  expect_ids: []
+- test: "git stash pop"
+  description: "negative: stash pop should not match stash_clear"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash drop"
+  description: "negative: stash drop should not match stash_clear"
+  expect_ids: ["git-strict:stash_pop_drop"]
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- git:force_push edge cases --
+- test: "git push origin feature --force-if-includes"
+  description: "force-if-includes is safe alternative and should not match"
+  expect_ids: []
+- test: "git  push  origin  -f"
+  description: "EDGE: force push with extra spaces"
+  expect_ids: ["git:force_push"]
+- test: "git push -f origin main"
+  description: "EDGE: -f immediately after push before remote"
+  expect_ids: ["git:force_push"]
+
+# -- git:gc_prune edge cases --
+- test: "git gc --aggressive --prune=now"
+  description: "match gc with intervening flags before --prune=now"
+  expect_ids: ["git:gc_prune"]
+
+# -- git:reflog_expire edge cases --
+- test: "git reflog expire --all --expire=now"
+  description: "match reflog expire with intervening flags before --expire=now"
+  expect_ids: ["git:reflog_expire"]
+
+# -- git:delete_all edge cases --
+- test: "git rm -f *"
+  description: "match rm with flag before wildcard"
+  expect_ids: ["git:delete_all", "fs:recursively_delete"]
+- test: "git rm -r ."
+  description: "match rm with flag before dot"
+  expect_ids: ["git:delete_all", "fs:recursively_delete"]
+- test: "git  rm  ."
+  description: "match rm dot with extra spaces"
+  expect_ids: ["git:delete_all"]
+- test: "git rm .."
+  description: "negative: parent dir .. should not match delete all"
+  expect_ids: []
+
+# -- git:clean_force edge cases --
+- test: "git clean --force -d"
+  description: "match clean with --force long-form"
+  expect_ids: ["git:clean_force"]
+- test: "git clean -f -x -d"
+  description: "EDGE: three separate flags with -x between"
+  expect_ids: ["git:clean_force"]
+
+# -- git:force_checkout edge cases --
+- test: "git checkout main -f"
+  description: "match force checkout with -f after branch name"
+  expect_ids: ["git:force_checkout"]
+- test: "git  checkout  --force"
+  description: "match force checkout with extra spaces"
+  expect_ids: ["git:force_checkout"]
+
+# -- git:interactive_rebase edge cases --
+- test: "git rebase --interactive HEAD~3"
+  description: "match interactive rebase with --interactive long-form"
+  expect_ids: ["git-strict:rebase", "git:interactive_rebase"]
+
+# -- git:delete_ref edge cases --
+- test: "git update-ref --delete refs/heads/main"
+  description: "match delete ref with --delete long-form"
+  expect_ids: ["git:delete_ref"]
+- test: "git  update-ref  -d  refs/stash"
+  description: "EDGE: extra spaces in delete ref"
+  expect_ids: ["git:delete_ref"]
+
+# -- git-strict:create_tag edge cases --
+- test: "git tag --annotate v1.0"
+  description: "match annotated tag with --annotate long-form"
+  expect_ids: ["git-strict:create_tag"]
+
+# -- git:push_delete_branch edge cases --
+- test: "git push --delete origin feature"
+  description: "match push delete with --delete before remote"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git  push  origin  --delete  feature"
+  description: "match push delete with extra spaces"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push origin :refs/heads/feature"
+  description: "EDGE: full refspec delete"
+  expect_ids: ["git:push_delete_branch"]
+
+# -- git-strict:add_all edge cases --
+- test: "git add -p ."
+  description: "EDGE: -p before dot - should not match add_all"
+  expect_ids: []
+- test: "git add --all --verbose"
+  description: "EDGE: --all with trailing flag"
+  expect_ids: ["git-strict:add_all"]
+
+# -- git:stash_clear edge cases --
+- test: "git stash clearing"
+  description: "EDGE: word starting with clear should not match"
+  expect_ids: []

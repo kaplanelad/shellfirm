@@ -136,7 +136,9 @@ fn default_settings() -> Settings {
         enabled_groups: vec![
             "base".into(),
             "fs".into(),
+            "flyio".into(),
             "git".into(),
+            "github".into(),
             "kubernetes".into(),
             "docker".into(),
             "aws".into(),
@@ -145,7 +147,10 @@ fn default_settings() -> Settings {
             "database".into(),
             "terraform".into(),
             "heroku".into(),
+            "netlify".into(),
             "network".into(),
+            "npm".into(),
+            "vercel".into(),
         ],
         audit_enabled: false,
         ..Settings::default()

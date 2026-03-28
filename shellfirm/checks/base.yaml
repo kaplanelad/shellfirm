@@ -14,12 +14,12 @@
   id: base:execute_all_history_commands
   severity: Critical
 - from: base
-  test: reboot(\s|$)
+  test: (^|\s)reboot(\s|$)
   description: "You are going to reboot your machine."
   id: base:reboot_machine
   severity: High
 - from: base
-  test: shutdown(\s|$)
+  test: (^|\s)shutdown(\s|$)
   description: "You are going to shutdown your machine."
   id: base:shutdown_machine
   severity: High
@@ -46,9 +46,19 @@
   id: systemd:disable_service
   severity: Medium
 - from: base
-  test: systemctl\s+stop\s+(docker|sshd|nginx|apache2|httpd|postgresql|mysql|redis)(\s|$)
+  test: systemctl\s+stop\s+(docker|sshd|nginx|apache2|httpd|postgresql|mysql|redis)[\w.-]*(\s|$)
   description: "Stopping a critical system service can cause outages."
   id: systemd:stop_critical_service
+  severity: High
+- from: base
+  test: (halt|poweroff)(\s|$)
+  description: "This command will immediately power off your machine."
+  id: base:poweroff_machine
+  severity: High
+- from: base
+  test: init\s+(0|6)(\s|$)
+  description: "This command will shutdown (init 0) or reboot (init 6) your machine."
+  id: base:init_shutdown_reboot
   severity: High
 - from: base
   test: ssh-add\s+-D

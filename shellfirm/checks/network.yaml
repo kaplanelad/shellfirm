@@ -1,5 +1,5 @@
 - from: network
-  test: iptables\s+-F
+  test: ip6?tables\s+-F
   description: "Flushing all firewall rules"
   id: network:flush_iptables
   severity: Critical
@@ -14,7 +14,7 @@
   id: network:flush_nat_rules
   severity: High
 - from: network
-  test: ufw\s+disable
+  test: ufw\s+disable(\s|$)
   description: "Disabling firewall"
   id: network:disable_firewall
   severity: Critical
@@ -39,7 +39,7 @@
   id: network:bring_down_interface
   severity: High
 - from: network
-  test: ip\s+link\s+set\s+\w+\s+down
+  test: ip\s+link\s+set\s+[\w-]+\s+down
   description: "Bringing down network interface using ip command"
   id: network:bring_down_interface_ip
   severity: High
@@ -48,3 +48,13 @@
   description: "Deleting default route"
   id: network:delete_default_route
   severity: High
+- from: network
+  test: nft\s+flush\s+ruleset
+  description: "Flushing all nftables rules removes all firewall protection."
+  id: network:flush_nftables
+  severity: Critical
+- from: network
+  test: ip\s+route\s+flush
+  description: "Flushing the routing table causes immediate loss of network connectivity."
+  id: network:flush_routes
+  severity: Critical

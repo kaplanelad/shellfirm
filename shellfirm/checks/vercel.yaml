@@ -1,0 +1,20 @@
+- from: vercel
+  test: vercel\s+(remove|rm)(\s|$)
+  description: "Removing a Vercel deployment or project takes it offline permanently."
+  id: vercel:remove
+  severity: Critical
+- from: vercel
+  test: vercel\s+project\s+(remove|rm)(\s|$)
+  description: "Removing a Vercel project deletes it and all its deployments."
+  id: vercel:project_remove
+  severity: Critical
+- from: vercel
+  test: vercel\s+env\s+(rm|remove)\s+
+  description: "Removing an environment variable can break deployments that depend on it."
+  id: vercel:env_remove
+  severity: High
+- from: vercel
+  test: vercel\s+domains?\s+(rm|remove)(\s|$)
+  description: "Removing a domain disconnects it from your deployment."
+  id: vercel:domain_remove
+  severity: High

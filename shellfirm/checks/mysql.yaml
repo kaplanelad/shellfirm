@@ -1,5 +1,5 @@
 - from: mysql
-  test: (?i)mysql.*-e\s+.*DROP
+  test: (?i)mysql.*-e\s+.*\bDROP\s
   description: "Executing DROP commands via mysql CLI."
   id: mysql:drop
   severity: Critical

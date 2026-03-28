@@ -1,5 +1,5 @@
 - from: fs
-  test: 'rm\s{1,}(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system))(?:\s+(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system)))*(?:\s+\S+)*?\s+(\*|\.{1,}|/)(?:\s|$)'
+  test: 'rm\s{1,}(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system))(?:\s+(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system)))*(?:\s+\S+)*?\s+(\*|\.{1,}|/|\.\/\*)(?:\s|$)'
   description: "You are going to delete everything in the path."
   id: fs:recursively_delete
   severity: Critical
@@ -125,7 +125,7 @@
     - type: PathExists
       value: 1
 - from: fs
-  test: rsync\s+.*--delete
+  test: rsync\s+.*--delete(\s|$)
   description: "Syncs with deletion — removes files at destination not present in source."
   id: fs:rsync_delete
   severity: High
@@ -141,3 +141,15 @@
   description: "Recursive ownership change on root or wildcard can break system files and SSH keys."
   id: fs:recursively_chown
   severity: Critical
+- from: fs
+  test: shred\s+
+  description: "Shred overwrites file data at the block level, making recovery impossible unlike rm."
+  id: fs:shred
+  severity: High
+  alternative: "rm <file>"
+  alternative_info: "Regular rm only unlinks the file. Use shred only when you truly need irrecoverable deletion."
+- from: fs
+  test: truncate\s+.*-s\s*0\s
+  description: "This command will zero out a file, permanently erasing its contents."
+  id: fs:truncate_zero
+  severity: High

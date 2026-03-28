@@ -1,0 +1,114 @@
+---
+# -- netlify:sites_delete --
+- test: "netlify sites:delete"
+  description: "match netlify sites:delete"
+  expect_ids: ["netlify:sites_delete"]
+- test: "netlify sites:delete --force"
+  description: "match netlify sites:delete with --force"
+  expect_ids: ["netlify:sites_delete"]
+- test: "netlify sites:delete --site-id abc123"
+  description: "match netlify sites:delete with --site-id"
+  expect_ids: ["netlify:sites_delete"]
+- test: "netlify  sites:delete"
+  description: "match netlify sites:delete with extra spaces"
+  expect_ids: ["netlify:sites_delete"]
+- test: "netlify sites:deletee"
+  description: "negative: typo should not match"
+  expect_ids: []
+- test: "netlify sites:list"
+  description: "negative: sites:list should not match"
+  expect_ids: []
+- test: "netlify sites:create"
+  description: "negative: sites:create should not match"
+  expect_ids: []
+- test: "netlify deploy"
+  description: "negative: deploy should not match"
+  expect_ids: []
+# edge case: "netlify sites:delete" followed by more colon-syntax — ensure exact match
+- test: "netlify sites:delete:extra"
+  description: "negative: sites:delete:extra should not match — 'delete' is followed by ':', not (\\s|$)"
+  expect_ids: []
+# edge case: "netlify sites:deleteall" — 'deleteall' is not 'delete' + (\s|$)
+- test: "netlify sites:deleteall"
+  description: "negative: sites:deleteall should not match — not 'delete' followed by (\\s|$)"
+  expect_ids: []
+# edge case: sudo prefix
+- test: "sudo netlify sites:delete"
+  description: "match netlify sites:delete with sudo prefix"
+  expect_ids: ["netlify:sites_delete"]
+# edge case: "netlify sites:delete" at end of string with flag before
+- test: "netlify sites:delete --force --site-id abc"
+  description: "match netlify sites:delete with multiple flags"
+  expect_ids: ["netlify:sites_delete"]
+# edge case: "ntlify" typo — should not match
+- test: "ntlify sites:delete"
+  description: "negative: ntlify (typo) should not match"
+  expect_ids: []
+
+# -- netlify:env_unset --
+- test: "netlify env:unset MY_VAR"
+  description: "match netlify env:unset"
+  expect_ids: ["netlify:env_unset"]
+- test: "netlify env:unset MY_VAR --context production"
+  description: "match netlify env:unset with --context"
+  expect_ids: ["netlify:env_unset"]
+- test: "netlify  env:unset  MY_VAR"
+  description: "match netlify env:unset with extra spaces"
+  expect_ids: ["netlify:env_unset"]
+- test: "netlify env:list"
+  description: "negative: env:list should not match"
+  expect_ids: []
+- test: "netlify env:set MY_VAR value"
+  description: "negative: env:set should not match"
+  expect_ids: []
+- test: "netlify env:get MY_VAR"
+  description: "negative: env:get should not match"
+  expect_ids: []
+# edge case: "netlify env:unset" with no variable — regex requires trailing \s+ so should NOT match
+- test: "netlify env:unset"
+  description: "negative: netlify env:unset with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: "netlify env:unsett MY_VAR" — typo, "env:unsett" won't match "env:unset\s+"
+# regex: netlify\s+env:unset\s+. In "env:unsett MY_VAR", "env:unset" matches, then "t MY_VAR" — "t" is not \s. No match.
+- test: "netlify env:unsett MY_VAR"
+  description: "negative: env:unsett typo should not match"
+  expect_ids: []
+# edge case: sudo prefix
+- test: "sudo netlify env:unset MY_VAR"
+  description: "match netlify env:unset with sudo prefix"
+  expect_ids: ["netlify:env_unset"]
+# edge case: "netlify env:unset MY_VAR --context production --scope builds"
+- test: "netlify env:unset MY_VAR --context production --scope builds"
+  description: "match netlify env:unset with multiple flags"
+  expect_ids: ["netlify:env_unset"]
+
+# -- netlify:env_clone --
+- test: "netlify env:clone --to site-id"
+  description: "match netlify env:clone"
+  expect_ids: ["netlify:env_clone"]
+- test: "netlify env:clone --from source-site --to target-site"
+  description: "match netlify env:clone with --from and --to"
+  expect_ids: ["netlify:env_clone"]
+- test: "netlify  env:clone  --to  site-id"
+  description: "match netlify env:clone with extra spaces"
+  expect_ids: ["netlify:env_clone"]
+- test: "netlify env:list"
+  description: "negative: env:list should not match clone"
+  expect_ids: []
+# edge case: "netlify env:clone" with no arguments — regex requires trailing \s+ so no match
+- test: "netlify env:clone"
+  description: "negative: netlify env:clone with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: "netlify env:clonee --to site-id" — typo, "env:clonee" has extra e
+# regex: netlify\s+env:clone\s+. "env:clone" matches, then "e --to" — "e" is not \s. No match.
+- test: "netlify env:clonee --to site-id"
+  description: "negative: env:clonee typo should not match"
+  expect_ids: []
+# edge case: sudo prefix
+- test: "sudo netlify env:clone --to site-id"
+  description: "match netlify env:clone with sudo prefix"
+  expect_ids: ["netlify:env_clone"]
+# edge case: pipe before netlify
+- test: "echo yes | netlify env:clone --to site-id"
+  description: "match netlify env:clone after pipe"
+  expect_ids: ["netlify:env_clone"]

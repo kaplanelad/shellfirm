@@ -9,12 +9,12 @@
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}rm\s{1,}(\*|\.)
+  test: git\s{1,}rm\s{1,}(?:-\S+\s+)*(\*|\.)(\s|$)
   description: "This command going to delete all files."
   id: git:delete_all
   severity: High
 - from: git
-  test: git\s{1,}clean\s{1,}(?:-[a-zA-Z]*f[a-zA-Z]*d[a-zA-Z]*|-[a-zA-Z]*d[a-zA-Z]*f[a-zA-Z]*|(?:-\S+\s+)*-f(?:\s+-\S+)*\s+-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+-f)
+  test: git\s{1,}clean\s{1,}(?:-[a-zA-Z]*f[a-zA-Z]*d[a-zA-Z]*|-[a-zA-Z]*d[a-zA-Z]*f[a-zA-Z]*|(?:-\S+\s+)*-f(?:\s+-\S+)*\s+-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+-f|--force\s+(?:-\S+\s+)*-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+--force)
   description: "This command will remove all untracked files and directories."
   id: git:clean_force
   severity: High
@@ -33,6 +33,8 @@
   filters:
     - type: NotContains
       value: "--force-with-lease"
+    - type: NotContains
+      value: "--force-if-includes"
   alternative: "git push --force-with-lease"
   alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
@@ -43,7 +45,7 @@
   alternative: "git branch -d <branch>"
   alternative_info: "Uses safe delete (-d) which refuses to delete a branch with unmerged changes."
 - from: git
-  test: git\s{1,}checkout\s{1,}(-f|--force)
+  test: git\s{1,}checkout\s{1,}.*(-f\b|--force)
   description: "This command will force checkout and discard local changes."
   id: git:force_checkout
   severity: High
@@ -64,7 +66,7 @@
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}rebase\s{1,}-i
+  test: git\s{1,}rebase\s{1,}(-i\b|--interactive)
   description: "This command will start an interactive rebase which can modify commit history."
   id: git:interactive_rebase
   severity: Medium
@@ -76,12 +78,12 @@
   alternative: "git-filter-repo"
   alternative_info: "A faster, safer, and officially recommended alternative to filter-branch."
 - from: git
-  test: git\s{1,}gc\s{1,}--prune=now
+  test: git\s{1,}gc\s{1,}.*--prune=now
   description: "This command will permanently delete unreachable objects."
   id: git:gc_prune
   severity: High
 - from: git
-  test: git\s{1,}update-ref\s{1,}-d
+  test: git\s{1,}update-ref\s{1,}(-d\b|--delete)
   description: "This command will delete a Git reference."
   id: git:delete_ref
   severity: High
@@ -126,12 +128,19 @@
   id: git-strict:stash_pop_drop
   severity: Low
 - from: git
+  test: git\s{1,}stash\s{1,}clear(\s|$)
+  description: "This command will permanently delete all stash entries with no way to recover them."
+  id: git:stash_clear
+  severity: High
+  alternative: "git stash list"
+  alternative_info: "Review your stashes before clearing them. Use 'git stash drop stash@{N}' to remove individual entries."
+- from: git
   test: git\s{1,}submodule\s{1,}(update|deinit)
   description: "This command will update or deinitialize Git submodules."
   id: git-strict:submodule_update
   severity: Low
 - from: git
-  test: git\s{1,}tag\s{1,}-a
+  test: git\s{1,}tag\s{1,}(-a\b|--annotate)
   description: "This command will create an annotated tag."
   id: git-strict:create_tag
   severity: Low
@@ -141,12 +150,12 @@
   id: git:push_mirror
   severity: Critical
 - from: git
-  test: git\s{1,}push\s{1,}\S+\s{1,}--delete\s|git\s{1,}push\s{1,}\S+\s{1,}:\S
+  test: git\s{1,}push\s{1,}(\S+\s{1,}--delete\s|--delete\s{1,}\S+\s|\S+\s{1,}:\S)
   description: "This command will delete a remote branch."
   id: git:push_delete_branch
   severity: High
 - from: git
-  test: git\s{1,}reflog\s{1,}expire\s{1,}--expire=now
+  test: git\s{1,}reflog\s{1,}expire\s{1,}.*--expire=now
   description: "Expiring all reflog entries destroys the last recovery mechanism for lost commits."
   id: git:reflog_expire
   severity: Critical
