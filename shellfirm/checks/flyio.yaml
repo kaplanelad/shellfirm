@@ -1,0 +1,20 @@
+- from: flyio
+  test: fly(?:ctl)?\s+apps\s+destroy(\s|$)
+  description: "Destroying a Fly.io app permanently removes it and all its resources."
+  id: flyio:apps_destroy
+  severity: Critical
+- from: flyio
+  test: fly(?:ctl)?\s+secrets\s+unset\s+
+  description: "Removing secrets can break running applications that depend on them."
+  id: flyio:secrets_unset
+  severity: High
+- from: flyio
+  test: fly(?:ctl)?\s+volumes?\s+destroy(\s|$)
+  description: "Destroying a volume permanently deletes all data stored on it."
+  id: flyio:volumes_destroy
+  severity: High
+- from: flyio
+  test: fly(?:ctl)?\s+postgres\s+destroy(\s|$)
+  description: "Destroying a Fly Postgres cluster permanently deletes the database and all its data."
+  id: flyio:postgres_destroy
+  severity: Critical

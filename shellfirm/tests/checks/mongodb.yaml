@@ -28,3 +28,21 @@
 - test: "DB.DROPDATABASE()"
   description: "interactive MongoDB drop database uppercase"
   expect_ids: ["mongodb:interactive_drop_database"]
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- mongodb:drop edge cases --
+- test: "mongo --eval db.users.drop()"
+  description: "match old mongo client with --eval drop"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_collection"]
+- test: "mongosh 'mongodb://localhost/test' --eval 'db.dropDatabase()'"
+  description: "EDGE: connection string before --eval"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_database"]
+
+# -- mongodb:interactive_drop_collection edge cases --
+- test: "db.my_collection.drop()"
+  description: "EDGE: underscore in collection name"
+  expect_ids: ["mongodb:interactive_drop_collection"]
+- test: "db.my-collection.drop()"
+  description: "match hyphenated collection name in drop"
+  expect_ids: ["mongodb:interactive_drop_collection"]

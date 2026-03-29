@@ -213,23 +213,28 @@ const fn default_blast_radius() -> bool {
     true
 }
 
-pub const DEFAULT_ENABLED_GROUPS: [&str; 16] = [
+pub const DEFAULT_ENABLED_GROUPS: [&str; 21] = [
     "aws",
     "azure",
     "base",
     "database",
     "docker",
+    "flyio",
     "fs",
     "gcp",
     "git",
+    "github",
     "heroku",
     "kubernetes",
     "mongodb",
     "mysql",
+    "netlify",
     "network",
+    "npm",
     "psql",
     "redis",
     "terraform",
+    "vercel",
 ];
 
 /// The user challenge when user need to confirm the command.
@@ -751,17 +756,22 @@ mod test_settings {
                 "base",
                 "database",
                 "docker",
+                "flyio",
                 "fs",
                 "gcp",
                 "git",
+                "github",
                 "heroku",
                 "kubernetes",
                 "mongodb",
                 "mysql",
+                "netlify",
                 "network",
+                "npm",
                 "psql",
                 "redis",
                 "terraform",
+                "vercel",
             ]
         );
     }

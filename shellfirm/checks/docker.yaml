@@ -6,7 +6,7 @@
   alternative: "docker system prune"
   alternative_info: "Without -a, only dangling images are removed (not all unused images)."
 - from: docker
-  test: docker\s+rm\s+(-f|--force)\s+\$\(docker\s+ps
+  test: docker\s+rm\s+(-f|--force)\s+(?:\$\(|`)docker\s+ps
   description: "Force removing all running or stopped containers."
   id: docker:force_remove_all_containers
   severity: High
@@ -31,7 +31,7 @@
   id: docker:remove_network
   severity: Medium
 - from: docker
-  test: docker[\s-]compose\s+down\s+.*(-v|--volumes)
+  test: docker[\s-]compose\s+.*down\s+.*(-v|--volumes)
   description: "This will stop containers AND delete all associated volumes and data."
   id: docker:compose_down_volumes
   severity: High
@@ -59,3 +59,11 @@
   description: "Clears the entire Docker build cache."
   id: docker:buildx_prune_all
   severity: High
+- from: docker
+  test: docker\s+run\s+(.+\s+)?--privileged(\s|$|=true)
+  description: "Running a container with --privileged gives it full access to the host system."
+  id: docker:run_privileged
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--privileged=false"

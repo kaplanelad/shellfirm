@@ -1,0 +1,142 @@
+---
+# -- npm:unpublish --
+- test: "npm unpublish"
+  description: "match npm unpublish"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-package"
+  description: "match npm unpublish with package name"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-package@1.0.0"
+  description: "match npm unpublish with package@version"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish --force"
+  description: "match npm unpublish with --force"
+  expect_ids: ["npm:unpublish"]
+- test: "npm  unpublish  my-package"
+  description: "match npm unpublish with extra spaces"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublishh"
+  description: "negative: typo should not match"
+  expect_ids: []
+- test: "npm publish"
+  description: "negative: publish should not match unpublish"
+  expect_ids: []
+- test: "npm install"
+  description: "negative: install should not match"
+  expect_ids: []
+- test: "npm list"
+  description: "negative: list should not match"
+  expect_ids: []
+# edge case: pnpm contains "npm" as substring — regex uses (^|\s)npm so "pnpm" should NOT match npm:unpublish
+- test: "pnpm unpublish my-package"
+  description: "negative: pnpm should not match npm:unpublish (word boundary)"
+  expect_ids: ["npm:pnpm_unpublish"]
+# edge case: sudo prefix — regex has (^|\s) so sudo+space+npm should match
+- test: "sudo npm unpublish my-package"
+  description: "match npm unpublish with sudo prefix"
+  expect_ids: ["npm:unpublish"]
+# edge case: pipe before npm — (^|\s) should match the space before npm
+- test: "echo yes | npm unpublish my-package"
+  description: "match npm unpublish after pipe with spaces"
+  expect_ids: ["npm:unpublish"]
+# edge case: npm at start of line, no trailing args (end of string boundary)
+- test: "npm unpublish"
+  description: "match npm unpublish at end of string (boundary check)"
+  expect_ids: ["npm:unpublish"]
+# edge case: tab character between npm and unpublish — \s should match tab
+# UNCERTAIN: depends on whether test harness passes literal \t
+# - test: "npm\tunpublish"
+#   description: "match npm unpublish with tab separator"
+#   expect_ids: ["npm:unpublish"]
+
+# -- npm:deprecate --
+- test: "npm deprecate my-package 'this package is deprecated'"
+  description: "match npm deprecate with message"
+  expect_ids: ["npm:deprecate"]
+- test: "npm deprecate my-package@1.x 'use v2 instead'"
+  description: "match npm deprecate with version range"
+  expect_ids: ["npm:deprecate"]
+- test: "npm  deprecate  my-package  'message'"
+  description: "match npm deprecate with extra spaces"
+  expect_ids: ["npm:deprecate"]
+- test: "npm info my-package"
+  description: "negative: info should not match"
+  expect_ids: []
+# edge case: npm deprecate with NO trailing argument — regex requires trailing \s+ so bare "npm deprecate" with nothing after should NOT match
+- test: "npm deprecate"
+  description: "negative: npm deprecate with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: pnpm deprecate should not match npm:deprecate — (^|\s)npm won't match "pnpm"
+- test: "pnpm deprecate my-package 'old'"
+  description: "negative: pnpm deprecate should not match npm:deprecate"
+  expect_ids: []
+# edge case: sudo npm deprecate
+- test: "sudo npm deprecate my-package 'deprecated'"
+  description: "match npm deprecate with sudo prefix"
+  expect_ids: ["npm:deprecate"]
+
+# -- npm:yarn_unpublish --
+- test: "yarn npm unpublish"
+  description: "match yarn npm unpublish (also matches npm:unpublish as substring)"
+  expect_ids: ["npm:unpublish", "npm:yarn_unpublish"]
+- test: "yarn npm unpublish my-package"
+  description: "match yarn npm unpublish with package"
+  expect_ids: ["npm:unpublish", "npm:yarn_unpublish"]
+- test: "yarn npm unpublish my-package --force"
+  description: "match yarn npm unpublish with --force"
+  expect_ids: ["npm:unpublish", "npm:yarn_unpublish"]
+- test: "yarn  npm  unpublish"
+  description: "match yarn npm unpublish with extra spaces"
+  expect_ids: ["npm:unpublish", "npm:yarn_unpublish"]
+- test: "yarn npm publish"
+  description: "negative: yarn npm publish should not match"
+  expect_ids: []
+- test: "yarn install"
+  description: "negative: yarn install should not match"
+  expect_ids: []
+# edge case: yarn npm unpublishh — typo, "unpublishh" won't match (\s|$)
+- test: "yarn npm unpublishh"
+  description: "negative: typo unpublishh should not match yarn_unpublish"
+  expect_ids: []
+# edge case: extra spaces between yarn npm unpublish — regex uses \s+ so should match
+- test: "yarn  npm  unpublish  my-package"
+  description: "match yarn npm unpublish with extra spaces and package"
+  expect_ids: ["npm:unpublish", "npm:yarn_unpublish"]
+# edge case: "yarn npm" alone (no unpublish)
+- test: "yarn npm info my-package"
+  description: "negative: yarn npm info should not match"
+  expect_ids: []
+
+# -- npm:pnpm_unpublish --
+- test: "pnpm unpublish"
+  description: "match pnpm unpublish"
+  expect_ids: ["npm:pnpm_unpublish"]
+- test: "pnpm unpublish my-package"
+  description: "match pnpm unpublish with package"
+  expect_ids: ["npm:pnpm_unpublish"]
+- test: "pnpm unpublish my-package@1.0.0 --force"
+  description: "match pnpm unpublish with version and --force"
+  expect_ids: ["npm:pnpm_unpublish"]
+- test: "pnpm  unpublish"
+  description: "match pnpm unpublish with extra spaces"
+  expect_ids: ["npm:pnpm_unpublish"]
+- test: "pnpm publish"
+  description: "negative: pnpm publish should not match"
+  expect_ids: []
+- test: "pnpm install"
+  description: "negative: pnpm install should not match"
+  expect_ids: []
+# edge case: pnpm unpublishh — typo should not match (\s|$)
+- test: "pnpm unpublishh"
+  description: "negative: typo unpublishh should not match pnpm_unpublish"
+  expect_ids: []
+# edge case: sudo pnpm unpublish — regex is pnpm\s+unpublish, no (^|\s) prefix, so "sudo pnpm" should still match since "pnpm" is found mid-string
+# UNCERTAIN: the regex `pnpm\s+unpublish(\s|$)` has no ^ or \s anchor at the start, so it will match anywhere in the string
+- test: "sudo pnpm unpublish my-package"
+  description: "match pnpm unpublish with sudo prefix (no start anchor in regex)"
+  expect_ids: ["npm:pnpm_unpublish"]
+# edge case: npnpm (extra char before pnpm) — no start-of-word boundary in regex, so "npnpm" WILL match "pnpm" substring
+# UNCERTAIN: regex `pnpm\s+unpublish(\s|$)` has no word boundary, so "npnpm unpublish" likely matches
+- test: "npnpm unpublish"
+  description: "negative: npnpm should not match pnpm_unpublish (word boundary via (^|\\s))"
+  expect_ids: []

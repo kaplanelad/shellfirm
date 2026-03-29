@@ -1,12 +1,12 @@
 - from: redis
-  test: (?i)redis-cli\s+FLUSHALL
+  test: (?i)redis-cli\s+.*FLUSHALL
   description: "FLUSHALL will delete all data across all Redis databases."
   id: redis:flushall
   severity: Critical
   alternative: "redis-cli FLUSHDB"
   alternative_info: "FLUSHDB only clears the current database, not all databases."
 - from: redis
-  test: (?i)redis-cli\s+FLUSHDB
+  test: (?i)redis-cli\s+.*FLUSHDB
   description: "FLUSHDB will delete all data in the current Redis database."
   id: redis:flushdb
   severity: High

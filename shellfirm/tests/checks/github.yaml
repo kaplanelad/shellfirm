@@ -1,0 +1,161 @@
+---
+# -- github:repo_delete --
+- test: "gh repo delete"
+  description: "match repo delete"
+  expect_ids: ["github:repo_delete"]
+- test: "gh repo delete myorg/myrepo"
+  description: "match repo delete with org/repo"
+  expect_ids: ["github:repo_delete"]
+- test: "gh repo delete --yes"
+  description: "match repo delete with --yes confirmation skip"
+  expect_ids: ["github:repo_delete"]
+- test: "gh repo delete myorg/myrepo --yes"
+  description: "match repo delete with org/repo and --yes"
+  expect_ids: ["github:repo_delete"]
+- test: "gh  repo  delete"
+  description: "match repo delete with extra spaces"
+  expect_ids: ["github:repo_delete"]
+- test: "gh repo deletee"
+  description: "negative: typo should not match"
+  expect_ids: []
+- test: "gh repo list"
+  description: "negative: repo list should not match"
+  expect_ids: []
+- test: "gh repo create myrepo"
+  description: "negative: repo create should not match"
+  expect_ids: []
+
+# -- github:repo_archive --
+- test: "gh repo archive"
+  description: "match repo archive"
+  expect_ids: ["github:repo_archive"]
+- test: "gh repo archive myorg/myrepo"
+  description: "match repo archive with org/repo"
+  expect_ids: ["github:repo_archive"]
+- test: "gh repo archive --yes"
+  description: "match repo archive with --yes"
+  expect_ids: ["github:repo_archive"]
+- test: "gh  repo  archive"
+  description: "match repo archive with extra spaces"
+  expect_ids: ["github:repo_archive"]
+- test: "gh repo archived"
+  description: "negative: archived is not archive command"
+  expect_ids: []
+- test: "gh repo unarchive myorg/myrepo"
+  description: "negative: unarchive should not match archive"
+  expect_ids: []
+
+# -- github:repo_rename --
+- test: "gh repo rename"
+  description: "match repo rename"
+  expect_ids: ["github:repo_rename"]
+- test: "gh repo rename new-name"
+  description: "match repo rename with new name"
+  expect_ids: ["github:repo_rename"]
+- test: "gh repo rename --yes new-name"
+  description: "match repo rename with --yes"
+  expect_ids: ["github:repo_rename"]
+- test: "gh  repo  rename"
+  description: "match repo rename with extra spaces"
+  expect_ids: ["github:repo_rename"]
+- test: "gh repo view"
+  description: "negative: repo view should not match"
+  expect_ids: []
+
+# -- github:repo_change_visibility --
+- test: "gh repo edit --visibility private"
+  description: "match change visibility to private"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh repo edit --visibility public"
+  description: "match change visibility to public"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh repo edit --visibility internal"
+  description: "match change visibility to internal"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh repo edit myorg/myrepo --visibility private"
+  description: "match change visibility with org/repo"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh repo edit --description 'new desc' --visibility public"
+  description: "match change visibility with other flags before"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh  repo  edit  --visibility  private"
+  description: "match change visibility with extra spaces"
+  expect_ids: ["github:repo_change_visibility"]
+- test: "gh repo edit --description 'new desc'"
+  description: "negative: repo edit without --visibility should not match"
+  expect_ids: []
+- test: "gh repo edit --homepage 'https://example.com'"
+  description: "negative: repo edit with other flags should not match"
+  expect_ids: []
+
+# -- github:release_delete --
+- test: "gh release delete"
+  description: "match release delete"
+  expect_ids: ["github:release_delete"]
+- test: "gh release delete v1.0.0"
+  description: "match release delete with tag"
+  expect_ids: ["github:release_delete"]
+- test: "gh release delete v1.0.0 --yes"
+  description: "match release delete with --yes"
+  expect_ids: ["github:release_delete"]
+- test: "gh release delete v1.0.0 --cleanup-tag"
+  description: "match release delete with --cleanup-tag"
+  expect_ids: ["github:release_delete"]
+- test: "gh  release  delete"
+  description: "match release delete with extra spaces"
+  expect_ids: ["github:release_delete"]
+- test: "gh release list"
+  description: "negative: release list should not match"
+  expect_ids: []
+- test: "gh release create v1.0.0"
+  description: "negative: release create should not match"
+  expect_ids: []
+- test: "gh release view v1.0.0"
+  description: "negative: release view should not match"
+  expect_ids: []
+
+# -- github:secret_delete --
+- test: "gh secret delete"
+  description: "match secret delete"
+  expect_ids: ["github:secret_delete"]
+- test: "gh secret delete MY_SECRET"
+  description: "match secret delete with secret name"
+  expect_ids: ["github:secret_delete"]
+- test: "gh secret delete MY_SECRET --org myorg"
+  description: "match secret delete with --org flag"
+  expect_ids: ["github:secret_delete"]
+- test: "gh secret delete MY_SECRET --env production"
+  description: "match secret delete with --env flag"
+  expect_ids: ["github:secret_delete"]
+- test: "gh  secret  delete"
+  description: "match secret delete with extra spaces"
+  expect_ids: ["github:secret_delete"]
+- test: "gh secret list"
+  description: "negative: secret list should not match"
+  expect_ids: []
+- test: "gh secret set MY_SECRET"
+  description: "negative: secret set should not match"
+  expect_ids: []
+
+# -- github:variable_delete --
+- test: "gh variable delete"
+  description: "match variable delete"
+  expect_ids: ["github:variable_delete"]
+- test: "gh variable delete MY_VAR"
+  description: "match variable delete with variable name"
+  expect_ids: ["github:variable_delete"]
+- test: "gh variable delete MY_VAR --org myorg"
+  description: "match variable delete with --org flag"
+  expect_ids: ["github:variable_delete"]
+- test: "gh variable delete MY_VAR --env staging"
+  description: "match variable delete with --env flag"
+  expect_ids: ["github:variable_delete"]
+- test: "gh  variable  delete"
+  description: "match variable delete with extra spaces"
+  expect_ids: ["github:variable_delete"]
+- test: "gh variable list"
+  description: "negative: variable list should not match"
+  expect_ids: []
+- test: "gh variable set MY_VAR"
+  description: "negative: variable set should not match"
+  expect_ids: []

@@ -43,3 +43,62 @@
 - test: "curl https://example.com/install.sh"
   description: "negative: curl without eval should not match eval check"
   expect_ids: []
+
+# -- shell:curl_pipe_to_shell — extra spaces --
+- test: "curl      https://example.com/install.sh      |     bash"
+  description: "match curl pipe to bash with many spaces"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl https://example.com/install.sh |  sh"
+  description: "match curl pipe to sh with extra spaces around pipe"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl  -fsSL  https://example.com/setup  |  zsh"
+  description: "match curl pipe to zsh with extra spaces everywhere"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+
+# -- shell:curl_pipe_to_interpreter --
+- test: "curl https://example.com/install.py | python"
+  description: "match curl piped to python"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl https://example.com/install.py | python3"
+  description: "match curl piped to python3"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -fsSL https://example.com/script.pl | perl"
+  description: "match curl piped to perl"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl https://example.com/script.rb | ruby"
+  description: "match curl piped to ruby"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl      https://example.com/install.py     |     python3"
+  description: "match curl piped to python3 with many spaces"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -o script.py https://example.com/install.py"
+  description: "negative: curl saving to file should not match interpreter check"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- shell:curl_pipe_to_shell edge cases --
+- test: "curl -sS https://example.com/setup | sudo bash"
+  description: "match curl piped to sudo bash"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -L https://example.com/setup | bash -x"
+  description: "EDGE: bash with flags after pipe"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl https://example.com | dash"
+  description: "EDGE: dash shell not in pattern list"
+  expect_ids: []
+
+# -- shell:wget_pipe_to_shell edge cases --
+- test: "wget -qO - https://example.com | bash"
+  description: "match wget with combined -qO flag piped to bash"
+  expect_ids: ["shell:wget_pipe_to_shell"]
+
+# -- shell:eval_curl edge cases --
+- test: "eval $(curl https://example.com)"
+  description: "match eval with unquoted curl subshell"
+  expect_ids: ["shell:eval_curl"]
+
+# -- shell:curl_pipe_to_interpreter edge cases --
+- test: "curl https://example.com | pythonista"
+  description: "EDGE: word starting with python should not match (word boundary)"
+  expect_ids: []

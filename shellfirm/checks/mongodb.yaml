@@ -1,11 +1,11 @@
 - from: mongodb
-  test: (?i)mongosh?.*--eval.*drop
+  test: (?i)mongo(?:sh)?.*--eval.*drop
   description: "Executing drop operations via MongoDB shell."
   id: mongodb:drop
   severity: Critical
 # Interactive session patterns (for shellfirm wrap)
 - from: mongodb
-  test: (?i)db\.\w+\.drop\(\)
+  test: (?i)db\.[\w-]+\.drop\(\)
   id: mongodb:interactive_drop_collection
   severity: Critical
   description: "Dropping a MongoDB collection will permanently delete all its data."

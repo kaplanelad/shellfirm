@@ -1,0 +1,164 @@
+---
+# -- flyio:apps_destroy --
+- test: "fly apps destroy"
+  description: "match fly apps destroy"
+  expect_ids: ["flyio:apps_destroy"]
+- test: "fly apps destroy my-app"
+  description: "match fly apps destroy with app name"
+  expect_ids: ["flyio:apps_destroy"]
+- test: "fly apps destroy --yes"
+  description: "match fly apps destroy with --yes"
+  expect_ids: ["flyio:apps_destroy"]
+- test: "flyctl apps destroy my-app"
+  description: "match flyctl (full binary name) apps destroy"
+  expect_ids: ["flyio:apps_destroy"]
+- test: "fly  apps  destroy"
+  description: "match fly apps destroy with extra spaces"
+  expect_ids: ["flyio:apps_destroy"]
+- test: "fly apps list"
+  description: "negative: apps list should not match"
+  expect_ids: []
+- test: "fly apps create my-app"
+  description: "negative: apps create should not match"
+  expect_ids: []
+# edge case: "flyy" should not match fly(?:ctl)? — "flyy" is not "fly" or "flyctl"
+- test: "flyy apps destroy my-app"
+  description: "negative: flyy (typo) should not match — fly(?:ctl)? won't match flyy"
+  expect_ids: []
+# edge case: "flyctl" full form with extra args
+- test: "flyctl apps destroy my-app --yes"
+  description: "match flyctl apps destroy with app name and --yes"
+  expect_ids: ["flyio:apps_destroy"]
+# edge case: sudo prefix
+- test: "sudo fly apps destroy my-app"
+  description: "match fly apps destroy with sudo prefix"
+  expect_ids: ["flyio:apps_destroy"]
+# edge case: "fly apps destroyy" — typo after destroy, (\s|$) should prevent match
+- test: "fly apps destroyy"
+  description: "negative: destroyy typo should not match"
+  expect_ids: []
+# edge case: "fly apps destroy" at end of string (boundary check with $)
+- test: "flyctl apps destroy"
+  description: "match flyctl apps destroy at end of string"
+  expect_ids: ["flyio:apps_destroy"]
+# edge case: "flyctle" (extra char after flyctl) — fly(?:ctl)? would match "flyctl" portion but "e" follows
+# The regex is fly(?:ctl)?\s+ so "flyctle" has no \s after, it has "e" — so "flyctle\s+apps" would mean
+# fly(?:ctl)? matches "flyctl" and then "e\s+" must match \s+ which fails. So no match.
+- test: "flyctle apps destroy my-app"
+  description: "negative: flyctle (extra char) should not match"
+  expect_ids: []
+
+# -- flyio:secrets_unset --
+- test: "fly secrets unset MY_SECRET"
+  description: "match fly secrets unset"
+  expect_ids: ["flyio:secrets_unset"]
+- test: "fly secrets unset SECRET1 SECRET2"
+  description: "match fly secrets unset with multiple secrets"
+  expect_ids: ["flyio:secrets_unset"]
+- test: "flyctl secrets unset MY_SECRET"
+  description: "match flyctl secrets unset"
+  expect_ids: ["flyio:secrets_unset"]
+- test: "fly secrets unset MY_SECRET --app my-app"
+  description: "match fly secrets unset with --app flag"
+  expect_ids: ["flyio:secrets_unset"]
+- test: "fly  secrets  unset  MY_SECRET"
+  description: "match fly secrets unset with extra spaces"
+  expect_ids: ["flyio:secrets_unset"]
+- test: "fly secrets list"
+  description: "negative: secrets list should not match"
+  expect_ids: []
+- test: "fly secrets set MY_SECRET=value"
+  description: "negative: secrets set should not match"
+  expect_ids: []
+# edge case: "fly secrets unset" with no secret name — regex requires trailing \s+ so bare command won't match
+- test: "fly secrets unset"
+  description: "negative: fly secrets unset with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: flyctl form for secrets unset with extra spaces
+- test: "flyctl  secrets  unset  SECRET1  SECRET2"
+  description: "match flyctl secrets unset with extra spaces and multiple secrets"
+  expect_ids: ["flyio:secrets_unset"]
+# edge case: sudo prefix
+- test: "sudo fly secrets unset MY_SECRET"
+  description: "match fly secrets unset with sudo prefix"
+  expect_ids: ["flyio:secrets_unset"]
+# edge case: "flyy secrets unset" — should not match
+- test: "flyy secrets unset MY_SECRET"
+  description: "negative: flyy (typo) should not match secrets_unset"
+  expect_ids: []
+
+# -- flyio:volumes_destroy --
+- test: "fly volumes destroy"
+  description: "match fly volumes destroy"
+  expect_ids: ["flyio:volumes_destroy"]
+- test: "fly volumes destroy vol_abc123"
+  description: "match fly volumes destroy with volume ID"
+  expect_ids: ["flyio:volumes_destroy"]
+- test: "fly volume destroy vol_abc123"
+  description: "match fly volume (singular) destroy"
+  expect_ids: ["flyio:volumes_destroy"]
+- test: "flyctl volumes destroy vol_abc123"
+  description: "match flyctl volumes destroy"
+  expect_ids: ["flyio:volumes_destroy"]
+- test: "fly  volumes  destroy"
+  description: "match fly volumes destroy with extra spaces"
+  expect_ids: ["flyio:volumes_destroy"]
+- test: "fly volumes list"
+  description: "negative: volumes list should not match"
+  expect_ids: []
+- test: "fly volumes create"
+  description: "negative: volumes create should not match"
+  expect_ids: []
+# edge case: "fly volumes destroyy" — typo, (\s|$) should prevent match
+- test: "fly volumes destroyy"
+  description: "negative: destroyy typo should not match volumes_destroy"
+  expect_ids: []
+# edge case: flyctl volume (singular) destroy — regex is volumes? so both match
+- test: "flyctl volume destroy vol_abc123"
+  description: "match flyctl volume (singular) destroy"
+  expect_ids: ["flyio:volumes_destroy"]
+# edge case: "fly volumess destroy" — regex is volumes? (s is optional), "volumess" has double-s. volumes? matches "volumes" then extra "s" is left before space
+# Actually "volumess" — regex `volumes?` matches "volume" + optional "s" = "volumes", leaving "s destroy". Then regex needs \s+destroy. "s destroy" won't match \s+destroy. So no match.
+- test: "fly volumess destroy"
+  description: "negative: volumess (typo) should not match"
+  expect_ids: []
+# edge case: sudo prefix with volume singular
+- test: "sudo fly volume destroy vol_123"
+  description: "match fly volume destroy with sudo prefix"
+  expect_ids: ["flyio:volumes_destroy"]
+
+# -- flyio:postgres_destroy --
+- test: "fly postgres destroy"
+  description: "match fly postgres destroy"
+  expect_ids: ["flyio:postgres_destroy"]
+- test: "fly postgres destroy my-pg-cluster"
+  description: "match fly postgres destroy with cluster name"
+  expect_ids: ["flyio:postgres_destroy"]
+- test: "flyctl postgres destroy my-pg-cluster"
+  description: "match flyctl postgres destroy"
+  expect_ids: ["flyio:postgres_destroy"]
+- test: "fly  postgres  destroy"
+  description: "match fly postgres destroy with extra spaces"
+  expect_ids: ["flyio:postgres_destroy"]
+- test: "fly postgres list"
+  description: "negative: postgres list should not match"
+  expect_ids: []
+- test: "fly postgres create"
+  description: "negative: postgres create should not match"
+  expect_ids: []
+# edge case: "fly postgres destroyy" — typo, (\s|$) prevents match
+- test: "fly postgres destroyy"
+  description: "negative: destroyy typo should not match postgres_destroy"
+  expect_ids: []
+# edge case: sudo flyctl postgres destroy
+- test: "sudo flyctl postgres destroy my-db"
+  description: "match flyctl postgres destroy with sudo prefix"
+  expect_ids: ["flyio:postgres_destroy"]
+# edge case: "flyy postgres destroy" — should not match
+- test: "flyy postgres destroy my-db"
+  description: "negative: flyy (typo) should not match postgres_destroy"
+  expect_ids: []
+# edge case: "fly postgres destroy" at end of string
+- test: "flyctl postgres destroy"
+  description: "match flyctl postgres destroy at end of string"
+  expect_ids: ["flyio:postgres_destroy"]

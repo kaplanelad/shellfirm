@@ -204,3 +204,49 @@
 - test: "docker buildx prune"
   description: "negative: buildx prune without --all should not match"
   expect_ids: []
+
+# -- docker:run_privileged --
+- test: "docker run --privileged nginx"
+  description: "match run with --privileged"
+  expect_ids: ["docker:run_privileged"]
+- test: "docker run -it --privileged ubuntu bash"
+  description: "match run with flags before --privileged"
+  expect_ids: ["docker:run_privileged"]
+- test: "docker run --name mycontainer --privileged nginx"
+  description: "match run with --name before --privileged"
+  expect_ids: ["docker:run_privileged"]
+- test: "docker  run  --privileged  nginx"
+  description: "match run with extra spaces"
+  expect_ids: ["docker:run_privileged"]
+- test: "docker run --privileged=true nginx"
+  description: "match run with --privileged=true"
+  expect_ids: ["docker:run_privileged"]
+- test: "docker run --privileged=false nginx"
+  description: "negative: --privileged=false should not match"
+  expect_ids: []
+- test: "docker run nginx"
+  description: "negative: run without --privileged should not match"
+  expect_ids: []
+- test: "docker run -it ubuntu bash"
+  description: "negative: run with regular flags should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- docker:compose_down_volumes edge cases --
+- test: "docker compose -f custom.yml down -v"
+  description: "match compose with -f flag before down with -v"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker-compose -f docker-compose.prod.yml down --volumes"
+  description: "match compose with -f flag before down with --volumes"
+  expect_ids: ["docker:compose_down_volumes"]
+
+# -- docker:force_remove_all_containers edge cases --
+- test: "docker rm -f `docker ps -aq`"
+  description: "match force remove all containers with backtick syntax"
+  expect_ids: ["docker:force_remove_all_containers"]
+
+# -- docker:run_privileged edge cases --
+- test: "docker run --security-opt seccomp=unconfined --privileged nginx"
+  description: "EDGE: long option before --privileged"
+  expect_ids: ["docker:run_privileged"]

@@ -56,3 +56,24 @@
 - test: "  shutdown  "
   description: "interactive shutdown with whitespace and lowercase"
   expect_ids: ["base:shutdown_machine", "redis:interactive_shutdown"]
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- redis:flushall edge cases --
+- test: "redis-cli -h 10.0.0.1 FLUSHALL"
+  description: "match redis-cli with -h flag before FLUSHALL"
+  expect_ids: ["redis:flushall"]
+- test: "redis-cli -n 0 FLUSHALL"
+  description: "match redis-cli with -n flag before FLUSHALL"
+  expect_ids: ["redis:flushall"]
+- test: "redis-cli -p 6380 FLUSHALL"
+  description: "match redis-cli with -p flag before FLUSHALL"
+  expect_ids: ["redis:flushall"]
+
+# -- redis:flushdb edge cases --
+- test: "redis-cli -h localhost FLUSHDB"
+  description: "match redis-cli with -h flag before FLUSHDB"
+  expect_ids: ["redis:flushdb"]
+- test: "redis-cli -p 6380 FLUSHDB"
+  description: "match redis-cli with -p flag before FLUSHDB"
+  expect_ids: ["redis:flushdb"]

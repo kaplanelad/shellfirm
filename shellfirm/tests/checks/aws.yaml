@@ -215,3 +215,26 @@
 - test: "awss ecs delete-service --cluster test --service test"
   description: "invalid command"
   expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- aws:iam_delete edge cases --
+- test: "aws iam delete-user-policy --user-name test --policy-name test"
+  description: "negative: delete-user-policy should not match delete-user"
+  expect_ids: []
+- test: "aws iam delete-role-policy --role-name test --policy-name test"
+  description: "negative: delete-role-policy should not match delete-role"
+  expect_ids: []
+- test: "aws iam delete-group-policy --group-name test --policy-name test"
+  description: "negative: delete-group-policy should not match delete-group"
+  expect_ids: []
+
+# -- aws:ec2_terminate edge cases --
+- test: "aws --profile prod ec2 terminate-instances --instance-ids i-123"
+  description: "match ec2 terminate with --profile flag before subcommand"
+  expect_ids: ["aws:ec2_terminate"]
+
+# -- aws:s3_recursive_delete edge cases --
+- test: "aws s3 rm s3://mybucket/ --recursive --dryrun"
+  description: "EDGE: dryrun should be filtered out"
+  expect_ids: []

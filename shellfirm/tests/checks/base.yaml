@@ -184,3 +184,77 @@
 - test: "ssh-keygen -t rsa"
   description: "negative: generating key should not match"
   expect_ids: []
+
+# -- base:poweroff_machine --
+- test: "halt"
+  description: "match halt command"
+  expect_ids: ["base:poweroff_machine"]
+- test: "poweroff"
+  description: "match poweroff command"
+  expect_ids: ["base:poweroff_machine"]
+- test: "halt -f"
+  description: "match halt with flag"
+  expect_ids: ["base:poweroff_machine"]
+- test: "poweroff -f"
+  description: "match poweroff with flag"
+  expect_ids: ["base:poweroff_machine"]
+- test: "halting"
+  description: "negative: word starting with halt should not match"
+  expect_ids: []
+- test: "powerofff"
+  description: "negative: misspelled poweroff should not match"
+  expect_ids: []
+
+# -- base:init_shutdown_reboot --
+- test: "init 0"
+  description: "match init 0 (shutdown)"
+  expect_ids: ["base:init_shutdown_reboot"]
+- test: "init 6"
+  description: "match init 6 (reboot)"
+  expect_ids: ["base:init_shutdown_reboot"]
+- test: "init  0"
+  description: "match init 0 with extra spaces"
+  expect_ids: ["base:init_shutdown_reboot"]
+- test: "init 1"
+  description: "negative: init 1 (single user) should not match"
+  expect_ids: []
+- test: "init 3"
+  description: "negative: init 3 (multi-user) should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- base:reboot_machine edge cases --
+- test: "sudo reboot"
+  description: "EDGE: sudo reboot"
+  expect_ids: ["base:reboot_machine"]
+- test: "myreboot"
+  description: "negative: substring should not match - reboot requires word boundary"
+  expect_ids: []
+
+# -- base:shutdown_machine edge cases --
+- test: "sudo shutdown -h now"
+  description: "EDGE: sudo shutdown with flags"
+  expect_ids: ["base:shutdown_machine"]
+- test: "myshutdown"
+  description: "negative: substring should not match - shutdown requires word boundary"
+  expect_ids: []
+
+# -- systemd:stop_critical_service edge cases --
+- test: "systemctl stop docker.service"
+  description: "match stopping docker with .service suffix"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop redis-server"
+  description: "match stopping redis-server variant"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop postgresql-14"
+  description: "match stopping postgresql with version suffix"
+  expect_ids: ["systemd:stop_critical_service"]
+
+# -- base:delete_all_cron_tasks edge cases --
+- test: "sudo crontab -r"
+  description: "EDGE: sudo prefix"
+  expect_ids: ["base:delete_all_cron_tasks"]
+- test: "crontab -l"
+  description: "EDGE: list should not match"
+  expect_ids: []

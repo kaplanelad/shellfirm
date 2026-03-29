@@ -1,0 +1,15 @@
+- from: netlify
+  test: netlify\s+sites:delete(\s|$)
+  description: "Deleting a Netlify site permanently removes it and all its deployments."
+  id: netlify:sites_delete
+  severity: Critical
+- from: netlify
+  test: netlify\s+env:unset\s+
+  description: "Removing an environment variable can break builds and deployments."
+  id: netlify:env_unset
+  severity: High
+- from: netlify
+  test: netlify\s+env:clone\s+
+  description: "Cloning environment variables overwrites the target site's variables."
+  id: netlify:env_clone
+  severity: High

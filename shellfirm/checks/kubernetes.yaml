@@ -1,5 +1,5 @@
 - from: kubernetes
-  test: (kubectl|k)\s+delete\s+(ns|namespace)
+  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+(ns|namespace)
   description: "Deleting the namespace also deletes all the residing components."
   id: kubernetes:delete_namespace
   severity: Critical
@@ -9,7 +9,7 @@
   alternative: "kubectl get all -n <namespace>"
   alternative_info: "List all resources in the namespace first to verify what will be deleted."
 - from: kubernetes
-  test: (k|kubectl)\s+delete\s+
+  test: (k|kubectl)\s+(?:-\S+\s+\S+\s+)*delete\s+
   description: "This command will going to delete a given resource."
   id: kubernetes-strict:delete_resource
   severity: High
@@ -73,3 +73,23 @@
   filters:
     - type: NotContains
       value: "--dry-run"
+- from: kubernetes
+  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+.*--all(\s|$)
+  description: "Deleting all resources of a type wipes everything in the namespace."
+  id: kubernetes:delete_all_resources
+  severity: Critical
+  filters:
+    - type: NotContains
+      value: "--dry-run"
+  alternative: "kubectl get <resource> -n <namespace>"
+  alternative_info: "List resources first to verify what would be deleted."
+- from: kubernetes
+  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*apply\s+.*--force(\s|$)
+  description: "Force-applying deletes and recreates resources, causing downtime."
+  id: kubernetes:apply_force
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--dry-run"
+  alternative: "kubectl apply -f <file>"
+  alternative_info: "Apply without --force to update resources in-place without downtime."

@@ -207,3 +207,26 @@
 - test: "herokuu clients:update"
   description: "invalid command"
   expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- heroku zero-space false positive tests --
+# All heroku rules use \s* which allows zero spaces between heroku and command
+- test: "herokuapps:destroy"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []
+- test: "herokucontainer:rm"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []
+- test: "herokups:stop"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []
+- test: "herokuconfig:unset"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []
+- test: "herokumembers:remove"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []
+- test: "herokurepo:reset"
+  description: "negative: no space between heroku and command should not match"
+  expect_ids: []

@@ -125,3 +125,60 @@
 - test: "ALTER TABLE users ADD COLUMN email VARCHAR(255)"
   description: "negative: ADD COLUMN should not match"
   expect_ids: []
+- test: "ALTER TABLE public.users DROP COLUMN email"
+  description: "match schema-qualified table in ALTER TABLE DROP COLUMN"
+  expect_ids: ["database:alter_drop_column"]
+
+# -- database:drop_index --
+- test: "DROP INDEX idx_users_email"
+  description: "match DROP INDEX"
+  expect_ids: ["database:drop_index"]
+- test: "drop index idx_users_email"
+  description: "match lowercase drop index"
+  expect_ids: ["database:drop_index"]
+- test: "DROP INDEX idx_orders_date ON orders"
+  description: "match DROP INDEX with ON clause"
+  expect_ids: ["database:drop_index"]
+- test: "DROP INDEX IF EXISTS idx_users_email"
+  description: "match DROP INDEX IF EXISTS"
+  expect_ids: ["database:drop_index"]
+- test: "CREATE INDEX idx_users_email ON users(email)"
+  description: "negative: CREATE INDEX should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- database:delete_all_rows edge cases --
+- test: "DELETE   FROM   users;"
+  description: "EDGE: extra spaces in DELETE"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM _temp_table;"
+  description: "EDGE: underscore in table name"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM table123;"
+  description: "EDGE: numbers in table name"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM users RETURNING *;"
+  description: "EDGE: RETURNING clause should not match delete_all (has content after table)"
+  expect_ids: []
+
+# -- database:update_all_rows edge cases --
+- test: "UPDATE users SET active=false"
+  description: "EDGE: UPDATE without semicolon"
+  expect_ids: ["database:update_all_rows"]
+- test: "UPDATE users SET active=false, name='test';"
+  description: "EDGE: multiple SET columns"
+  expect_ids: ["database:update_all_rows"]
+
+# -- database:drop_schema_role_user edge cases --
+- test: "DROP SCHEMA IF EXISTS public CASCADE"
+  description: "EDGE: IF EXISTS with CASCADE"
+  expect_ids: ["database:drop_schema_role_user"]
+- test: "DROP ROLE IF EXISTS myrole;"
+  description: "EDGE: IF EXISTS for role"
+  expect_ids: ["database:drop_schema_role_user"]
+
+# -- database:drop_index edge cases --
+- test: "DROP INDEX CONCURRENTLY idx_users_email;"
+  description: "EDGE: CONCURRENTLY keyword (PostgreSQL)"
+  expect_ids: ["database:drop_index"]

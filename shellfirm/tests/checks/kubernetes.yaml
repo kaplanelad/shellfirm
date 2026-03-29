@@ -70,8 +70,8 @@
 
 # -- kubernetes — additional coverage --
 - test: "kubectl --context prod delete ns staging"
-  description: "BUG: --context between kubectl and delete"
-  expect_ids: []
+  description: "match kubectl with --context flag before delete ns"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
 
 - test: "kubectl delete ns staging --dry-run=client"
   description: "dry-run=client contains --dry-run, filtered out"
@@ -154,4 +154,82 @@
   expect_ids: []
 - test: "kubectl replace -f deployment.yaml --force --dry-run=client"
   description: "negative: replace --force with dry-run should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- kubernetes:delete_namespace edge cases --
+- test: "kubectl -n default delete ns staging"
+  description: "match kubectl with -n flag before delete ns"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+
+# -- kubernetes:cordon_node edge cases --
+- test: "k uncordon node01"
+  description: "EDGE: k uncordon should not match cordon"
+  expect_ids: []
+
+# -- kubernetes-strict:delete_resource edge cases --
+- test: "kubectl delete pod mypod --force --grace-period=0"
+  description: "EDGE: force delete pod"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl delete all --all -n default"
+  description: "EDGE: delete all resources"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+
+# -- kubernetes:delete_all_resources --
+- test: "kubectl delete pods --all"
+  description: "match delete all pods"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "kubectl delete deployments --all -n production"
+  description: "match delete all deployments in namespace"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "k delete services --all"
+  description: "match short alias delete all services"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "kubectl -n staging delete pods --all"
+  description: "match delete all with -n flag before delete"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "kubectl  delete  pods  --all"
+  description: "match delete all with extra spaces"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "kubectl delete pods --all --dry-run=client"
+  description: "negative: delete all with dry-run should not match"
+  expect_ids: []
+- test: "kubectl delete pod mypod"
+  description: "negative: delete specific pod should not match delete_all_resources"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl delete pods --field-selector status.phase=Failed"
+  description: "negative: delete with field-selector should not match delete_all"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl get pods --all-namespaces"
+  description: "negative: get with --all-namespaces should not match"
+  expect_ids: []
+- test: "kubectl delete pods --all-namespaces"
+  description: "negative: --all-namespaces is not --all (different flag)"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+
+# -- kubernetes:apply_force --
+- test: "kubectl apply -f deployment.yaml --force"
+  description: "match apply with --force"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "kubectl apply --force -f deployment.yaml"
+  description: "match apply with --force before -f"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "k apply -f pod.yaml --force"
+  description: "match short alias apply --force"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "kubectl -n production apply -f deployment.yaml --force"
+  description: "match apply --force with -n flag before apply"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "kubectl  apply  -f  deployment.yaml  --force"
+  description: "match apply --force with extra spaces"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "kubectl apply -f deployment.yaml --force --dry-run=client"
+  description: "negative: apply --force with dry-run should not match"
+  expect_ids: []
+- test: "kubectl apply -f deployment.yaml"
+  description: "negative: apply without --force should not match"
+  expect_ids: []
+- test: "kubectl apply --force-conflicts -f deployment.yaml"
+  description: "negative: --force-conflicts is not --force (different flag)"
   expect_ids: []

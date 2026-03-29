@@ -1,0 +1,20 @@
+- from: npm
+  test: (^|\s)npm\s+unpublish(\s|$)
+  description: "Unpublishing a package removes it from the registry, breaking all downstream dependents."
+  id: npm:unpublish
+  severity: Critical
+- from: npm
+  test: (^|\s)npm\s+deprecate\s+
+  description: "Deprecating a package marks it as deprecated for all users."
+  id: npm:deprecate
+  severity: High
+- from: npm
+  test: yarn\s+npm\s+unpublish(\s|$)
+  description: "Unpublishing a package removes it from the registry, breaking all downstream dependents."
+  id: npm:yarn_unpublish
+  severity: Critical
+- from: npm
+  test: (^|\s)pnpm\s+unpublish(\s|$)
+  description: "Unpublishing a package removes it from the registry, breaking all downstream dependents."
+  id: npm:pnpm_unpublish
+  severity: Critical

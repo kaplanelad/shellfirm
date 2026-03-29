@@ -1,5 +1,5 @@
 - from: psql
-  test: (?i)psql.*-c\s+.*DROP
+  test: (?i)psql.*-c\s+.*\bDROP\s
   description: "Executing DROP commands via psql CLI."
   id: psql:drop
   severity: Critical

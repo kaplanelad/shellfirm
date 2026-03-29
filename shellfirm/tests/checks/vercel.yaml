@@ -1,0 +1,175 @@
+---
+# -- vercel:remove --
+- test: "vercel remove"
+  description: "match vercel remove"
+  expect_ids: ["vercel:remove"]
+- test: "vercel remove my-project"
+  description: "match vercel remove with project name"
+  expect_ids: ["vercel:remove"]
+- test: "vercel rm"
+  description: "match vercel rm (short alias)"
+  expect_ids: ["vercel:remove"]
+- test: "vercel rm my-project --yes"
+  description: "match vercel rm with --yes"
+  expect_ids: ["vercel:remove"]
+- test: "vercel  remove  my-project"
+  description: "match vercel remove with extra spaces"
+  expect_ids: ["vercel:remove"]
+- test: "vercel removee"
+  description: "negative: typo should not match"
+  expect_ids: []
+- test: "vercel list"
+  description: "negative: list should not match"
+  expect_ids: []
+- test: "vercel deploy"
+  description: "negative: deploy should not match"
+  expect_ids: []
+# edge case: "vercel rmm" — typo, (remove|rm) won't match "rmm", but (\s|$) check on "rmm"
+# regex is vercel\s+(remove|rm)(\s|$). "rmm" would need to match (remove|rm)(\s|$). "rm" matches (rm), then "m" must match (\s|$) — it doesn't. So no match.
+- test: "vercel rmm"
+  description: "negative: rmm typo should not match"
+  expect_ids: []
+# edge case: "vercel rm" at end of string — (\s|$) with $ should match
+- test: "vercel rm"
+  description: "match vercel rm at end of string"
+  expect_ids: ["vercel:remove"]
+# edge case: sudo prefix
+- test: "sudo vercel remove my-project"
+  description: "match vercel remove with sudo prefix"
+  expect_ids: ["vercel:remove"]
+# edge case: "vercel removal" — "removal" is not "remove" per (remove|rm) alternation
+# regex: vercel\s+(remove|rm)(\s|$). "removal" — (remove) matches "remove", then "al" must match (\s|$) — fails. No match.
+- test: "vercel removal"
+  description: "negative: removal should not match (not exact remove)"
+  expect_ids: []
+# edge case: vercel rm with flags before project
+- test: "vercel rm --yes my-project"
+  description: "match vercel rm with flags before project name"
+  expect_ids: ["vercel:remove"]
+
+# -- vercel:project_remove --
+- test: "vercel project remove"
+  description: "match vercel project remove"
+  expect_ids: ["vercel:project_remove"]
+- test: "vercel project remove my-project"
+  description: "match vercel project remove with name"
+  expect_ids: ["vercel:project_remove"]
+- test: "vercel project rm"
+  description: "match vercel project rm (short alias)"
+  expect_ids: ["vercel:project_remove"]
+- test: "vercel project rm my-project"
+  description: "match vercel project rm with name"
+  expect_ids: ["vercel:project_remove"]
+- test: "vercel  project  remove"
+  description: "match vercel project remove with extra spaces"
+  expect_ids: ["vercel:project_remove"]
+- test: "vercel project list"
+  description: "negative: project list should not match"
+  expect_ids: []
+# edge case: "vercel project rmm" — typo should not match
+- test: "vercel project rmm"
+  description: "negative: project rmm typo should not match"
+  expect_ids: []
+# edge case: "vercel project removee" — typo should not match
+- test: "vercel project removee"
+  description: "negative: project removee typo should not match"
+  expect_ids: []
+# edge case: sudo vercel project rm
+- test: "sudo vercel project rm my-project"
+  description: "match vercel project rm with sudo prefix"
+  expect_ids: ["vercel:project_remove"]
+# edge case: "vercel project remove" at end of string
+- test: "vercel project rm"
+  description: "match vercel project rm at end of string"
+  expect_ids: ["vercel:project_remove"]
+
+# -- vercel:env_remove --
+- test: "vercel env rm MY_VAR"
+  description: "match vercel env rm"
+  expect_ids: ["vercel:env_remove"]
+- test: "vercel env remove MY_VAR"
+  description: "match vercel env remove"
+  expect_ids: ["vercel:env_remove"]
+- test: "vercel env rm MY_VAR production"
+  description: "match vercel env rm with environment"
+  expect_ids: ["vercel:env_remove"]
+- test: "vercel  env  rm  MY_VAR"
+  description: "match vercel env rm with extra spaces"
+  expect_ids: ["vercel:env_remove"]
+- test: "vercel env ls"
+  description: "negative: env ls should not match"
+  expect_ids: []
+- test: "vercel env add MY_VAR"
+  description: "negative: env add should not match"
+  expect_ids: []
+- test: "vercel env pull"
+  description: "negative: env pull should not match"
+  expect_ids: []
+# edge case: "vercel env rm" with no trailing var — regex requires trailing \s+ so no match
+- test: "vercel env rm"
+  description: "negative: vercel env rm with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: "vercel env remove" with no trailing var — same reason
+- test: "vercel env remove"
+  description: "negative: vercel env remove with no trailing content should not match (regex requires trailing \\s+)"
+  expect_ids: []
+# edge case: sudo vercel env rm
+- test: "sudo vercel env rm MY_VAR"
+  description: "match vercel env rm with sudo prefix"
+  expect_ids: ["vercel:env_remove"]
+# edge case: "vercel env rmm MY_VAR" — typo, (rm|remove) won't match "rmm" properly
+# regex: vercel\s+env\s+(rm|remove)\s+. "rmm" — "rm" matches (rm), then "m MY_VAR" must match \s+. "m" is not whitespace. No match.
+- test: "vercel env rmm MY_VAR"
+  description: "negative: env rmm typo should not match"
+  expect_ids: []
+
+# -- vercel:domain_remove --
+- test: "vercel domains rm"
+  description: "match vercel domains rm"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel domains rm example.com"
+  description: "match vercel domains rm with domain"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel domain rm example.com"
+  description: "match vercel domain (singular) rm"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel domains remove"
+  description: "match vercel domains remove"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel domain remove example.com"
+  description: "match vercel domain remove with domain"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel  domains  rm  example.com"
+  description: "match vercel domains rm with extra spaces"
+  expect_ids: ["vercel:domain_remove"]
+- test: "vercel domains ls"
+  description: "negative: domains ls should not match"
+  expect_ids: []
+- test: "vercel domains add example.com"
+  description: "negative: domains add should not match"
+  expect_ids: []
+# edge case: "vercel domains rmm" — typo should not match
+# regex: vercel\s+domains?\s+(rm|remove)(\s|$). "rmm" — "rm" matches, then "m" must match (\s|$) — fails.
+- test: "vercel domains rmm"
+  description: "negative: domains rmm typo should not match"
+  expect_ids: []
+# edge case: "vercel domainss rm" — typo extra s. domains? matches "domain"+"s" (optional s), leaving "s rm". That "s" won't match \s+. No match.
+- test: "vercel domainss rm"
+  description: "negative: domainss typo should not match"
+  expect_ids: []
+# edge case: "vercel domains rm" at end of string — (\s|$) with $ should match
+- test: "vercel domains rm"
+  description: "match vercel domains rm at end of string"
+  expect_ids: ["vercel:domain_remove"]
+# edge case: "vercel domains remove" at end of string
+- test: "vercel domains remove"
+  description: "match vercel domains remove at end of string"
+  expect_ids: ["vercel:domain_remove"]
+# edge case: sudo prefix
+- test: "sudo vercel domain rm example.com"
+  description: "match vercel domain rm with sudo prefix"
+  expect_ids: ["vercel:domain_remove"]
+# edge case: "vercel domain remove" at end of string (singular)
+- test: "vercel domain remove"
+  description: "match vercel domain (singular) remove at end of string"
+  expect_ids: ["vercel:domain_remove"]

@@ -1384,3 +1384,65 @@
 - test: "chown user:group file.txt"
   description: "negative: chown without -R should not match"
   expect_ids: []
+
+# -- fs:shred --
+- test: "shred secret.txt"
+  description: "match shred on a file"
+  expect_ids: ["fs:shred"]
+- test: "shred -vfz secret.txt"
+  description: "match shred with flags"
+  expect_ids: ["fs:shred"]
+- test: "shred -n 10 secret.txt"
+  description: "match shred with pass count"
+  expect_ids: ["fs:shred"]
+- test: "shred  -v  secret.txt"
+  description: "match shred with extra spaces"
+  expect_ids: ["fs:shred"]
+
+# -- fs:truncate_zero --
+- test: "truncate -s 0 file.txt"
+  description: "match truncate to zero"
+  expect_ids: ["fs:truncate_zero"]
+- test: "truncate -s0 file.txt"
+  description: "match truncate to zero without space"
+  expect_ids: ["fs:truncate_zero"]
+- test: "truncate  -s  0  file.txt"
+  description: "match truncate with extra spaces"
+  expect_ids: ["fs:truncate_zero"]
+- test: "truncate --size 0 file.txt"
+  description: "negative: long form --size not matched by -s pattern"
+  expect_ids: []
+- test: "truncate -s 1024 file.txt"
+  description: "negative: truncate to non-zero size should not match"
+  expect_ids: []
+
+# ====== EDGE CASE / STRESS TESTS ======
+
+# -- fs:recursively_delete edge cases --
+- test: "rm --force --recursive /"
+  description: "EDGE: all long-form flags should still match"
+  expect_ids: ["fs:recursively_delete", "fs-strict:any_deletion"]
+- test: "rm -rf ./*"
+  description: "match rm -rf ./* as dangerous recursive delete"
+  expect_ids: ["fs:recursively_delete", "fs-strict:any_deletion"]
+
+# -- fs:rsync_delete edge cases --
+- test: "rsync -avz --delete-after /src/ /dest/"
+  description: "negative: --delete-after should not match --delete"
+  expect_ids: []
+- test: "rsync -avz --delete-excluded /src/ /dest/"
+  description: "negative: --delete-excluded should not match --delete"
+  expect_ids: []
+
+# -- fs:recursively_chown edge cases --
+- test: "chown -Rv root:root /"
+  description: "EDGE: combined -Rv flag on root"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R user:group .."
+  description: "EDGE: parent dir .. should match"
+  expect_ids: ["fs:recursively_chown"]
+
+# -- fs-strict:any_deletion edge cases --
+- test: "rm --recursive --force file.txt"
+  description: "EDGE: long-form --recursive --force flags"
+  expect_ids: ["fs-strict:any_deletion"]
