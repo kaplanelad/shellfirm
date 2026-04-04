@@ -7,7 +7,7 @@
 
 **Think before you execute.**
 
-Humans make mistakes. AI agents make them faster. shellfirm intercepts dangerous shell commands before the damage is done — for both.
+Humans make mistakes. AI agents make them faster. shellfirm intercepts dangerous shell commands before the damage is done.
 
 ```
 $ rm -rf ./src
