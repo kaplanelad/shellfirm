@@ -21,6 +21,7 @@ The user goal: **replace the sequential CLI with a full-screen Terminal UI (TUI)
 5. The TUI **adapts to terminal size** with a sensible minimum (~80×24); on narrow terminals the preview becomes a full-screen overlay instead of a split.
 6. Polished UX — comparable to `lazygit` / `k9s` for navigation feel and discoverability.
 7. **Comprehensive automated tests** at every layer — model, view, save validation, file I/O, integration. Tests are not optional.
+8. **Mode-aware** — every setting in the UI displays which runtime context it affects (`shell`, `ai`, `wrap`, or `all`), and per-mode overrides are exposed as a first-class concept where they exist.
 
 ## 3. Non-goals
 
@@ -58,7 +59,9 @@ The user goal: **replace the sequential CLI with a full-screen Terminal UI (TUI)
 │      └─ check_store.rs─ Custom-check file CRUD             │
 │                                                            │
 │   src/checks.rs       ─ existing; add load-order fix       │
-│   src/config.rs       ─ unchanged (TUI calls existing API) │
+│   src/config.rs       ─ add InheritOr<T>, override fields  │
+│                        on AgentConfig + WrappersConfig,    │
+│                        and resolved_for(mode) helper       │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -83,6 +86,19 @@ all = ["cli", "llm", "mcp", "ai", "wrap", "tui"]
 
 When the `tui` feature is disabled, `shellfirm config` (no subcommand) falls back to the existing sequential prompts. The fast-path subcommands work in both modes.
 
+### Mode vocabulary
+
+shellfirm runs in three runtime contexts. The TUI exposes them as colored badges throughout the UI:
+
+| Badge | Context | Code path |
+|---|---|---|
+| `shell` | Interactive shell hook (Zsh, Bash, Fish, Nushell, …) | `shellfirm pre-command` |
+| `ai` | AI agent integrations (Claude Code hook + MCP server) | `src/agent.rs`, `src/mcp.rs` |
+| `wrap` | PTY proxy for tools like `psql`, `redis-cli` | `shellfirm wrap` |
+| `all` | Applies in every context above | — |
+
+These four labels appear next to every setting label in the UI so users always know what the setting affects.
+
 ## 5. Field Classification
 
 Every field in `Settings` was audited. Summary:
@@ -94,6 +110,68 @@ Every field in `Settings` was audited. Summary:
 | **FREE** (no closed set possible) | 4 | `context.protected_branches`, `context.production_k8s_patterns`, `context.production_env_vars`, `context.sensitive_paths` |
 
 Numeric fields (`llm.timeout_ms`, `llm.max_tokens`) use a stepper widget with sensible bounds (timeout 100–60000 ms; max_tokens 1–8192).
+
+### Per-mode override schema (additive)
+
+To let users tune severity / challenge differently per mode without breaking existing configs, **add four optional override fields** to the schema. All default to `None` (= inherit the global value), so existing `settings.yaml` files continue to load identically.
+
+```yaml
+# Existing global settings — apply everywhere unless overridden.
+challenge: Math
+min_severity: Medium
+severity_escalation:
+  enabled: true
+  critical: Yes
+  high: Enter
+  medium: Math
+  low: Math
+  info: Math
+
+agent:
+  auto_deny_severity: High            # existing — ai-only
+  require_human_approval: false       # existing — ai-only
+  challenge: null                     # NEW — null = inherit global
+  min_severity: ~inherit              # NEW — see note on sentinel below
+  severity_escalation: null           # NEW — null = inherit global
+
+wrappers:
+  tools: { ... }                      # existing per-tool config
+  challenge: null                     # NEW — null = inherit global
+  min_severity: ~inherit              # NEW — null = inherit global
+```
+
+**Sentinel for `min_severity` overrides.** Globally `min_severity: Option<Severity>` already uses `None` to mean "all severities trigger." So we can't use `None` for "inherit." Resolution: a small wrapper enum:
+
+```rust
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum InheritOr<T> {
+    /// YAML literal: "inherit"
+    Inherit,
+    /// Any other valid serialization of T (including null where T is Option)
+    Set(T),
+}
+```
+
+`agent.min_severity: InheritOr<Option<Severity>>`. Default = `Inherit`. Same for `wrappers.min_severity`.
+
+**Override-able fields summary:**
+
+| Setting | Default scope | Override-able per mode? |
+|---|---|---|
+| `challenge` | `all` | Yes — `agent`, `wrappers` |
+| `min_severity` | `all` | Yes — `agent`, `wrappers` |
+| `severity_escalation` | `all` | Yes — `agent` only (wrap unlikely to need it) |
+| `audit_enabled`, `blast_radius` | `all` | No — global only |
+| `enabled_groups`, `disabled_groups` | `all` | No — global only |
+| `ignores_patterns_ids`, `deny_patterns_ids` | `all` | No — global only |
+| `context.*` | `all` | No — global only |
+| `agent.auto_deny_severity` | `ai` | N/A — already ai-only |
+| `agent.require_human_approval` | `ai` | N/A — already ai-only |
+| `wrappers.tools.*` | `wrap` | N/A — already wrap-only |
+| `llm.*` | `shell + ai` | No — same LLM config used in both |
+
+**Resolution code path.** A new helper `resolved_for(&self, mode: Mode) -> ResolvedSettings` collapses the global+override tree into the flat values the rest of the engine uses today. Each mode-specific code path (`pre-command`, `agent`, `mcp`, `wrap`) gets its `ResolvedSettings` once at startup.
 
 ### Full classification (every field)
 
@@ -149,30 +227,67 @@ Built-in entries get a `[built-in]` badge; custom entries get a `[custom]` badge
 ### 6.1 Layout
 
 ```
-┌─ shellfirm config ──────────────────────────── settings.yaml ────────┐
-│  General  Groups  Escalation  Context  LLM  Ignore/Deny  Custom      │  ← tabs
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│   [tab content — full-width form]                                    │
-│                                                                      │
-│                                                  unsaved changes ●   │  ← dirty marker
-└──────────────────────────────────────────────────────────────────────┘
+┌─ shellfirm config ──────────────────────────────── settings.yaml ─────────────┐
+│  General  Groups  Escalation  Context  Ignore/Deny  AI  Wrap  LLM  Custom     │  ← tabs
+├───────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│   Challenge type                              [all]                           │
+│     ( ) Math       ( ) Enter       (•) Yes                                    │
+│                                                                               │
+│   [tab content — full-width form, every field shows mode badge]               │
+│                                                                               │
+│ ─ Selected: <field name> ─────────────────────────────────────────────────────│
+│   <one-line description of the field, mode badges, override hint>             │
+│                                                                               │
+│                                                       unsaved changes ●       │
+└───────────────────────────────────────────────────────────────────────────────┘
  ↑↓ move  ←→/Tab tabs  Space toggle  p preview ►  s save  r reset  q quit
 ```
 
 When the user presses `p`, a preview pane slides in on the right (60/40 split). On terminals narrower than 100 cols, `p` opens a **full-screen overlay** instead of a split.
 
+The bottom strip ("Selected: …") updates as the user moves between fields and shows: a one-line description, the mode badges that apply, and where to override (e.g., "Override per-mode in the AI tab").
+
 ### 6.2 Tabs
 
-| Tab | Contents |
-|---|---|
-| **General** | `challenge`, `min_severity`, `audit_enabled`, `blast_radius`, `agent.auto_deny_severity`, `agent.require_human_approval` |
-| **Groups** | Multi-select of 21 built-in groups + every distinct `from` value across loaded custom checks (badged `custom`) |
-| **Escalation** | `severity_escalation.enabled` toggle, 5×3 severity-vs-challenge matrix, group overrides editor, check-ID overrides editor |
-| **Context** | Protected branches list, k8s patterns list, env-vars key/value editor, sensitive paths list, elevated/critical challenge radios |
-| **LLM** | provider picker (Anthropic / openai-compatible / custom), model picker (suggestions per provider + custom), timeout stepper, max_tokens stepper, base_url text input |
-| **Ignore / Deny** | Two side-by-side searchable pickers over the union of built-in + custom check IDs, with manual-entry escape for unknown IDs (e.g., a check the user plans to add) |
-| **Custom** | List of all custom checks with `[+] new` `[e] edit` `[d] delete` `[f] open file in $EDITOR`. Authoring form is detailed below. |
+| Tab | Contents | Mode |
+|---|---|---|
+| **General** | `challenge`, `min_severity`, `audit_enabled`, `blast_radius` | `all` |
+| **Groups** | Multi-select of 21 built-in groups + every distinct `from` value across loaded custom checks (badged `custom`) | `all` |
+| **Escalation** | `severity_escalation.enabled` toggle, 5×3 severity-vs-challenge matrix, group overrides editor, check-ID overrides editor | `all` |
+| **Context** | Protected branches list, k8s patterns list, env-vars key/value editor, sensitive paths list, elevated/critical challenge radios | `all` |
+| **Ignore / Deny** | Two side-by-side searchable pickers over the union of built-in + custom check IDs, with manual-entry escape for unknown IDs (e.g., a check the user plans to add) | `all` |
+| **AI** | `agent.auto_deny_severity`, `agent.require_human_approval`, plus override widgets for `agent.challenge`, `agent.min_severity`, `agent.severity_escalation` | `ai` |
+| **Wrap** | `wrappers.tools{}` (per-tool delimiter + check_groups), plus override widgets for `wrappers.challenge`, `wrappers.min_severity` | `wrap` |
+| **LLM** | provider picker (Anthropic / openai-compatible / custom), model picker (suggestions per provider + custom), timeout stepper, max_tokens stepper, base_url text input | `shell + ai` |
+| **Custom** | List of all custom checks with `[+] new` `[e] edit` `[d] delete` `[f] open file in $EDITOR`. Authoring form is detailed below. | `all` |
+
+### 6.2.1 Mode badge styling
+
+Every field in every tab carries a small badge next to its label. Badge colors (using ratatui's standard 256-color palette):
+
+| Badge | Foreground | Background |
+|---|---|---|
+| `[shell]` | black | cyan |
+| `[ai]` | black | magenta |
+| `[wrap]` | black | yellow |
+| `[all]` | black | gray |
+
+Mode-specific tabs (AI, Wrap) implicitly show their badge in the tab title and skip per-field redundancy on tab-native fields (e.g., `agent.auto_deny_severity` doesn't need an `[ai]` badge — it lives in the AI tab).
+
+### 6.2.2 Override widget pattern
+
+Inside the **AI** and **Wrap** tabs, override fields use a two-state widget:
+
+```
+Minimum severity
+  (•) Inherit global  →  Medium                  ← shows the inherited value
+  ( ) Custom:    ( ) (all)  ( ) Low  ( ) Medium  ( ) High  ( ) Critical
+```
+
+- Default state is **Inherit global**. The right-hand readout shows the current global value so the user sees what they're inheriting without switching tabs.
+- Switching to **Custom** expands the field's normal widget (radio / matrix / picker).
+- In the YAML preview, `Inherit` writes nothing for that field (idiomatic absence); `Custom` writes the explicit value under `agent:` / `wrappers:`.
 
 ### 6.3 Preview pane
 
@@ -323,7 +438,8 @@ A user who currently has custom checks they expect to always be active — and a
 
 - `shellfirm config <subcommand>` (challenge, severity, groups, llm, context, escalation, ignore, deny, show, reset, edit) — **all kept**, behavior unchanged.
 - `shellfirm config` (no subcommand) — was: sequential menu; now: full-screen TUI. When `tui` feature is disabled, falls back to the old menu.
-- On-disk YAML schema — unchanged.
+- On-disk YAML schema — **strictly additive**. New optional fields (`agent.{challenge, min_severity, severity_escalation}`, `wrappers.{challenge, min_severity}`) all default to "inherit global" (`None` / `InheritOr::Inherit`). A `settings.yaml` written by an older shellfirm parses identically.
+- A `settings.yaml` written by the new TUI (which may include override fields) is **not** parseable by older shellfirm versions if any override fields are present. Mitigation: a CHANGELOG note, plus the `agent.*` overrides fall in a section that older versions already tolerate via `#[serde(default)]` for unknown fields. Concretely: the `serde(default)` already on every `AgentConfig` / `WrappersConfig` field means older binaries will simply ignore the new fields rather than error.
 - `init` command — unchanged.
 
 ## 10. Testing Strategy *(non-optional — user requirement)*
@@ -344,6 +460,17 @@ Pure-data tests with no terminal involved.
 - `validate()` on each individual broken field (timeout = "abc", invalid challenge enum injected via `serde_yaml::Value`, duplicate check ID, malformed regex, negative max_tokens, …) → expected error messages with correct field paths.
 - Round-trip: serialize a valid draft → parse back → byte-equal serialization.
 
+### 10.2a Unit tests — per-mode override resolution
+
+- `Settings::resolved_for(Mode::Shell)` — returns global values for every field.
+- `Settings::resolved_for(Mode::Ai)` with no agent overrides set → returns global values.
+- `Settings::resolved_for(Mode::Ai)` with `agent.min_severity = Set(Some(Low))` → returns `Low` for that field, global for others.
+- `Settings::resolved_for(Mode::Ai)` with `agent.min_severity = Inherit` → returns global.
+- `Settings::resolved_for(Mode::Wrap)` with `wrappers.challenge = Set(Yes)`, global = `Math` → returns `Yes`.
+- Schema migration test: load an old `settings.yaml` (no override fields) and assert all overrides default to `Inherit`.
+- Round-trip test: a `settings.yaml` with explicit overrides serializes → parses → resolves identically.
+- `InheritOr<T>` deserialization: `"inherit"` → `Inherit`; everything else → `Set(parsed_T)`.
+
 ### 10.3 Snapshot tests — rendered tabs
 
 `ratatui` provides a `TestBackend` that records frames as a 2D char buffer. We use `insta` (already a dev dep) to snapshot:
@@ -356,8 +483,11 @@ Pure-data tests with no terminal involved.
 - Help overlay.
 - Narrow-terminal layout (preview as full-screen overlay).
 - Empty custom-check list and populated list.
+- AI tab — both states of the override widget (Inherit + Custom).
+- Wrap tab — both states of the override widget.
+- Shared field showing the focused-field strip with mode badges.
 
-Total snapshot count target: ~30 frames.
+Total snapshot count target: ~35 frames.
 
 ### 10.4 Property tests — escalation matrix
 
@@ -390,6 +520,13 @@ Use a temp directory for the config file (via `tree-fs`, already a dev dep).
 - `enabled_groups = [git]`, custom check with `from = my_team` → my_team check is **excluded** (the fix) unless the migration auto-adds `my_team` to `enabled_groups`.
 - Migration test: first launch with custom group not in `enabled_groups` → it gets added, `info` log line emitted, second launch is a no-op.
 - `ignores_patterns_ids = [my_team:thing]` → custom check with that ID is excluded.
+
+### 10.7a Integration tests — per-mode override behavior end-to-end
+
+- Set `min_severity: High` globally and `agent.min_severity: Set(Low)` → shell-mode `pre-command` evaluates with High; agent-mode evaluation uses Low. Verify both code paths consume the right `ResolvedSettings`.
+- Set `wrappers.challenge: Set(Yes)` and global `challenge: Math` → `shellfirm wrap` enforces Yes; `pre-command` enforces Math.
+- TUI driver test: enter AI tab, switch `Min severity` from Inherit to Custom, set Low, save → assert YAML contains `agent:\n  min_severity: Low` and the file parses cleanly.
+- TUI driver test: switch back to Inherit, save → assert the override field is absent from the YAML (idiomatic absence, not `null`).
 
 ### 10.8 Manual smoke testing
 
