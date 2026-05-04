@@ -61,6 +61,62 @@ impl Default for LlmConfig {
     }
 }
 
+/// Runtime context that a settings value applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    /// Interactive shell hook (`shellfirm pre-command`).
+    Shell,
+    /// AI agent integrations (Claude Code hook, MCP server).
+    Ai,
+    /// PTY proxy (`shellfirm wrap`).
+    Wrap,
+}
+
+/// Per-mode override sentinel. `Inherit` means "use the global value";
+/// `Set(value)` means "override with this value."
+///
+/// Serializes:
+/// - `Inherit` → the YAML string literal `inherit`
+/// - `Set(v)` → `v`'s normal serialization (including `null` if `T` is an `Option`)
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum InheritOr<T> {
+    #[default]
+    Inherit,
+    Set(T),
+}
+
+impl<T> InheritOr<T> {
+    /// Resolve to `Some(value)` if explicitly set, else `None` (inherit).
+    pub const fn as_set(&self) -> Option<&T> {
+        match self {
+            Self::Inherit => None,
+            Self::Set(v) => Some(v),
+        }
+    }
+}
+
+impl<T: serde::Serialize> serde::Serialize for InheritOr<T> {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> std::result::Result<S::Ok, S::Error> {
+        match self {
+            Self::Inherit => ser.serialize_str("inherit"),
+            Self::Set(v) => v.serialize(ser),
+        }
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for InheritOr<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> std::result::Result<Self, D::Error> {
+        let v = serde_yaml::Value::deserialize(de)?;
+        if let serde_yaml::Value::String(s) = &v {
+            if s == "inherit" {
+                return Ok(Self::Inherit);
+            }
+        }
+        let inner = T::deserialize(v).map_err(serde::de::Error::custom)?;
+        Ok(Self::Set(inner))
+    }
+}
+
 /// Configuration for AI agent guardrails.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AgentConfig {
@@ -70,6 +126,15 @@ pub struct AgentConfig {
     /// Require human approval for agent-denied commands (reserved for future use).
     #[serde(default)]
     pub require_human_approval: bool,
+    /// Override for the global `challenge` when running in agent mode.
+    #[serde(default)]
+    pub challenge: InheritOr<Challenge>,
+    /// Override for the global `min_severity` when running in agent mode.
+    #[serde(default)]
+    pub min_severity: InheritOr<Option<Severity>>,
+    /// Override for the global `severity_escalation` when running in agent mode.
+    #[serde(default)]
+    pub severity_escalation: InheritOr<SeverityEscalationConfig>,
 }
 
 const fn default_auto_deny_severity() -> Severity {
@@ -81,6 +146,9 @@ impl Default for AgentConfig {
         Self {
             auto_deny_severity: default_auto_deny_severity(),
             require_human_approval: false,
+            challenge: InheritOr::Inherit,
+            min_severity: InheritOr::Inherit,
+            severity_escalation: InheritOr::Inherit,
         }
     }
 }
@@ -91,6 +159,12 @@ pub struct WrappersConfig {
     /// Per-tool overrides keyed by program name (e.g. "psql", "redis-cli").
     #[serde(default)]
     pub tools: HashMap<String, WrapperToolConfig>,
+    /// Override for the global `challenge` when running in wrap mode.
+    #[serde(default)]
+    pub challenge: InheritOr<Challenge>,
+    /// Override for the global `min_severity` when running in wrap mode.
+    #[serde(default)]
+    pub min_severity: InheritOr<Option<Severity>>,
 }
 
 /// Per-tool configuration for the `shellfirm wrap` proxy.
@@ -122,7 +196,7 @@ impl Default for WrapperToolConfig {
 /// When enabled (the default), checks at higher severity levels automatically
 /// receive harder challenges — `Critical` → `Yes`, `High` → `Enter`.
 /// Each mapping acts as a floor: `max_challenge(base, severity_floor)`.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 pub struct SeverityEscalationConfig {
     /// Whether severity-based escalation is active.
     #[serde(default = "default_severity_escalation_enabled")]
@@ -569,9 +643,101 @@ impl Settings {
             .collect())
     }
 
+    /// Like `get_active_checks` but also includes (and filters) custom checks.
+    ///
+    /// Custom checks are subject to the same `enabled_groups`, `disabled_groups`,
+    /// and `ignores_patterns_ids` filters as built-ins.
+    ///
+    /// # Errors
+    /// Propagates any error from check loading or compilation.
+    pub fn get_active_checks_with_custom(
+        &self,
+        custom: &[checks::Check],
+    ) -> Result<Vec<checks::Check>> {
+        let enabled: HashSet<&str> = self.enabled_groups.iter().map(String::as_str).collect();
+        let disabled: HashSet<&str> = self.disabled_groups.iter().map(String::as_str).collect();
+        let ignores: HashSet<&str> = self
+            .ignores_patterns_ids
+            .iter()
+            .map(String::as_str)
+            .collect();
+
+        let keep = |c: &checks::Check| -> bool {
+            enabled.contains(c.from.as_str())
+                && !disabled.contains(c.from.as_str())
+                && !ignores.contains(c.id.as_str())
+        };
+
+        let mut out: Vec<checks::Check> = checks::all_checks_cached()
+            .iter()
+            .filter(|c| keep(c))
+            .cloned()
+            .collect();
+        out.extend(custom.iter().filter(|c| keep(c)).cloned());
+        Ok(out)
+    }
+
+    /// One-shot migration to keep custom-check behavior consistent after the
+    /// load-order fix. For every custom check whose `from` group is neither in
+    /// `enabled_groups` nor in `disabled_groups`, add it to `enabled_groups`.
+    ///
+    /// Returns the list of newly-added group names (caller logs).
+    pub fn migrate_custom_groups_into_enabled_groups(
+        &mut self,
+        custom: &[checks::Check],
+    ) -> Vec<String> {
+        use std::collections::BTreeSet;
+        let enabled: HashSet<&str> = self.enabled_groups.iter().map(String::as_str).collect();
+        let disabled: HashSet<&str> = self.disabled_groups.iter().map(String::as_str).collect();
+        let mut to_add: BTreeSet<String> = BTreeSet::new();
+        for c in custom {
+            if !enabled.contains(c.from.as_str()) && !disabled.contains(c.from.as_str()) {
+                to_add.insert(c.from.clone());
+            }
+        }
+        let added: Vec<String> = to_add.into_iter().collect();
+        self.enabled_groups.extend(added.iter().cloned());
+        added
+    }
+
     #[must_use]
     pub const fn get_active_groups(&self) -> &Vec<String> {
         &self.enabled_groups
+    }
+}
+
+/// Read-only view of settings with per-mode overrides resolved.
+#[derive(Debug, Clone)]
+pub struct ResolvedSettings {
+    pub challenge: Challenge,
+    pub min_severity: Option<Severity>,
+    pub severity_escalation: SeverityEscalationConfig,
+}
+
+impl Settings {
+    /// Resolve the settings for a given mode by applying any per-mode overrides
+    /// on top of the global values.
+    #[must_use]
+    pub fn resolved_for(&self, mode: Mode) -> ResolvedSettings {
+        let (challenge_o, min_sev_o, esc_o) = match mode {
+            Mode::Shell => (None, None, None),
+            Mode::Ai => (
+                self.agent.challenge.as_set().copied(),
+                self.agent.min_severity.as_set().copied(),
+                self.agent.severity_escalation.as_set().cloned(),
+            ),
+            Mode::Wrap => (
+                self.wrappers.challenge.as_set().copied(),
+                self.wrappers.min_severity.as_set().copied(),
+                None,
+            ),
+        };
+
+        ResolvedSettings {
+            challenge: challenge_o.unwrap_or(self.challenge),
+            min_severity: min_sev_o.unwrap_or(self.min_severity),
+            severity_escalation: esc_o.unwrap_or_else(|| self.severity_escalation.clone()),
+        }
     }
 }
 
@@ -732,6 +898,326 @@ mod test_config {
         let settings = config.get_settings_from_file().unwrap();
         assert_eq!(settings.challenge, Challenge::Yes);
         assert_eq!(settings.enabled_groups, default_enabled_groups());
+    }
+
+    // -------------------------------------------------------------------
+    // Phase 0: Mode enum, InheritOr<T>, per-mode overrides, ResolvedSettings
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn mode_enum_variants_exist() {
+        let _ = Mode::Shell;
+        let _ = Mode::Ai;
+        let _ = Mode::Wrap;
+    }
+
+    #[test]
+    fn mode_is_copy_and_eq() {
+        let m1 = Mode::Shell;
+        let m2 = m1;
+        assert_eq!(m1, m2);
+        assert_ne!(Mode::Shell, Mode::Ai);
+    }
+
+    #[test]
+    fn inherit_or_deserializes_inherit_keyword() {
+        let v: InheritOr<String> = serde_yaml::from_str("inherit").unwrap();
+        assert!(matches!(v, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn inherit_or_deserializes_set_value() {
+        let v: InheritOr<String> = serde_yaml::from_str("\"hello\"").unwrap();
+        assert!(matches!(v, InheritOr::Set(s) if s == "hello"));
+    }
+
+    #[test]
+    fn inherit_or_serializes_inherit_as_keyword() {
+        let v: InheritOr<String> = InheritOr::Inherit;
+        let s = serde_yaml::to_string(&v).unwrap();
+        assert_eq!(s.trim(), "inherit");
+    }
+
+    #[test]
+    fn inherit_or_serializes_set_value() {
+        let v: InheritOr<String> = InheritOr::Set("hi".into());
+        let s = serde_yaml::to_string(&v).unwrap();
+        assert_eq!(s.trim(), "hi");
+    }
+
+    #[test]
+    fn inherit_or_default_is_inherit() {
+        let v: InheritOr<u32> = InheritOr::default();
+        assert!(matches!(v, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn inherit_or_with_option_inner_handles_null() {
+        let v: InheritOr<Option<Severity>> = serde_yaml::from_str("null").unwrap();
+        assert!(matches!(v, InheritOr::Set(None)));
+    }
+
+    #[test]
+    fn inherit_or_with_option_inner_handles_inherit() {
+        let v: InheritOr<Option<Severity>> = serde_yaml::from_str("inherit").unwrap();
+        assert!(matches!(v, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn agent_config_default_has_inherit_overrides() {
+        let a = AgentConfig::default();
+        assert!(matches!(a.challenge, InheritOr::Inherit));
+        assert!(matches!(a.min_severity, InheritOr::Inherit));
+        assert!(matches!(a.severity_escalation, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn agent_config_loads_old_yaml_with_no_overrides() {
+        let yaml = "auto_deny_severity: High\nrequire_human_approval: false\n";
+        let a: AgentConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(a.challenge, InheritOr::Inherit));
+        assert!(matches!(a.min_severity, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn agent_config_loads_explicit_overrides() {
+        let yaml = "auto_deny_severity: High\n\
+                    require_human_approval: false\n\
+                    challenge: Yes\n\
+                    min_severity: Low\n";
+        let a: AgentConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(a.challenge, InheritOr::Set(Challenge::Yes)));
+        assert!(matches!(a.min_severity, InheritOr::Set(Some(Severity::Low))));
+    }
+
+    #[test]
+    fn wrappers_config_default_has_inherit_overrides() {
+        let w = WrappersConfig::default();
+        assert!(matches!(w.challenge, InheritOr::Inherit));
+        assert!(matches!(w.min_severity, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn wrappers_config_loads_old_yaml() {
+        let yaml = "tools: {}\n";
+        let w: WrappersConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(w.challenge, InheritOr::Inherit));
+        assert!(matches!(w.min_severity, InheritOr::Inherit));
+    }
+
+    #[test]
+    fn wrappers_config_loads_explicit_overrides() {
+        let yaml = "tools: {}\nchallenge: Yes\nmin_severity: High\n";
+        let w: WrappersConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(w.challenge, InheritOr::Set(Challenge::Yes)));
+        assert!(matches!(w.min_severity, InheritOr::Set(Some(Severity::High))));
+    }
+
+    #[test]
+    fn resolved_for_shell_returns_global() {
+        let mut s = Settings::default();
+        s.challenge = Challenge::Math;
+        s.min_severity = Some(Severity::Medium);
+        let r = s.resolved_for(Mode::Shell);
+        assert_eq!(r.challenge, Challenge::Math);
+        assert_eq!(r.min_severity, Some(Severity::Medium));
+    }
+
+    #[test]
+    fn resolved_for_ai_inherits_when_no_overrides() {
+        let mut s = Settings::default();
+        s.challenge = Challenge::Math;
+        s.min_severity = Some(Severity::Medium);
+        let r = s.resolved_for(Mode::Ai);
+        assert_eq!(r.challenge, Challenge::Math);
+        assert_eq!(r.min_severity, Some(Severity::Medium));
+    }
+
+    #[test]
+    fn resolved_for_ai_uses_overrides_when_set() {
+        let mut s = Settings::default();
+        s.challenge = Challenge::Math;
+        s.min_severity = Some(Severity::Medium);
+        s.agent.challenge = InheritOr::Set(Challenge::Yes);
+        s.agent.min_severity = InheritOr::Set(Some(Severity::Low));
+        let r = s.resolved_for(Mode::Ai);
+        assert_eq!(r.challenge, Challenge::Yes);
+        assert_eq!(r.min_severity, Some(Severity::Low));
+    }
+
+    #[test]
+    fn resolved_for_wrap_uses_wrappers_overrides() {
+        let mut s = Settings::default();
+        s.challenge = Challenge::Math;
+        s.wrappers.challenge = InheritOr::Set(Challenge::Yes);
+        let r = s.resolved_for(Mode::Wrap);
+        assert_eq!(r.challenge, Challenge::Yes);
+    }
+
+    #[test]
+    fn resolved_for_severity_escalation_override_ai() {
+        let mut s = Settings::default();
+        let mut custom = SeverityEscalationConfig::default();
+        custom.high = Challenge::Yes;
+        s.agent.severity_escalation = InheritOr::Set(custom.clone());
+        let r = s.resolved_for(Mode::Ai);
+        assert_eq!(r.severity_escalation.high, Challenge::Yes);
+        let r_shell = s.resolved_for(Mode::Shell);
+        assert_eq!(r_shell.severity_escalation.high, Challenge::Enter); // default
+    }
+
+    // -------------------------------------------------------------------
+    // Phase 1: get_active_checks_with_custom + migrate_custom_groups
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn get_active_checks_with_custom_excludes_disabled_custom_group() {
+        use crate::checks::Check;
+        use regex::Regex;
+
+        let mut s = Settings::default();
+        s.enabled_groups = vec!["git".into()];  // explicitly NOT including "my_team"
+        let custom = vec![Check {
+            id: "my_team:thing".into(),
+            test: Regex::new("foo").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let result = s.get_active_checks_with_custom(&custom).unwrap();
+        assert!(result.iter().all(|c| c.id != "my_team:thing"));
+    }
+
+    #[test]
+    fn get_active_checks_with_custom_includes_enabled_custom_group() {
+        use crate::checks::Check;
+        use regex::Regex;
+        let mut s = Settings::default();
+        s.enabled_groups = vec!["git".into(), "my_team".into()];
+        let custom = vec![Check {
+            id: "my_team:thing".into(),
+            test: Regex::new("foo").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let result = s.get_active_checks_with_custom(&custom).unwrap();
+        assert!(result.iter().any(|c| c.id == "my_team:thing"));
+    }
+
+    #[test]
+    fn get_active_checks_with_custom_respects_ignores() {
+        use crate::checks::Check;
+        use regex::Regex;
+        let mut s = Settings::default();
+        s.enabled_groups = vec!["my_team".into()];
+        s.ignores_patterns_ids = vec!["my_team:thing".into()];
+        let custom = vec![Check {
+            id: "my_team:thing".into(),
+            test: Regex::new("foo").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let result = s.get_active_checks_with_custom(&custom).unwrap();
+        assert!(result.iter().all(|c| c.id != "my_team:thing"));
+    }
+
+    #[test]
+    fn migrate_custom_groups_into_enabled_groups_adds_missing() {
+        use crate::checks::Check;
+        use regex::Regex;
+        let mut s = Settings::default();
+        s.enabled_groups = vec!["git".into()];
+        let custom = vec![Check {
+            id: "my_team:foo".into(),
+            test: Regex::new("x").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let added = s.migrate_custom_groups_into_enabled_groups(&custom);
+        assert_eq!(added, vec!["my_team".to_string()]);
+        assert!(s.enabled_groups.contains(&"my_team".to_string()));
+    }
+
+    #[test]
+    fn migrate_custom_groups_idempotent() {
+        use crate::checks::Check;
+        use regex::Regex;
+        let mut s = Settings::default();
+        s.enabled_groups = vec!["git".into(), "my_team".into()];
+        let custom = vec![Check {
+            id: "my_team:foo".into(),
+            test: Regex::new("x").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let added = s.migrate_custom_groups_into_enabled_groups(&custom);
+        assert!(added.is_empty());
+    }
+
+    #[test]
+    fn migrate_custom_groups_skips_disabled_groups() {
+        use crate::checks::Check;
+        use regex::Regex;
+        let mut s = Settings::default();
+        s.disabled_groups = vec!["my_team".into()];
+        let custom = vec![Check {
+            id: "my_team:foo".into(),
+            test: Regex::new("x").unwrap(),
+            description: "x".into(),
+            from: "my_team".into(),
+            challenge: Challenge::Math,
+            filters: vec![],
+            alternative: None,
+            alternative_info: None,
+            severity: Severity::Medium,
+        }];
+        let added = s.migrate_custom_groups_into_enabled_groups(&custom);
+        assert!(added.is_empty());  // user explicitly disabled — leave alone
+        assert!(!s.enabled_groups.contains(&"my_team".to_string()));
+    }
+
+    #[test]
+    fn old_settings_yaml_round_trips_with_inherit_defaults() {
+        let yaml = "challenge: Yes\n\
+                    enabled_groups: [git, fs]\n\
+                    disabled_groups: []\n\
+                    ignores_patterns_ids: []\n\
+                    deny_patterns_ids: []\n\
+                    audit_enabled: true\n\
+                    blast_radius: true\n\
+                    min_severity: Medium\n\
+                    agent:\n  auto_deny_severity: High\n  require_human_approval: false\n\
+                    wrappers:\n  tools: {}\n";
+        let s: Settings = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(s.agent.challenge, InheritOr::Inherit));
+        assert!(matches!(s.wrappers.min_severity, InheritOr::Inherit));
+        let out = serde_yaml::to_string(&s).unwrap();
+        let s2: Settings = serde_yaml::from_str(&out).unwrap();
+        assert_eq!(format!("{:?}", s), format!("{:?}", s2));
     }
 }
 

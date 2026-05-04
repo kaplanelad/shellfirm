@@ -226,7 +226,16 @@ pub fn command() -> Command {
 
 pub fn run(matches: &ArgMatches, config: &Config) -> Result<shellfirm::CmdExit> {
     matches.subcommand().map_or_else(
-        || run_interactive_menu(config, None),
+        || {
+            #[cfg(feature = "tui")]
+            {
+                shellfirm::tui::run(config)
+            }
+            #[cfg(not(feature = "tui"))]
+            {
+                run_interactive_menu(config, None)
+            }
+        },
         |tup| match tup {
             ("show", _) => run_show(config),
             ("reset", _) => Ok(run_reset(config)),
@@ -1201,7 +1210,7 @@ fn run_escalation_show(config: &Config) -> Result<shellfirm::CmdExit> {
     } else {
         println!("group overrides:");
         let mut entries: Vec<_> = settings.group_escalation.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
@@ -1211,7 +1220,7 @@ fn run_escalation_show(config: &Config) -> Result<shellfirm::CmdExit> {
     } else {
         println!("check-id overrides:");
         let mut entries: Vec<_> = settings.check_escalation.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
@@ -1376,7 +1385,7 @@ fn run_escalation_map_show(config: &Config, kind: EscalationMapKind) -> Result<s
     } else {
         println!("{} overrides:", kind.label());
         let mut entries: Vec<_> = map.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
@@ -1441,6 +1450,7 @@ pub fn run_escalation_map_remove(
 // interactive menu (no subcommand)
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(feature = "tui", allow(dead_code))]
 fn run_interactive_menu(
     config: &Config,
     force_selection: Option<usize>,

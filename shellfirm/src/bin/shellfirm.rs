@@ -86,28 +86,40 @@ fn main() {
         }
     };
 
-    // Load built-in checks
-    let mut checks = match settings.get_active_checks() {
+    // Load custom checks from ~/.shellfirm/checks/
+    let custom_checks_dir = config.custom_checks_dir();
+    let custom = match shellfirm::checks::load_custom_checks(&custom_checks_dir) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Could not load custom checks: {e}");
+            Vec::new()
+        }
+    };
+    if !custom.is_empty() {
+        tracing::info!("Loaded {} custom check(s)", custom.len());
+    }
+
+    // One-shot migration: ensure custom-check group names appear in enabled_groups
+    // so the new filter logic doesn't silently disable them after upgrade.
+    let mut settings = settings;
+    let added = settings.migrate_custom_groups_into_enabled_groups(&custom);
+    if !added.is_empty() {
+        tracing::info!(
+            "shellfirm: added new custom-check groups to enabled_groups: {}",
+            added.join(", ")
+        );
+        if let Err(e) = config.save_settings_file_from_struct(&settings) {
+            tracing::warn!("could not persist migration: {e}");
+        }
+    }
+
+    let checks = match settings.get_active_checks_with_custom(&custom) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Could not load checks: {e}");
             exit(1)
         }
     };
-
-    // Load custom checks from ~/.shellfirm/checks/
-    let custom_checks_dir = config.custom_checks_dir();
-    match shellfirm::checks::load_custom_checks(&custom_checks_dir) {
-        Ok(custom) => {
-            if !custom.is_empty() {
-                tracing::info!("Loaded {} custom check(s)", custom.len());
-                checks.extend(custom);
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Could not load custom checks: {e}");
-        }
-    }
 
     let res = matches.subcommand().map_or_else(
         || Err(Error::Other("command not found".into())),

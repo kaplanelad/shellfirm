@@ -42,8 +42,7 @@ pub fn run(
     // Custom checks
     let custom_checks_dir = config.custom_checks_dir();
     let custom_count = shellfirm::checks::load_custom_checks(&custom_checks_dir)
-        .map(|c| c.len())
-        .unwrap_or(0);
+        .map_or(0, |c| c.len());
 
     // Context detection
     let runtime_ctx = context::detect(&env, &settings.context);
