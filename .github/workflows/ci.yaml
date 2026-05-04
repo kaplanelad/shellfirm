@@ -48,8 +48,32 @@ jobs:
 
       - uses: Swatinem/rust-cache@v1
 
-      - name: Run test
+      - name: Build
+        run: cargo build
+
+      - name: Run tests
         run: cargo test
+
+  features:
+    name: Feature isolation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@v1
+
+      - uses: taiki-e/install-action@cargo-hack
+
+      # Verifies each cargo feature compiles standalone (and the
+      # no-features and all-features builds), so a hidden cross-feature
+      # dependency cannot slip through. Compile-only — no tests.
+      - name: cargo hack check --each-feature
+        run: cargo hack check --each-feature --no-dev-deps
 
   clippy:
     name: clippy

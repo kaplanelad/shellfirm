@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 use crate::{
     blast_radius::{self, BlastRadiusInfo, BlastScope},
-    config::{Challenge, Settings},
+    config::{Challenge, ResolvedSettings, Settings},
     context::{self, RuntimeContext},
     env::Environment,
     policy::{self, MergedPolicy},
@@ -180,6 +180,7 @@ pub fn validate_checks(checks: &[Check]) -> Vec<String> {
 /// Returns an error if the prompter fails.
 pub fn challenge_with_context(
     settings: &Settings,
+    resolved: &ResolvedSettings,
     checks: &[&Check],
     context: &RuntimeContext,
     merged_policy: &MergedPolicy,
@@ -220,7 +221,7 @@ pub fn challenge_with_context(
     }
 
     // --- 6-layer escalation pipeline ---
-    let base_challenge = settings.challenge;
+    let base_challenge = resolved.challenge;
 
     // Layer 1: base challenge
     let mut effective = base_challenge;
@@ -228,7 +229,7 @@ pub fn challenge_with_context(
     // Layer 2: severity escalation (highest severity across all matched checks)
     let max_severity = checks.iter().map(|c| c.severity).max();
     if let Some(sev) = max_severity {
-        if let Some(sev_floor) = settings.severity_escalation.challenge_for_severity(sev) {
+        if let Some(sev_floor) = resolved.severity_escalation.challenge_for_severity(sev) {
             effective = max_challenge(effective, sev_floor);
         }
     }
@@ -469,6 +470,7 @@ pub struct PipelineResult {
 pub fn analyze_command(
     command: &str,
     settings: &Settings,
+    resolved: &ResolvedSettings,
     checks: &[Check],
     env: &dyn Environment,
     strip_quotes_re: &Regex,
@@ -557,7 +559,7 @@ pub fn analyze_command(
 
     // 7. Severity filtering
     let (active_refs, skipped_refs): (Vec<&Check>, Vec<&Check>) =
-        if let Some(min_sev) = settings.min_severity {
+        if let Some(min_sev) = resolved.min_severity {
             all_matches.into_iter().partition(|c| c.severity >= min_sev)
         } else {
             (all_matches, Vec::new())
@@ -682,6 +684,16 @@ mod test_checks {
     use insta::{assert_debug_snapshot, with_settings};
 
     use super::*;
+
+    #[test]
+    fn challenge_with_context_uses_resolved_settings_for_shell() {
+        use crate::config::{InheritOr, Mode, Settings};
+        let mut settings = Settings::default();
+        settings.challenge = Challenge::Math;
+        settings.agent.challenge = InheritOr::Set(Challenge::Yes); // would NOT apply in shell mode
+        let resolved = settings.resolved_for(Mode::Shell);
+        assert_eq!(resolved.challenge, Challenge::Math);
+    }
 
     const CHECKS: &str = r###"
 - from: test-1

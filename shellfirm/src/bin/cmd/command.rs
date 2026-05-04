@@ -72,9 +72,11 @@ fn execute(
     prompter: &dyn Prompter,
     config: &shellfirm::Config,
 ) -> Result<shellfirm::CmdExit> {
+    let resolved = settings.resolved_for(shellfirm::Mode::Shell);
     let pipeline = checks::analyze_command(
         command,
         settings,
+        &resolved,
         checks,
         env,
         regex_string_command_replace(),
@@ -170,6 +172,7 @@ fn execute(
             // Run the context-aware challenge (use filtered context for display + escalation)
             let result = checks::challenge_with_context(
                 settings,
+                &resolved,
                 &active_refs,
                 &pipeline.relevant_context,
                 &pipeline.merged_policy,

@@ -10,7 +10,12 @@ use crate::error::Result;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{agent, checks::Check, config::Settings, env::Environment};
+use crate::{
+    agent,
+    checks::Check,
+    config::{Mode, Settings},
+    env::Environment,
+};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -388,11 +393,12 @@ impl<'a> McpServer<'a> {
     }
 
     fn tool_get_policy(&self) -> Result<String> {
+        let resolved = self.settings.resolved_for(Mode::Ai);
         let policy_info = serde_json::json!({
-            "challenge": format!("{}", self.settings.challenge),
+            "challenge": format!("{}", resolved.challenge),
             "active_groups": self.settings.enabled_groups,
             "active_checks_count": self.checks.len(),
-            "min_severity": self.settings.min_severity,
+            "min_severity": resolved.min_severity,
             "audit_enabled": self.settings.audit_enabled,
             "agent_config": {
                 "auto_deny_severity": self.settings.agent.auto_deny_severity,

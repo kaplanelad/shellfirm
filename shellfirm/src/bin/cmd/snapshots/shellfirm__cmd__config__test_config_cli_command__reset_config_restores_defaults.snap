@@ -1,7 +1,7 @@
 ---
 source: shellfirm/src/bin/cmd/config.rs
+assertion_line: 1546
 expression: config.get_settings_from_file()
-snapshot_kind: text
 ---
 Ok(
     Settings {
@@ -62,10 +62,15 @@ Ok(
         agent: AgentConfig {
             auto_deny_severity: High,
             require_human_approval: false,
+            challenge: Inherit,
+            min_severity: Inherit,
+            severity_escalation: Inherit,
         },
         llm: None,
         wrappers: WrappersConfig {
             tools: {},
+            challenge: Inherit,
+            min_severity: Inherit,
         },
         severity_escalation: SeverityEscalationConfig {
             enabled: true,

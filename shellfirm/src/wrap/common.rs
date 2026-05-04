@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use crate::{
     audit,
     checks::{self, Check},
-    config::{Config, Settings, WrappersConfig},
+    config::{Config, Mode, Settings, WrappersConfig},
     env::Environment,
     prompt::{ChallengeResult, Prompter},
 };
@@ -279,14 +279,21 @@ pub fn handle_statement(
 
     debug!("[wrap:{tool_name}] analyzing: {trimmed:?}");
 
-    let pipeline =
-        match checks::analyze_command(trimmed, settings, checks, env, strip_quotes_regex()) {
-            Ok(p) => p,
-            Err(e) => {
-                warn!("[wrap:{tool_name}] analysis failed (fail-open): {e}");
-                return StatementAction::Forward;
-            }
-        };
+    let resolved = settings.resolved_for(Mode::Wrap);
+    let pipeline = match checks::analyze_command(
+        trimmed,
+        settings,
+        &resolved,
+        checks,
+        env,
+        strip_quotes_regex(),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("[wrap:{tool_name}] analysis failed (fail-open): {e}");
+            return StatementAction::Forward;
+        }
+    };
 
     if pipeline.active_matches.is_empty() {
         return StatementAction::Forward;
@@ -323,6 +330,7 @@ pub fn handle_statement(
     // Run challenge
     let result = match checks::challenge_with_context(
         settings,
+        &resolved,
         &active_refs,
         &pipeline.context,
         &pipeline.merged_policy,
@@ -575,7 +583,10 @@ mod tests {
                 check_groups: vec!["custom".to_string()],
             },
         );
-        let user_cfg = WrappersConfig { tools };
+        let user_cfg = WrappersConfig {
+            tools,
+            ..Default::default()
+        };
 
         let cfg = WrapperConfig::resolve("psql", None, &user_cfg);
         assert_eq!(cfg.delimiter, Delimiter::Newline);

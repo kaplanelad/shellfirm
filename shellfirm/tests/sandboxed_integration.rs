@@ -9,6 +9,7 @@ use std::{collections::HashMap, path::PathBuf};
 use serde_json;
 use shellfirm::{
     checks,
+    config::Mode,
     context::{self, ContextConfig},
     env::MockEnvironment,
     policy::{self, MergedPolicy, ProjectPolicy},
@@ -110,8 +111,10 @@ fn run_pipeline(
     };
 
     // Run challenge
+    let resolved = settings.resolved_for(Mode::Shell);
     let result = checks::challenge_with_context(
         settings,
+        &resolved,
         &matches,
         &runtime_context,
         &merged_policy,
@@ -606,7 +609,9 @@ fn test_relevant_context_rm_rf_hides_branch_and_k8s() {
     let all_checks = settings.get_active_checks().unwrap();
     let re = strip_quotes_regex();
 
-    let pipeline = checks::analyze_command("rm -rf /", &settings, &all_checks, &env, &re).unwrap();
+    let resolved = settings.resolved_for(Mode::Shell);
+    let pipeline =
+        checks::analyze_command("rm -rf /", &settings, &resolved, &all_checks, &env, &re).unwrap();
 
     // Should have matched at least one fs check
     assert!(
@@ -655,8 +660,16 @@ fn test_relevant_context_git_push_shows_branch_hides_k8s() {
     let all_checks = settings.get_active_checks().unwrap();
     let re = strip_quotes_regex();
 
-    let pipeline =
-        checks::analyze_command("git push --force", &settings, &all_checks, &env, &re).unwrap();
+    let resolved = settings.resolved_for(Mode::Shell);
+    let pipeline = checks::analyze_command(
+        "git push --force",
+        &settings,
+        &resolved,
+        &all_checks,
+        &env,
+        &re,
+    )
+    .unwrap();
 
     assert!(
         !pipeline.active_matches.is_empty(),
@@ -693,9 +706,11 @@ fn test_relevant_context_kubectl_shows_k8s_hides_branch() {
     let all_checks = settings.get_active_checks().unwrap();
     let re = strip_quotes_regex();
 
+    let resolved = settings.resolved_for(Mode::Shell);
     let pipeline = checks::analyze_command(
         "kubectl delete ns kube-system",
         &settings,
+        &resolved,
         &all_checks,
         &env,
         &re,

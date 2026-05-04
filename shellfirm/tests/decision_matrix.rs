@@ -9,6 +9,7 @@ use std::{collections::HashMap, path::PathBuf};
 use serde_derive::Deserialize;
 use shellfirm::{
     checks,
+    config::Mode,
     context::{self, RiskLevel},
     env::MockEnvironment,
     policy::{self, MergedPolicy, ProjectPolicy},
@@ -242,8 +243,10 @@ fn test_decision_matrix() {
         };
 
         // Run challenge
+        let resolved = settings.resolved_for(Mode::Shell);
         let _result = checks::challenge_with_context(
             &settings,
+            &resolved,
             &matches,
             &runtime_context,
             &merged_policy,

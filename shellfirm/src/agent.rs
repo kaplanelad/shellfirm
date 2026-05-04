@@ -15,7 +15,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::{
     checks::{self, Check, PipelineResult, Severity},
-    config::{AgentConfig, Settings},
+    config::{AgentConfig, Mode, Settings},
     env::Environment,
     prompt::{ChallengeResult, DisplayContext, Prompter},
 };
@@ -128,7 +128,15 @@ pub fn assess_command(
     env: &dyn Environment,
     agent_config: &AgentConfig,
 ) -> Result<RiskAssessment> {
-    let pipeline = checks::analyze_command(command, settings, checks, env, strip_quotes_regex())?;
+    let resolved = settings.resolved_for(Mode::Ai);
+    let pipeline = checks::analyze_command(
+        command,
+        settings,
+        &resolved,
+        checks,
+        env,
+        strip_quotes_regex(),
+    )?;
     Ok(build_assessment(&pipeline, agent_config))
 }
 
@@ -277,6 +285,7 @@ mod tests {
         let agent_config = AgentConfig {
             auto_deny_severity: Severity::Medium,
             require_human_approval: false,
+            ..Default::default()
         };
 
         // git push --force is a well-known risky command
@@ -297,6 +306,7 @@ mod tests {
         let agent_config = AgentConfig {
             auto_deny_severity: Severity::Critical,
             require_human_approval: false,
+            ..Default::default()
         };
 
         // git stash drop is typically Medium severity
@@ -316,6 +326,7 @@ mod tests {
         let agent_config = AgentConfig {
             auto_deny_severity: Severity::Critical,
             require_human_approval: false,
+            ..Default::default()
         };
 
         // Find a check ID from the loaded checks to deny
@@ -355,6 +366,7 @@ mod tests {
         let agent_config = AgentConfig {
             auto_deny_severity: Severity::High,
             require_human_approval: true,
+            ..Default::default()
         };
 
         let result = assess_command("rm -rf /", &settings, &checks, &env, &agent_config).unwrap();
