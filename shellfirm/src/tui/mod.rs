@@ -75,7 +75,12 @@
     clippy::needless_collect,
     clippy::ignored_unit_patterns,
     clippy::stable_sort_primitive,
-    clippy::char_lit_as_u8
+    clippy::char_lit_as_u8,
+    // Rust 1.95+ pedantic lints (TUI-specific patterns the new compiler
+    // started flagging — none are bugs in this code):
+    clippy::explicit_counter_loop,
+    clippy::collapsible_match,
+    clippy::unnecessary_min_or_max
 )]
 
 pub mod app;

@@ -171,7 +171,7 @@ impl Prompter for TerminalPrompter {
                 style("Press ^C to exit.").underlined().bold().italic()
             );
             loop {
-                thread::sleep(Duration::from_secs(60));
+                thread::sleep(Duration::from_mins(1));
             }
         }
 
@@ -251,7 +251,7 @@ impl Prompter for DirectTtyPrompter {
                 style("Press ^C to exit.").underlined().bold().italic()
             );
             loop {
-                thread::sleep(Duration::from_secs(60));
+                thread::sleep(Duration::from_mins(1));
             }
         }
 

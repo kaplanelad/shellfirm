@@ -1210,7 +1210,7 @@ fn run_escalation_show(config: &Config) -> Result<shellfirm::CmdExit> {
     } else {
         println!("group overrides:");
         let mut entries: Vec<_> = settings.group_escalation.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
@@ -1220,7 +1220,7 @@ fn run_escalation_show(config: &Config) -> Result<shellfirm::CmdExit> {
     } else {
         println!("check-id overrides:");
         let mut entries: Vec<_> = settings.check_escalation.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
@@ -1385,7 +1385,7 @@ fn run_escalation_map_show(config: &Config, kind: EscalationMapKind) -> Result<s
     } else {
         println!("{} overrides:", kind.label());
         let mut entries: Vec<_> = map.iter().collect();
-        entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+        entries.sort_by_key(|(k, _)| (*k).clone());
         for (k, v) in entries {
             println!("  {k} = {v}");
         }
