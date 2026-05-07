@@ -1,6 +1,6 @@
 {
   "name": "@shellfirm/cli",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "Intercept risky shell commands with verification challenges — a captcha for your terminal",
   "license": "MIT",
   "repository": {
@@ -11,9 +11,9 @@
     "shellfirm": "bin/shellfirm"
   },
   "optionalDependencies": {
-    "@shellfirm/cli-darwin-arm64": "0.3.9",
-    "@shellfirm/cli-darwin-x64": "0.3.9",
-    "@shellfirm/cli-linux-x64": "0.3.9",
-    "@shellfirm/cli-win32-x64": "0.3.9"
+    "@shellfirm/cli-darwin-arm64": "0.3.10",
+    "@shellfirm/cli-darwin-x64": "0.3.10",
+    "@shellfirm/cli-linux-x64": "0.3.10",
+    "@shellfirm/cli-win32-x64": "0.3.10"
   }
 }
