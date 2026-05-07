@@ -101,7 +101,7 @@ Or download the binary from the [releases page](https://github.com/kaplanelad/sh
 **1. Install the shell hook** (auto-detects your shell):
 
 ```bash
-shellfirm init --install
+shellfirm init
 ```
 
 **2. Restart your shell** (or `source` your rc file).
