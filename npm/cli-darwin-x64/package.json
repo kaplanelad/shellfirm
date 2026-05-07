@@ -1,6 +1,6 @@
 {
   "name": "@shellfirm/cli-darwin-x64",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "shellfirm binary for macOS x64",
   "license": "MIT",
   "os": [
