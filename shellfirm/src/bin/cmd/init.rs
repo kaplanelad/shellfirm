@@ -780,7 +780,7 @@ shellfirm-pre-command() {
         zle .accept-line
         return
     fi
-    shellfirm pre-command -c "${BUFFER}"
+    shellfirm pre-command --direct-tty -c "${BUFFER}"
     if [[ $? -eq 0 ]]; then
         zle .accept-line
     else
@@ -1132,6 +1132,15 @@ mod tests {
                 "{shell} hook must contain 'shellfirm pre-command' for interception"
             );
         }
+    }
+
+    #[test]
+    fn zsh_hook_uses_direct_tty_prompt() {
+        let hook = Shell::Zsh.hook();
+        assert!(
+            hook.contains("shellfirm pre-command --direct-tty"),
+            "zsh hook must force DirectTtyPrompter to avoid crossterm hangs in zle"
+        );
     }
 
     #[test]
