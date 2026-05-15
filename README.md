@@ -112,17 +112,17 @@ shellfirm init
 git reset --hard  # Should trigger shellfirm!
 ```
 
-For manual setup, shell-specific instructions, and Oh My Zsh plugin, see the [shell setup docs](https://shellfirm.dev/docs/getting-started/shell-setup).
+For manual setup, shell-specific instructions, and Oh My Zsh plugin, see the [shell setup docs](https://shellfirm.vercel.app/docs/getting-started/shell-setup).
 
 ---
 
 ## Documentation
 
-Full documentation is available at **[shellfirm.dev](https://shellfirm.dev)**:
+Full documentation is available at **[shellfirm.vercel.app](https://shellfirm.vercel.app)**:
 
-- [Configuration](https://shellfirm.dev/docs/configuration) — challenge types, severity thresholds, custom checks
-- [Context-Aware Protection](https://shellfirm.dev/docs/context-aware) — SSH, root, git branches, Kubernetes, environment variables
-- [Team Policies](https://shellfirm.dev/docs/team-policies) — `.shellfirm.yaml` project-level rules
+- [Configuration](https://shellfirm.vercel.app/docs/configuration) — challenge types, severity thresholds, custom checks
+- [Context-Aware Protection](https://shellfirm.vercel.app/docs/context-aware) — SSH, root, git branches, Kubernetes, environment variables
+- [Team Policies](https://shellfirm.vercel.app/docs/team-policies) — `.shellfirm.yaml` project-level rules
 - [AI Agents & Automation](https://shellfirm.vercel.app/docs/agents-and-automation) — MCP server, LLM analysis, agent mode
 
 ---
