@@ -34,6 +34,13 @@ pub fn command() -> Command {
                 .help("Check if the command is risky and exit")
                 .action(ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("direct-tty")
+                .long("direct-tty")
+                .help("Read prompts directly from /dev/tty")
+                .hide(true)
+                .action(ArgAction::SetTrue),
+        )
 }
 
 pub fn run(
@@ -53,7 +60,7 @@ pub fn run(
     // which reads from /dev/tty with simple cooked-mode line I/O.
     // See: https://github.com/kaplanelad/shellfirm/issues/160
     #[cfg(unix)]
-    if !std::io::stdin().is_terminal() {
+    if arg_matches.get_flag("direct-tty") || !std::io::stdin().is_terminal() {
         let prompter = shellfirm::prompt::DirectTtyPrompter;
         return execute(command, settings, checks, dryrun, &env, &prompter, config);
     }
