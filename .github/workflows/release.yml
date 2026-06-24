@@ -52,7 +52,7 @@ jobs:
         run: |
           TAG_VERSION="${{ steps.version.outputs.version }}"
           ALL_MATCH=true
-          for pkg in npm/shellfirm npm/cli-darwin-arm64 npm/cli-darwin-x64 npm/cli-linux-x64 npm/cli-win32-x64; do
+          for pkg in npm/shellfirm npm/cli-darwin-arm64 npm/cli-darwin-x64 npm/cli-linux-arm64 npm/cli-linux-x64 npm/cli-win32-x64; do
             PKG_VERSION=$(node -p "require('./$pkg/package.json').version")
             if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
               echo "::error::$pkg version ($PKG_VERSION) does not match tag (v$TAG_VERSION). Run: ./scripts/bump-npm-version.sh $TAG_VERSION"
@@ -71,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [x86_64-linux, x86_64-macos, aarch64-macos, x86_64-windows] # aarch64-linux,
+        build: [x86_64-linux, aarch64-linux, x86_64-macos, aarch64-macos, x86_64-windows]
         include:
         - build: x86_64-linux
           os: ubuntu-latest
@@ -80,11 +80,13 @@ jobs:
           cross: false
           npm_pkg: cli-linux-x64
           binary: shellfirm
-        # - build: aarch64-linux
-        #   os: ubuntu-20.04
-        #   rust: stable
-        #   target: aarch64-unknown-linux-gnu
-        #   cross: true
+        - build: aarch64-linux
+          os: ubuntu-24.04-arm
+          rust: stable
+          target: aarch64-unknown-linux-gnu
+          cross: false
+          npm_pkg: cli-linux-arm64
+          binary: shellfirm
         - build: x86_64-macos
           os: macos-latest
           rust: stable
@@ -125,17 +127,9 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Strip release binary (linux and macos)
-        if: matrix.build == 'x86_64-linux' || matrix.build == 'x86_64-macos' || matrix.build == 'aarch64-macos'
+        if: matrix.build == 'x86_64-linux' || matrix.build == 'aarch64-linux' || matrix.build == 'x86_64-macos' || matrix.build == 'aarch64-macos'
         run: strip "target/${{ matrix.target }}/release/$BIN_NAME"
 
-      - name: Strip release binary (arm)
-        if: matrix.build == 'aarch64-linux'
-        run: |
-          docker run --rm -v \
-            "$PWD/target:/target:Z" \
-            rustembedded/cross:${{ matrix.target }} \
-            aarch64-linux-gnu-strip \
-            /target/${{ matrix.target }}/release/$BIN_NAME
       - name: Build archive
         shell: bash
         run: |
@@ -253,7 +247,7 @@ jobs:
 
       - name: Prepare platform packages
         run: |
-          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-x64 cli-win32-x64; do
+          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-arm64 cli-linux-x64 cli-win32-x64; do
             cp -r artifacts/$pkg/* npm/$pkg/
           done
 
@@ -261,7 +255,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-x64 cli-win32-x64; do
+          for pkg in cli-darwin-arm64 cli-darwin-x64 cli-linux-arm64 cli-linux-x64 cli-win32-x64; do
             npm publish ./npm/$pkg --access public
           done
 

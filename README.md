@@ -92,6 +92,12 @@ brew tap kaplanelad/tap && brew install shellfirm
 cargo install shellfirm
 ```
 
+For prebuilt binaries through Cargo's binstall workflow:
+
+```bash
+cargo binstall shellfirm
+```
+
 Or download the binary from the [releases page](https://github.com/kaplanelad/shellfirm/releases).
 
 ---
