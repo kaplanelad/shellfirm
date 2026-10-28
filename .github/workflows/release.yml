@@ -119,8 +119,9 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }} 
           targets: ${{ matrix.target }}
 
+      # macos-latest is an arm64 runner: test the native aarch64 build there.
       - name: Run cargo test
-        if: matrix.build != 'aarch64-macos'
+        if: matrix.build != 'x86_64-macos'
         run: cargo test --release --locked --target ${{ matrix.target }} 
        
       - name: Build release binary
@@ -215,18 +216,31 @@ jobs:
     needs: [publish-github]
     runs-on: ubuntu-latest
     steps:
-      - name: Extract version
-        id: extract-version
-        run: |
-          printf "::set-output name=%s::%s\n" tag-name "${GITHUB_REF#refs/tags/}"
-      - uses: mislav/bump-homebrew-formula-action@v1
-        with:
-          formula-path: ${{env.PROJECT_NAME}}.rb
-          homebrew-tap: ${{ env.BREW_TAP }}
-          download-url: "https://github.com/${{ env.REPO_NAME }}/releases/download/${{ steps.extract-version.outputs.tag-name }}/${{env.PROJECT_NAME}}-${{ steps.extract-version.outputs.tag-name }}-x86_64-macos.tar.xz"
-          commit-message: updating formula for ${{ env.PROJECT_NAME }}
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      # One native binary per macOS / Linux architecture: Apple Silicon must
+      # not get the x86_64 build.
+      - name: Render formula
         env:
-          COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          gh release download "$TAG" --repo "$REPO_NAME" --dir assets --pattern '*-macos.tar.xz' --pattern '*-linux.tar.xz'
+          ./scripts/render-homebrew-formula.sh "$TAG" assets > "$PROJECT_NAME.rb"
+          ruby -c "$PROJECT_NAME.rb"
+          cat "$PROJECT_NAME.rb"
+
+      - name: Push formula to the tap
+        env:
+          GH_TOKEN: ${{ secrets.COMMITTER_TOKEN }}
+        run: |
+          FORMULA="$PROJECT_NAME.rb"
+          SHA=$(gh api "repos/$BREW_TAP/contents/$FORMULA" --jq .sha)
+          gh api --method PUT "repos/$BREW_TAP/contents/$FORMULA" \
+            -f message="updating formula for $PROJECT_NAME ${GITHUB_REF#refs/tags/}" \
+            -f content="$(base64 -w0 "$FORMULA")" \
+            -f sha="$SHA" > /dev/null
 
   publish-npm:
     name: Publish to npm
