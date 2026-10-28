@@ -861,7 +861,10 @@ fn catalogue_is_up_to_date() {
         fs::write(CATALOGUE_PATH, &want).unwrap();
         return;
     }
-    let have = fs::read_to_string(CATALOGUE_PATH).unwrap_or_default();
+    // A Windows checkout may convert the file to CRLF; compare line content only.
+    let have = fs::read_to_string(CATALOGUE_PATH)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         have == want,
         "docs/checks/README.md is out of date with shellfirm/checks/*.yaml.\n\
