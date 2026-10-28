@@ -1527,13 +1527,23 @@ fn backup_path_for(path: &Path, backup_dir: Option<&Path>) -> PathBuf {
             )
         },
         |d| {
-            let flat: String = path
-                .display()
-                .to_string()
+            let shown = path.display().to_string();
+            // Windows: the canonical path is `\\?\C:\…` (`\\?\UNC\…` on a
+            // share); that prefix is not part of the name, and `?`, `*`,
+            // `<`, `>`, `"`, `|` cannot appear in a file name there.
+            #[cfg(windows)]
+            let shown = shown
+                .strip_prefix(r"\\?\UNC\")
+                .map(str::to_string)
+                .or_else(|| shown.strip_prefix(r"\\?\").map(str::to_string))
+                .unwrap_or(shown);
+            let flat: String = shown
                 .trim_start_matches(['/', '\\'])
                 .chars()
                 .map(|c| {
-                    if matches!(c, '/' | '\\' | ':') {
+                    if matches!(c, '/' | '\\' | ':')
+                        || (cfg!(windows) && matches!(c, '?' | '*' | '<' | '>' | '"' | '|'))
+                    {
                         '%'
                     } else {
                         c

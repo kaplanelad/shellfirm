@@ -7488,20 +7488,35 @@ mod tests {
     }
 
     /// Run `shell -n` style syntax checks when the shell is installed.
+    /// The hook is read from stdin: a Windows path (`C:\Users\…`) is
+    /// not a file name every `bash` there understands (WSL's `bash.exe`).
     fn syntax_check(bin: &str, args: &[&str], hook: &str) {
-        let dir = tree_fs::TreeBuilder::default()
-            .create()
-            .expect("create tree");
-        let file = dir.root.join("hook");
-        fs::write(&file, hook).unwrap();
-        let Ok(out) = std::process::Command::new(bin)
-            .args(args)
-            .arg(&file)
+        use std::io::Write as _;
+        // A shell that cannot run a trivial command (Windows' WSL launcher
+        // without a distribution) cannot judge the hook either.
+        let usable = std::process::Command::new(bin)
+            .args(["-c", "echo ok"])
+            .stdin(std::process::Stdio::null())
             .output()
-        else {
-            eprintln!("{bin} not installed; skipping syntax check");
+            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok");
+        if !usable {
+            eprintln!("{bin} not installed or not usable; skipping syntax check");
             return;
-        };
+        }
+        let mut child = std::process::Command::new(bin)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(hook.as_bytes())
+            .unwrap();
+        let out = child.wait_with_output().unwrap();
         assert!(
             out.status.success(),
             "{bin} rejected the hook: {}",
