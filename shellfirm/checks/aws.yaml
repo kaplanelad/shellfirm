@@ -1,12 +1,12 @@
 - from: aws
-  test: aws\s+s3\s+rb\s+s3://
-  description: "This will delete an entire S3 bucket and potentially all its contents."
+  test: (?:^|\s)aws\s+s3\s+rb\s+s3://
+  description: "This deletes the S3 bucket and, with --force, all of its contents."
   id: aws:s3_remove_bucket
   severity: High
   alternative: "aws s3 ls s3://<bucket>"
   alternative_info: "List bucket contents first to verify what would be deleted."
 - from: aws
-  test: aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+.*s3://.*--recursive|aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+--recursive\s+s3://
+  test: (?:^|\s)(?:aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+.*s3://.*--recursive|aws\s+(?:--\S+\s+\S+\s+)*s3\s+rm\s+--recursive\s+s3://)
   description: "Recursively deleting all objects in an S3 bucket."
   id: aws:s3_recursive_delete
   severity: High
@@ -14,81 +14,136 @@
     - type: NotContains
       value: "--dryrun"
 - from: aws
-  test: aws\s+(?:--\S+\s+\S+\s+)*ec2\s+terminate-instances
+  test: (?:^|\s)aws\s+(?:--\S+\s+\S+\s+)*ec2\s+terminate-instances
   description: "Terminating EC2 instances permanently destroys them and their local storage."
   id: aws:ec2_terminate
   severity: High
   alternative: "aws ec2 stop-instances"
   alternative_info: "Stop instead of terminate to preserve the instance for later restart."
 - from: aws
-  test: aws\s+rds\s+delete-db-instance
+  test: (?:^|\s)aws\s+rds\s+delete-db-instance
   description: "Deleting an RDS instance will permanently destroy the database."
   id: aws:rds_delete
   severity: High
-  alternative: "aws rds delete-db-instance --skip-final-snapshot=false --final-db-snapshot-identifier <name>"
-  alternative_info: "Create a final snapshot before deletion so data can be recovered."
+  alternative: "aws rds create-db-snapshot --db-instance-identifier <name> --db-snapshot-identifier <name>-final"
+  alternative_info: "Take a snapshot first (and delete with --final-db-snapshot-identifier), so the data can be recovered."
 - from: aws
-  test: aws\s+iam\s+delete-(user|role|policy|group)(\s|$)
+  test: (?:^|\s)aws\s+iam\s+delete-(user|role|policy|group)(\s|$)
   description: "Deleting IAM resources can break access for services and users."
   id: aws:iam_delete
   severity: High
 - from: aws
-  test: aws\s+cloudformation\s+delete-stack
+  test: (?:^|\s)aws\s+cloudformation\s+delete-stack
   description: "Deleting a CloudFormation stack will destroy all resources it manages."
   id: aws:cfn_delete_stack
   severity: High
 - from: aws
-  test: aws\s+route53\s+delete-hosted-zone
+  test: (?:^|\s)aws\s+route53\s+delete-hosted-zone
   description: "Deleting a Route53 hosted zone will remove all DNS records."
   id: aws:route53_delete_zone
   severity: High
 - from: aws
-  test: aws\s+eks\s+delete-cluster
+  test: (?:^|\s)aws\s+eks\s+delete-cluster
   description: "Deleting an EKS cluster will destroy the Kubernetes control plane."
   id: aws:eks_delete_cluster
   severity: High
 - from: aws
-  test: aws\s+lambda\s+delete-function
+  test: (?:^|\s)aws\s+lambda\s+delete-function
   description: "Deleting a Lambda function removes it permanently."
   id: aws:lambda_delete
   severity: High
 - from: aws
-  test: aws\s+dynamodb\s+delete-table
+  test: (?:^|\s)aws\s+dynamodb\s+delete-table
   description: "Deleting a DynamoDB table permanently destroys all its data."
   id: aws:dynamodb_delete_table
   severity: High
 - from: aws
-  test: aws\s+sqs\s+delete-queue
+  test: (?:^|\s)aws\s+sqs\s+delete-queue
   description: "Deleting an SQS queue loses all queued messages."
   id: aws:sqs_delete_queue
   severity: High
 - from: aws
-  test: aws\s+sns\s+delete-topic
+  test: (?:^|\s)aws\s+sns\s+delete-topic
   description: "Deleting an SNS topic breaks all subscriptions."
   id: aws:sns_delete_topic
   severity: High
 - from: aws
-  test: aws\s+ecr\s+delete-repository
+  test: (?:^|\s)aws\s+ecr\s+delete-repository
   description: "Deleting an ECR repository removes all container images."
   id: aws:ecr_delete_repository
   severity: High
 - from: aws
-  test: aws\s+secretsmanager\s+delete-secret
+  test: (?:^|\s)aws\s+secretsmanager\s+delete-secret
   description: "Deleting a secret can break applications depending on it."
   id: aws:secretsmanager_delete
   severity: High
 - from: aws
-  test: aws\s+elasticache\s+delete-cache-cluster
+  test: (?:^|\s)aws\s+elasticache\s+delete-cache-cluster
   description: "Deleting an ElastiCache cluster destroys all cached data."
   id: aws:elasticache_delete_cluster
   severity: High
 - from: aws
-  test: aws\s+logs\s+delete-log-group
+  test: (?:^|\s)aws\s+logs\s+delete-log-group
   description: "Deleting a CloudWatch log group permanently loses all log data."
   id: aws:logs_delete_log_group
   severity: High
 - from: aws
-  test: aws\s+ecs\s+delete-(service|cluster)
+  test: (?:^|\s)aws\s+ecs\s+delete-(service|cluster)
   description: "Deleting an ECS service or cluster stops all running containers."
   id: aws:ecs_delete
   severity: High
+- from: aws
+  test: (?:^|\s)aws\s+(?:--\S+\s+\S+\s+)*rds\s+delete-db-(?:cluster|snapshot|cluster-snapshot)\b
+  description: "Deleting an RDS cluster or snapshot permanently destroys the data."
+  id: aws:rds_delete_cluster
+  severity: High
+- from: aws
+  test: (?:^|\s)aws\s+(?:--\S+\s+\S+\s+)*s3\s+sync\s+.*--delete(?:\s|$)
+  description: "Syncing with --delete removes destination objects that are not in the source."
+  id: aws:s3_sync_delete
+  severity: High
+  filters:
+    - type: NotContains
+      value: "--dryrun"
+  alternative: "aws s3 sync --dryrun --delete ..."
+  alternative_info: "Preview which objects would be deleted first."
+- from: aws
+  test: (?:^|\s)aws\s+(?:--\S+\s+\S+\s+)*kms\s+schedule-key-deletion\b
+  description: "Scheduling KMS key deletion makes all data encrypted with that key unrecoverable."
+  id: aws:kms_schedule_key_deletion
+  severity: Critical
+  alternative: "aws kms disable-key --key-id <id>"
+  alternative_info: "Disabling a key is reversible; deletion is not."
+- from: aws
+  test: (?:^|\s)aws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*ecr\s+batch-delete-image\b
+  description: "This deletes container images from an ECR repository."
+  id: aws:ecr_batch_delete_image
+  severity: Medium
+- from: aws
+  test: (?:^|\s)aws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*redshift\s+delete-cluster\b
+  description: "This deletes a Redshift cluster and its data."
+  id: aws:redshift_delete_cluster
+  severity: High
+- from: aws
+  test: (?:^|\s)aws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*elasticache\s+delete-(?:replication-group|serverless-cache|global-replication-group)\b
+  description: "This deletes an ElastiCache replication group and its data."
+  id: aws:elasticache_delete_replication_group
+  severity: High
+- from: aws
+  test: (?:^|\s)aws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*(?:docdb|neptune)\s+delete-db-(?:cluster|instance)\b
+  description: "This deletes a DocumentDB / Neptune database cluster or instance."
+  id: aws:docdb_delete
+  severity: High
+- from: aws
+  test: (?:^|\s)aws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*rds\s+modify-db-(?:instance|cluster)\b.*--backup-retention-period[\s=]+0(?:\s|$)
+  description: "Setting the backup retention period to 0 disables automated backups and deletes the existing ones."
+  id: aws:rds_disable_backups
+  severity: High
+- from: aws
+  # Scaling a service to zero outside Kubernetes (like `kubectl scale --replicas=0`).
+  test: '(?:^|\s)aws\s+(?:\S+\s+)*?(?:autoscaling\s+update-auto-scaling-group\s+(?:\S+\s+)*?--(?:desired-capacity|max-size)|ecs\s+update-service\s+(?:\S+\s+)*?--desired-count)[\s=]+0(?:\s|$)'
+  description: "This scales the Auto Scaling group or ECS service to zero: every instance or task of it stops."
+  id: aws:scale_to_zero
+  severity: High
+  alternative: "aws ecs describe-services --cluster <cluster> --services <service>"
+  alternative_info: "Check which service and cluster you are about to stop first."

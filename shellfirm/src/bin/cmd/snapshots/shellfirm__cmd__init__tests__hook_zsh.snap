@@ -1,0 +1,1324 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for zsh
+if [[ -o interactive ]]; then
+typeset -g _shellfirm_hook_version=13
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
+# (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec zsh`).
+export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM
+zmodload zsh/zleparameter zsh/parameter 2>/dev/null
+typeset -gA _shellfirm_orig_widget
+typeset -g _shellfirm_warned="" _shellfirm_seen="" _shellfirm_bypass_warned="" _shellfirm_expanded=""
+typeset -g _shellfirm_notes="" _shellfirm_block_msg="" _shellfirm_trashed=""
+typeset -ga _shellfirm_fc_ok
+# Longer lines cannot be passed as one argument (Linux MAX_ARG_STRLEN is
+# 128 KiB); they are checked through stdin instead and never prompt.
+typeset -gi _shellfirm_max_arg=100000
+
+# A message on a line of its own, also while a line is being edited (zle
+# then redraws the prompt below it by itself).
+_shellfirm_say() {
+    if zle; then
+        zle -I
+        _shellfirm_trashed=1
+    fi
+    print -ru2 -- "$@"
+}
+
+_shellfirm_warn_missing() {
+    [[ -n $_shellfirm_warned ]] && return 0
+    _shellfirm_warned=1
+    _shellfirm_say "shellfirm: binary not found in PATH; commands are NOT being checked"
+}
+
+# The command hash can point at a binary that was removed or moved.
+_shellfirm_have_binary() {
+    (( $+commands[shellfirm] )) && [[ -x ${commands[shellfirm]} ]] && return 0
+    rehash
+    (( $+commands[shellfirm] )) && [[ -x ${commands[shellfirm]} ]]
+}
+
+# shellfirm prints settings, policy and custom-check problems on every call.
+# Look once per session (and again when SHELLFIRM_CONFIG_DIR changes), show
+# them once on a line of their own, and from then on keep them away from
+# safe lines (they would be glued to the line being edited).
+_shellfirm_probe_notes() {
+    [[ -n $_shellfirm_notes && $_shellfirm_notes_key == "${SHELLFIRM_CONFIG_DIR-}" ]] && return
+    typeset -g _shellfirm_notes_key=${SHELLFIRM_CONFIG_DIR-}
+    local _sf_w
+    _sf_w=$(command shellfirm pre-command --test --command=: 2>&1 >/dev/null)
+    # Not runnable: the check itself reports it.
+    (( $? >= 126 )) && return
+    [[ -n $_sf_w ]] && _shellfirm_say "$_sf_w"
+    # A SHELLFIRM_CONFIG_DIR that is not a directory: said once (above);
+    # the checks then use the default directory, as shellfirm itself does,
+    # without saying it again on every line.
+    if [[ -n $_sf_w ]] && _shellfirm_stale_dir; then
+        _sf_w=$(SHELLFIRM_CONFIG_DIR= command shellfirm pre-command --test --command=: 2>&1 >/dev/null)
+    fi
+    if [[ -n $_sf_w ]]; then
+        _shellfirm_notes=1
+    else
+        _shellfirm_notes=0
+    fi
+}
+_shellfirm_stale_dir() { [[ -n ${SHELLFIRM_CONFIG_DIR//[[:space:]]/} && ! -d ${SHELLFIRM_CONFIG_DIR} ]] }
+
+# Reads the input waiting on the terminal into _shellfirm_rest (Enter as a
+# newline; control characters and bracketed-paste marks left out).
+typeset -g _shellfirm_rest="" _shellfirm_rest_note=""
+_shellfirm_drain() {
+    setopt localoptions extendedglob
+    local _sf_c _sf_r=""
+    local -i _sf_n=0
+    while (( PENDING > 0 && _sf_n++ < 65536 )); do
+        read -k 1 _sf_c || break
+        _sf_r+=$_sf_c
+    done
+    _sf_r=${_sf_r//$'\e[200~'/}
+    _sf_r=${_sf_r//$'\e[201~'/}
+    _sf_r=${_sf_r//$'\r'/$'\n'}
+    _sf_r=${_sf_r//[$'\001'-$'\010\013'-$'\037\177']/}
+    _sf_r=${_sf_r%%$'\n'##}
+    [[ -n ${_sf_r//[[:space:]]/} ]] && _shellfirm_rest=$_sf_r
+}
+# "1 line" / "N lines" for _shellfirm_rest, in _sf_rn ("was" / "were" in
+# _sf_rv, "it is" / "they are" in _sf_rp).
+_shellfirm_rest_count() {
+    setopt localoptions extendedglob
+    local -a _sf_ls=("${(@f)_shellfirm_rest}")
+    _sf_ls=(${_sf_ls:#[[:space:]]#})
+    local -i _sf_k=${#_sf_ls}
+    (( _sf_k )) || _sf_k=1
+    if (( _sf_k == 1 )); then
+        _sf_rn="1 line" _sf_rv=was _sf_rp="it is"
+    else
+        _sf_rn="$_sf_k lines" _sf_rv=were _sf_rp="they are"
+    fi
+}
+# The line runs: what was read ahead of it goes back to the editor, for the
+# next prompt (it is not run, and is checked when Enter runs it).
+_shellfirm_give_back() {
+    [[ -n $_shellfirm_rest ]] || return 0
+    setopt localoptions extendedglob
+    local _sf_rn _sf_rv _sf_rp
+    _shellfirm_rest_count
+    print -z -- "$_shellfirm_rest"
+    _shellfirm_rest=""
+    _shellfirm_rest_note="shellfirm: $_sf_rn typed or pasted after this command $_sf_rv not run (a challenge discards waiting input); $_sf_rp back in the editor."
+}
+
+# Returns 0 to allow, 1 to block. A missing binary fails open; anything else
+# that goes wrong (exit 126, a line too long to pass) fails closed.
+_shellfirm_run() {
+    if ! _shellfirm_have_binary; then
+        _shellfirm_warn_missing
+        return 0
+    fi
+    # Keep ZLE (and the buffer) alive when ^C cancels the challenge.
+    setopt localoptions localtraps
+    trap ':' INT
+    # Without interactivecomments (zsh's default) `#` starts no comment:
+    # `rm -rf a # b` removes b too.
+    [[ -o interactivecomments ]] || local -x SHELLFIRM_NO_COMMENTS=1
+    local -i _sf_len _sf_rc
+    local _sf_out
+    () { setopt localoptions nomultibyte; _sf_len=${#1} } "$1"
+    if (( _sf_len > _shellfirm_max_arg )); then
+        _shellfirm_line=""
+        print -rn -- "$1" | command shellfirm check --stdin --exit-code >/dev/null 2>&1
+        _sf_rc=$?
+        (( _sf_rc == 0 )) && return 0
+        if (( _sf_rc == 127 )); then
+            _shellfirm_say "shellfirm: warning: ${commands[shellfirm]} is installed but could not run (exit 127); this command was NOT checked. Run \`shellfirm doctor\`."
+            return 0
+        fi
+        if (( _sf_rc == 10 || _sf_rc == 11 )); then
+            _shellfirm_say "shellfirm: blocked: this line is too long to confirm interactively ($_sf_len bytes) and it matches a risky pattern. Run it from a script file instead."
+        else
+            _shellfirm_say "shellfirm: blocked: this line ($_sf_len bytes) could not be checked (exit $_sf_rc). Run it from a script file instead."
+        fi
+        return 1
+    fi
+    # In the line editor the "approved, running" line is printed from
+    # preexec, once zle (and a transient prompt) has redrawn the line.
+    local -a _sf_env=()
+    if zle; then
+        _shellfirm_probe_notes
+        if [[ -n $_shellfirm_notes && $_shellfirm_notes_key == "${SHELLFIRM_CONFIG_DIR-}" ]] && _shellfirm_stale_dir; then
+            local -x SHELLFIRM_CONFIG_DIR=
+        fi
+        _sf_env=(SHELLFIRM_DEFER_APPROVED=1)
+        if [[ $_shellfirm_notes == 1 ]]; then
+            # Dry run first (quietly): the warnings only show for risky lines.
+            _sf_out=$(command shellfirm pre-command --test --command="$1" 2>/dev/null)
+            _sf_rc=$?
+            (( _sf_rc == 0 )) && [[ $_sf_out != *"skipped (below"* ]] && return 0
+            zle -I
+            _shellfirm_trashed=1
+        fi
+        # Input typed or pasted after this line (not as one bracketed
+        # paste) that zle has not read yet: a challenge discards it (it
+        # could answer the challenge). Unless the line is plainly safe, it is
+        # read first, and given back to the editor (_shellfirm_give_back).
+        if (( PENDING > 0 )); then
+            if [[ $_shellfirm_notes != 1 ]]; then
+                command shellfirm pre-command --test --command="$1" >/dev/null 2>&1
+                _sf_rc=$?
+            fi
+            # 65: a challenge, 77: denied.
+            (( _sf_rc == 65 || _sf_rc == 77 )) && _shellfirm_drain
+        fi
+    fi
+    local -a _sf_la=()
+    local _sf_shown=${_shellfirm_line:-$1}
+    [[ -n $_shellfirm_line && $_shellfirm_line != "$1" ]] && _sf_la=(--line="$_shellfirm_line")
+    _shellfirm_line=""
+    if (( ${#_sf_env} )); then
+        # Exit 3 after any passed challenge (also with approved_notice off):
+        # the screen below the line is then put right (_shellfirm_below).
+        SHELLFIRM_DEFER_APPROVED=1 SHELLFIRM_SIGNAL_PROMPTED=1 command shellfirm pre-command --direct-tty --command="$1" "${_sf_la[@]}"
+    else
+        command shellfirm pre-command --direct-tty --command="$1" "${_sf_la[@]}"
+    fi
+    _sf_rc=$?
+    (( ${#_sf_env} && _sf_rc != 0 && _sf_rc != 127 )) && _shellfirm_below $(( _sf_rc == 3 ))
+    case $_sf_rc in
+        0) return 0 ;;
+        3) _shellfirm_approved=$_sf_shown; return 0 ;;
+        127) _shellfirm_say "shellfirm: warning: ${commands[shellfirm]} is installed but could not run (exit 127); this command was NOT checked. Run \`shellfirm doctor\`."; return 0 ;;
+        126) _shellfirm_say "shellfirm: could not run shellfirm (exit 126); command not run"; return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+# The banner and the challenge were printed below the line zle drew, and
+# zle does not know: drawing the line again (a paste highlight going away, a
+# transient prompt, the kept line after a cancel) it would move up over the
+# challenge and the typed answer. Move down as many rows as zle moves up, so
+# it draws below the answer instead. $1 = 1 (approved): the answer's next
+# row is saved, and preexec erases from there what zle draws again (as bash
+# does), so the approved line comes right after the answer.
+typeset -g _shellfirm_restore=""
+_shellfirm_below() {
+    [[ -t 2 && -n ${TERM-} && $TERM != dumb ]] || return 0
+    setopt localoptions extendedglob
+    local _sf_p=${(%)PS1} _sf_l
+    _sf_p=${_sf_p//$'\e'\[[0-9;?]#[ -\/]#[@-~]/}
+    _sf_p=${_sf_p//$'\e'\][^$'\a\e']#($'\a'|$'\e'\\)/}
+    local -a _sf_pl=("${(@f)_sf_p}")
+    local -i _sf_cols=${COLUMNS:-80} _sf_k _sf_n=0 _sf_w
+    (( _sf_cols > 0 )) || _sf_cols=80
+    # Rows above the cursor: the prompt's first lines, then its last line
+    # with the text before the cursor (one more row per line than it
+    # strictly needs, which only leaves a blank row).
+    (( _sf_k = ${#_sf_pl} - 1 ))
+    _sf_p=${_sf_pl[-1]}$LBUFFER
+    for _sf_l in "${(@f)_sf_p}"; do
+        _sf_w=${(m)#_sf_l}
+        (( _sf_k += _sf_w / _sf_cols + 1 ))
+    done
+    (( _sf_k-- ))
+    _sf_p=${_sf_pl[-1]}$BUFFER
+    for _sf_l in "${(@f)_sf_p}"; do
+        _sf_w=${(m)#_sf_l}
+        (( _sf_n += _sf_w / _sf_cols + 1 ))
+    done
+    (( _sf_n += ${#_sf_pl} + 2 ))
+    local _sf_s=""
+    if [[ $1 == 1 ]]; then
+        # Make room first (nothing scrolls after the row is saved), come
+        # back, save the row, then go down.
+        _sf_s=${(pl:_sf_n::\n:)}$'\e['$_sf_n$'A\e7'
+        _shellfirm_restore=1
+    fi
+    (( _sf_k > 0 )) && _sf_s+=${(pl:_sf_k::\n:)}
+    print -rnu2 -- "$_sf_s"
+}
+
+# Returns 0 when $1 is a complete command list that zsh would run now.
+# Parsing it as a function body never executes anything.
+_shellfirm_complete() {
+    { functions[_shellfirm_probe]=$1 } 2>/dev/null
+    (( $+functions[_shellfirm_probe] )) || return 1
+    unfunction _shellfirm_probe
+    local _sf_bs=${1##*[^\\]}
+    if (( ${#_sf_bs} % 2 )); then
+        # Trailing backslash: a line continuation unless quoted/commented.
+        { functions[_shellfirm_probe]=$1$'\nfi' } 2>/dev/null
+        if (( $+functions[_shellfirm_probe] )); then
+            unfunction _shellfirm_probe
+            return 1
+        fi
+        # After an operator (`a && \`) the probe above is a syntax error;
+        # zsh's own word splitting tells a continuation from a comment.
+        local -a _sf_ws
+        if [[ -o interactivecomments ]]; then
+            _sf_ws=("${(@Z+c+)1}")
+        else
+            _sf_ws=("${(@z)1}")
+        fi
+        _sf_bs=${_sf_ws[-1]##*[^\\]}
+        [[ ${_sf_ws[-1]} != \#* ]] && (( ${#_sf_bs} % 2 )) && return 1
+    fi
+    return 0
+}
+
+# Parse the arguments of `fc` / `r` ($1 = fc or r). Sets the caller's
+# _sf_how (rerun: `r`, `fc -e -`; edit: an editor runs; other: list, read,
+# write or push history), _sf_ed, _sf_subs (old=new), _sf_sel (first [last])
+# and _sf_rest (the arguments without `-e <editor>`).
+_shellfirm_fc_args() {
+    local _sf_a _sf_next=""
+    _sf_how=edit _sf_ed=""
+    _sf_subs=() _sf_sel=() _sf_rest=()
+    [[ $1 == r ]] && _sf_how=rerun
+    shift
+    for _sf_a in "$@"; do
+        if [[ -n $_sf_next ]]; then
+            if [[ $_sf_next == e ]]; then
+                _sf_ed=$_sf_a
+                [[ $_sf_a == - && $_sf_how != other ]] && _sf_how=rerun
+            else
+                _sf_rest+=("$_sf_a")
+            fi
+            _sf_next=""
+            continue
+        fi
+        case $_sf_a in
+            -e) _sf_next=e; continue ;;
+            -[mt]) _sf_next=x ;;
+            -[0-9]*) _sf_sel+=("$_sf_a") ;;
+            --) ;;
+            -*[lLRWAPp]*) _sf_how=other ;;
+            -*s*) [[ $_sf_how == other ]] || _sf_how=rerun ;;
+            -*) ;;
+            *=*) if (( ${#_sf_sel} )); then _sf_sel+=("$_sf_a"); else _sf_subs+=("$_sf_a"); fi ;;
+            *) _sf_sel+=("$_sf_a") ;;
+        esac
+        _sf_rest+=("$_sf_a")
+    done
+}
+
+# The commands a re-run (`r`, `fc -e -`) will run, in _sf_fc_out.
+# _sf_fc_err: why zsh will refuse the re-run (no such event, an old=new
+# that matches nothing), in zsh's words.
+_shellfirm_fc_text() {
+    setopt localoptions extendedglob
+    local _sf_s _sf_first=${_sf_sel[1]:--1} _sf_subbed=""
+    local _sf_last=${_sf_sel[2]:-$_sf_first}
+    _sf_fc_err=""
+    _sf_fc_out=$(builtin fc -ln "$_sf_first" "$_sf_last" 2>&1) || {
+        # zsh prefixes the message with this function's name.
+        _sf_fc_err=${${_sf_fc_out##*fc:}##<->:}
+        _sf_fc_err=${_sf_fc_err##[[:space:]]#}
+        _sf_fc_out=""
+        return
+    }
+    _sf_fc_out=${_sf_fc_out##[[:space:]]#}
+    for _sf_s in $_sf_subs; do
+        [[ $_sf_fc_out == *"${_sf_s%%=*}"* ]] && _sf_subbed=1
+        _sf_fc_out=${_sf_fc_out//"${_sf_s%%=*}"/${_sf_s#*=}}
+    done
+    (( ${#_sf_subs} )) && [[ -z $_sf_subbed ]] && _sf_fc_err="no substitutions performed"
+}
+
+# `fc` / `r` typed on the command line (an alias set up at the first prompt,
+# so functions in rc files that use `fc -p -a` are not affected): re-runs
+# and edited commands are checked before zsh runs them.
+_shellfirm_fc() {
+    local _sf_name=$1 _sf_how _sf_ed _sf_fc_out _sf_fc_err
+    local -a _sf_subs _sf_sel _sf_rest
+    shift
+    _shellfirm_fc_args "$_sf_name" "$@"
+    case $_sf_how in
+        rerun)
+            _shellfirm_fc_text
+            # zsh's own message, without this wrapper's name in front of it.
+            if [[ -n $_sf_fc_err ]]; then
+                print -ru2 -- "fc: $_sf_fc_err"
+                return 1
+            fi
+            if [[ -n ${_sf_fc_out//[[:space:]]/} ]] && (( ! ${_shellfirm_fc_ok[(Ie)$_sf_fc_out]} )); then
+                _shellfirm_expand "$_sf_fc_out"
+                if [[ -n $_shellfirm_expanded ]] && ! _shellfirm_run "$_shellfirm_expanded"; then
+                    return 1
+                fi
+            fi
+            # A command the re-run cannot find is reported in zsh's words,
+            # not with this wrapper's name in front.
+            if (( $+functions[command_not_found_handler] )); then
+                builtin $_sf_name "$@"
+            else
+                {
+                    command_not_found_handler() { print -ru2 -- "zsh: command not found: $1"; return 127 }
+                    builtin $_sf_name "$@"
+                } always {
+                    unfunction command_not_found_handler 2>/dev/null
+                }
+            fi ;;
+        edit)
+            local _shellfirm_fc_editor=${_sf_ed:-${FCEDIT:-${EDITOR:-vi}}}
+            builtin fc -e _shellfirm_fcedit "${_sf_rest[@]}" ;;
+        *) builtin fc "$@" ;;
+    esac
+}
+
+# The editor `fc` runs: the real editor, then a check of the edited text. A
+# blocked edit is emptied, and zsh runs nothing when the editor fails.
+_shellfirm_fcedit() {
+    local _sf_f=$1 _sf_c
+    eval "$_shellfirm_fc_editor"' "$_sf_f"' || return
+    _sf_c=$(<$_sf_f)
+    [[ -z ${_sf_c//[[:space:]]/} ]] && return 0
+    _shellfirm_expand "$_sf_c"
+    [[ -z $_shellfirm_expanded ]] && return 0
+    _shellfirm_run "$_shellfirm_expanded" && return 0
+    : >| $_sf_f
+    return 1
+}
+
+typeset -gi _shellfirm_depth=0
+# What separates the words that can name a function: blanks, control
+# characters and ASCII punctuation other than `_ : . @ + -`. Any other
+# character (`nettoyé`, `日本`) can be part of a function name.
+typeset -g _shellfirm_nonname='[]!#"$%&'\''()*,/;<=>?[\\^`{|}~[:space:][:cntrl:]]'
+# Variables assigned on the line being checked; functions expanded for it.
+typeset -gA _shellfirm_assigned
+typeset -ga _shellfirm_fn_seen
+typeset -g _shellfirm_vv="" _shellfirm_fb="" _shellfirm_fb_big="" _shellfirm_line="" _shellfirm_ol=""
+typeset -g _shellfirm_defs="" _shellfirm_defs_extra="" _shellfirm_expanded_extra=""
+typeset -gi _shellfirm_defs_n=0 _shellfirm_defs_bytes=0
+typeset -ga _shellfirm_reach
+
+# The value of variable $1 (in _shellfirm_vv): from an assignment earlier on
+# the line being checked, else from this session.
+_shellfirm_var_value() {
+    _shellfirm_vv=""
+    if (( ${+_shellfirm_assigned[$1]} )); then
+        _shellfirm_vv=${_shellfirm_assigned[$1]}
+    elif (( ${+parameters[$1]} )); then
+        _shellfirm_vv="${(P)1}"
+    fi
+}
+
+# The body of the function $1 when it is worth checking with a call (in
+# _shellfirm_fb): a small function that is not shellfirm's. A function that
+# is autoloaded but not loaded yet (`autoload -Uz nuke`) is read from its
+# file (zsh's own functions, under .../share/zsh/, are left out).
+_shellfirm_fn_body() {
+    _shellfirm_fb=""
+    (( $+functions[$1] )) || return 1
+    local _sf_b=${functions[$1]} _sf_d _sf_f=""
+    if [[ $_sf_b == builtin\ autoload\ -X* ]]; then
+        _sf_f=${functions_source[$1]-}
+        if [[ -z $_sf_f ]]; then
+            for _sf_d in $fpath; do
+                [[ -f $_sf_d/$1 && -r $_sf_d/$1 ]] && { _sf_f=$_sf_d/$1; break; }
+            done
+        fi
+        [[ -n $_sf_f && $_sf_f != */share/zsh/* && -f $_sf_f && -r $_sf_f ]] || return 1
+        _sf_b=$(<$_sf_f) 2>/dev/null || return 1
+    fi
+    _shellfirm_fb_big=""
+    (( ${#_sf_b} > 0 )) || return 1
+    [[ $_sf_b == *_shellfirm_* ]] && return 1
+    if (( ${#_sf_b} > 16000 )); then
+        # Loaded from a file: like a program on PATH (see _shellfirm_fn_defs).
+        [[ -n $_sf_f || -f ${functions_source[$1]-} ]] || _shellfirm_from_file $1 || _shellfirm_fb_big=1
+        return 1
+    fi
+    _shellfirm_fb=$_sf_b
+}
+
+# Functions loaded from a file in a way their source does not show: a
+# relative path (`source ./nvm.sh`: zsh keeps it as written, which no longer
+# resolves after a `cd`) and `source <(cat FILE)` (/proc/self/fd/N). Noted
+# at the prompt after such a line (and at the first prompt, after the rc
+# files); name -> "rel:<source>" or "cat:<body>" (the same name defined
+# again from somewhere else does not count).
+typeset -gA _shellfirm_srcfns
+typeset -g _shellfirm_srcnote="" _shellfirm_catsrc=""
+_shellfirm_from_file() {
+    local _sf_v=${_shellfirm_srcfns[$1]-} _sf_s=${functions_source[$1]-}
+    case $_sf_v in
+        (rel:*) [[ -n $_sf_s && ${_sf_v#rel:} == "$_sf_s" ]] ;;
+        (cat:*) [[ $_sf_s == (/proc/*|/dev/fd/*) && ${_sf_v#cat:} == "${functions[$1]}" ]] ;;
+        (*) return 1 ;;
+    esac
+}
+# The line $1 sources a file: look at the next prompt.
+_shellfirm_src_line() {
+    setopt localoptions extendedglob nobashrematch norematchpcre
+    [[ $1 == (|*[\;\&\|\(\{[:space:]])(source|.)[[:space:]]* ]] || return 0
+    _shellfirm_srcnote=1
+    local _sf_re='^[[:space:]]*(source|\.)[[:space:]]+<\([[:space:]]*cat[[:space:]]+([^][:space:];&|()<>`$'"'"'"\\*?[{}]+)[[:space:]]*\)[[:space:]]*$'
+    if [[ $1 =~ $_sf_re ]]; then
+        _shellfirm_catsrc=${match[2]}
+        [[ $_shellfirm_catsrc == '~/'* ]] && _shellfirm_catsrc=$HOME/${_shellfirm_catsrc#'~/'}
+    fi
+}
+_shellfirm_note_src() {
+    local _sf_n _sf_s _sf_f=$_shellfirm_catsrc
+    _shellfirm_srcnote="" _shellfirm_catsrc=""
+    (( ${+functions_source} )) || return 0
+    [[ -n $_sf_f && -f $_sf_f ]] || _sf_f=""
+    for _sf_n _sf_s in "${(@kv)functions_source}"; do
+        [[ $_sf_n == _shellfirm* || -z $_sf_s ]] && continue
+        case $_sf_s in
+            (/proc/*|/dev/fd/*)
+                [[ -n $_sf_f ]] && (( ${#functions[$_sf_n]} > 16000 && ${#_shellfirm_srcfns} < 256 )) \
+                    && _shellfirm_srcfns[$_sf_n]="cat:${functions[$_sf_n]}" ;;
+            (/*) ;;
+            (*)
+                [[ ${_shellfirm_srcfns[$_sf_n]-} == "rel:$_sf_s" ]] && continue
+                [[ -f $_sf_s || ( -n ${OLDPWD-} && -f $OLDPWD/$_sf_s ) ]] && (( ${#_shellfirm_srcfns} < 4096 )) \
+                    && _shellfirm_srcfns[$_sf_n]="rel:$_sf_s" ;;
+        esac
+    done
+}
+
+# A function body as one line, which is how the check reads a definition.
+# A here-document cannot be joined: that body stays as it is (its commands
+# are then read as written, `$1` unknown). Sets _shellfirm_ol.
+_shellfirm_one_line() {
+    setopt localoptions extendedglob
+    _shellfirm_ol=$1
+    [[ ${1//<<</} == *'<<'* ]] && return
+    local _sf_l _sf_o=""
+    for _sf_l in "${(@f)1}"; do
+        _sf_l=${${_sf_l##[[:space:]]#}%%[[:space:]]#}
+        [[ -z $_sf_l ]] && continue
+        case $_sf_o in
+            (''|*'{'|*'('|*';'|*'|'|*'&'|then|*[[:space:]]then|do|*[[:space:]]do|else|*[[:space:]]else|*[[:space:]]in) _sf_o+=" $_sf_l" ;;
+            (*) _sf_o+="; $_sf_l" ;;
+        esac
+    done
+    _shellfirm_ol=${_sf_o# }
+}
+
+# The functions named in $1 (and those their bodies name, and so on), each
+# once, are sent ahead of the line as definitions (`name() { body; }`): the
+# check binds every call's arguments itself (`shift`, `"$@"`, any depth),
+# so what it reads is what runs. A body that rewrites its arguments in a way
+# the check does not follow (`set --`, `argv=`, `getopts`, `shift` in a
+# loop) is also added as written, where its `$1` counts as unknown. Past the
+# budget (64 functions, 64 KB, 16 KB for one body) the rest is not read: a
+# marker says so (shell:function_depth_limit), so nothing is skipped
+# silently. A function over 16 KB loaded from a file (nvm, sdkman, conda) is
+# treated like a program on PATH: its arguments are checked, its body is not
+# read (no marker); one typed or pasted into the session gets the marker.
+# Appends to _shellfirm_defs and _shellfirm_defs_extra.
+_shellfirm_fn_defs() {
+    setopt localoptions extendedglob
+    local IFS=$' \t\n' _sf_todo=$1 _sf_w _sf_fb _sf_saved
+    local -a _sf_ws
+    while [[ -n $_sf_todo ]]; do
+        _sf_ws=(${=_sf_todo//${~_shellfirm_nonname}/ })
+        _sf_todo=""
+        for _sf_w in $_sf_ws; do
+            [[ $_sf_w == (_shellfirm*|[0-9.+-]*) ]] && continue
+            (( $+functions[$_sf_w] )) || continue
+            (( ${_shellfirm_fn_seen[(Ie)$_sf_w]} )) && continue
+            _shellfirm_fn_seen+=($_sf_w)
+            if ! _shellfirm_fn_body $_sf_w; then
+                [[ -n $_shellfirm_fb_big ]] && _shellfirm_defs_extra+=$'\n'"shellfirm-function-depth-limit $_sf_w # a function too large for the hook to read ahead"
+                continue
+            fi
+            _sf_fb=$_shellfirm_fb
+            if (( ++_shellfirm_defs_n > 64 || _shellfirm_defs_bytes + ${#_sf_fb} > 64000 )); then
+                _shellfirm_defs_extra+=$'\n'"shellfirm-function-depth-limit $_sf_w # calls more functions than the hook reads ahead"
+                return
+            fi
+            (( _shellfirm_defs_bytes += ${#_sf_fb} ))
+            _shellfirm_one_line "$_sf_fb"
+            _shellfirm_defs+=$'\n'"$_sf_w() { $_shellfirm_ol; }"
+            if [[ $_sf_fb =~ '(^|[[:space:];&|({])(set[[:space:]]+(--|-A[[:space:]]+argv|[^-+[:space:]])|getopts[[:space:]]|OPTIND|argv(\[[^]]*\])?\+?=)' ]] \
+                || [[ $_sf_fb == *shift* && $_sf_fb =~ '(^|[[:space:];&|({])(while|until|for|foreach|select|repeat)[[:space:]]' ]]; then
+                _shellfirm_defs_extra+=$'\n'"{ $_sf_fb }"
+            fi
+            # What the body runs that the check cannot see by itself
+            # (`$K delete ...` with K from this session, `r`, aliases
+            # resolved at definition), not the body itself.
+            _sf_saved=$_shellfirm_expanded
+            (( _shellfirm_depth++ ))
+            _shellfirm_expand "$_sf_fb"
+            (( _shellfirm_depth-- ))
+            _shellfirm_defs_extra+=$_shellfirm_expanded_extra
+            _shellfirm_expanded=$_sf_saved
+            _sf_todo+=" $_sf_fb"
+        done
+    done
+}
+
+# Functions that run by themselves (the *_functions hook arrays, zle
+# widgets, traps, zsh's hook function names) and the functions they name,
+# however deep: in _shellfirm_reach (computed once per check).
+_shellfirm_hook_reach() {
+    setopt localoptions extendedglob
+    local _sf_roots="$precmd_functions $preexec_functions $chpwd_functions $periodic_functions $zshexit_functions $zshaddhistory_functions $zsh_directory_name_functions"
+    local _sf_v
+    for _sf_v in ${(v)widgets}; do
+        [[ $_sf_v == user:* ]] && _sf_roots+=" ${_sf_v#user:}"
+    done
+    _sf_roots+=" ${(k)functions[(I)(precmd|preexec|chpwd|periodic|zshexit|zshaddhistory|TRAP*)]}"
+    _sf_roots+=" $(trap 2>/dev/null)"
+    _shellfirm_reach=()
+    local -a _sf_ws _sf_todo
+    local _sf_w _sf_t=$_sf_roots
+    local -i _sf_n=0
+    while [[ -n $_sf_t ]] && (( _sf_n < 256 )); do
+        _sf_ws=(${=_sf_t//${~_shellfirm_nonname}/ })
+        _sf_t=""
+        for _sf_w in $_sf_ws; do
+            [[ $_sf_w == (_shellfirm*|azhw:*|[0-9.+-]*) ]] && continue
+            (( $+functions[$_sf_w] )) || continue
+            (( ${_shellfirm_reach[(Ie)$_sf_w]} )) && continue
+            _shellfirm_reach+=($_sf_w)
+            (( ++_sf_n < 256 )) || break
+            _sf_t+=" ${functions[$_sf_w]}"
+        done
+    done
+}
+
+# The commands a mistyped command name $1 is one edit away from (what
+# CORRECT offers: a swapped, missing, extra or wrong character).
+_shellfirm_spell_candidates() {
+    local _sf_w=$1 _sf_c _sf_x
+    local -i _sf_i _sf_n=${#1}
+    local -aU _sf_out
+    (( _sf_n >= 2 && _sf_n <= 32 )) || return 0
+    local -a _sf_al=({a..z} {0..9} - _ .)
+    for (( _sf_i = 1; _sf_i <= _sf_n; _sf_i++ )); do
+        _sf_x=${_sf_w[1,_sf_i-1]}${_sf_w[_sf_i+1,-1]}
+        (( $+commands[$_sf_x] )) && _sf_out+=($_sf_x)
+        if (( _sf_i < _sf_n )); then
+            _sf_x=${_sf_w[1,_sf_i-1]}${_sf_w[_sf_i+1]}${_sf_w[_sf_i]}${_sf_w[_sf_i+2,-1]}
+            (( $+commands[$_sf_x] )) && _sf_out+=($_sf_x)
+        fi
+        for _sf_c in $_sf_al; do
+            _sf_x=${_sf_w[1,_sf_i-1]}$_sf_c${_sf_w[_sf_i+1,-1]}
+            (( $+commands[$_sf_x] )) && _sf_out+=($_sf_x)
+            _sf_x=${_sf_w[1,_sf_i-1]}$_sf_c${_sf_w[_sf_i,-1]}
+            (( $+commands[$_sf_x] )) && _sf_out+=($_sf_x)
+        done
+    done
+    for _sf_c in $_sf_al; do
+        (( $+commands[$_sf_w$_sf_c] )) && _sf_out+=($_sf_w$_sf_c)
+    done
+    print -r -- ${_sf_out[1,8]}
+}
+
+# Expand what zsh expands before it runs a line, in every command of it
+# (after ; && || | ( { ! time and assignments): aliases, global and suffix
+# aliases, `r` / `fc -e -` re-runs (also `builtin fc`) and small functions.
+# Sets _shellfirm_expanded ("" = nothing to check).
+_shellfirm_expand() {
+    setopt localoptions extendedglob
+    local _sf_cmd=${1//$'\\\n'/} _sf_w _sf_v _sf_name _sf_kw="" _sf_extra="" _sf_head _sf_tail _sf_nh
+    local _sf_how _sf_ed _sf_fc_out _sf_fc_err _sf_body _sf_p _sf_saved _sf_dn
+    local -a _sf_words _sf_fargs _sf_subs _sf_sel _sf_rest _sf_av _sf_subst _sf_hookw _sf_hookb
+    local -aU _sf_auto
+    local -i _sf_i _sf_k _sf_j _sf_cmdpos=1 _sf_changed=0 _sf_nf=0 _sf_nfc=0 _sf_whole=0
+    local -i _sf_indef=0 _sf_defnext=0 _sf_skip=0 _sf_hook=0 _sf_pre=0 _sf_reach=0
+    _shellfirm_expanded="" _shellfirm_expanded_extra=""
+    if (( ! _shellfirm_depth )); then
+        _shellfirm_assigned=()
+        _shellfirm_fn_seen=()
+        _shellfirm_defs="" _shellfirm_defs_extra="" _shellfirm_defs_n=0 _shellfirm_defs_bytes=0
+    fi
+    _sf_words=(${(z)_sf_cmd})
+    # Functions that run by themselves once this line has run (zsh hook
+    # functions, `zle -N` widgets, `add-zsh-hook`, the *_functions arrays):
+    # their bodies are checked now, like a PROMPT_COMMAND or a trap.
+    if [[ $_sf_cmd == *(zle|add-zsh-hook|_functions|functions\[|PROMPT|PS[1-4]|RPS[12]|trap)* ]]; then
+        for (( _sf_k = 1; _sf_k <= ${#_sf_words} && _sf_k <= 4000; _sf_k++ )); do
+            case ${_sf_words[_sf_k]} in
+                zle)
+                    if [[ ${_sf_words[_sf_k+1]-} == -N ]]; then
+                        _sf_v=${_sf_words[_sf_k+3]-}
+                        [[ -z $_sf_v || $_sf_v == [\;\&\|\)\}]* ]] && _sf_v=${_sf_words[_sf_k+2]-}
+                        _sf_auto+=(${(Q)_sf_v})
+                    fi ;;
+                add-zsh-hook)
+                    _sf_j=$(( _sf_k + 1 ))
+                    while [[ ${_sf_words[_sf_j]-} == -[^d]* ]]; do (( _sf_j++ )); done
+                    [[ ${_sf_words[_sf_j]-} != -d* && -n ${_sf_words[_sf_j+1]-} ]] && _sf_auto+=(${(Q)_sf_words[_sf_j+1]}) ;;
+                trap)
+                    # `trap f SIG` / `trap 'cmd' SIG`: runs on the signal.
+                    _sf_v=${(Q)_sf_words[_sf_k+1]-}
+                    if [[ -n $_sf_v && $_sf_v != -* && -n ${_sf_words[_sf_k+2]-} ]]; then
+                        if (( $+functions[$_sf_v] )); then _sf_auto+=($_sf_v); else _sf_hookb+=("$_sf_v"); fi
+                    fi ;;
+                functions\[(precmd|preexec|chpwd|periodic|zshexit|zshaddhistory|zsh_directory_name|command_not_found_handler|TRAP[A-Z0-9]##)\]=*)
+                    # A hook function defined through the functions array.
+                    _sf_hookb+=("${(Q)_sf_words[_sf_k]#*=}") ;;
+                (PROMPT|RPROMPT|PS[1-4]|RPS[12]|PROMPT[234]|RPROMPT2)=*)
+                    # A prompt runs its command substitutions (prompt_subst).
+                    _sf_v=${(Q)_sf_words[_sf_k]#*=}
+                    [[ $_sf_v == *('$('|'`')* ]] && _sf_hookb+=("$_sf_v") ;;
+                (precmd|preexec|chpwd|periodic|zshexit|zshaddhistory|zsh_directory_name)_functions(\[*\]|)(|+)=\(*)
+                    for (( _sf_j = _sf_k + 1; _sf_j <= ${#_sf_words}; _sf_j++ )); do
+                        [[ ${_sf_words[_sf_j]} == ')' ]] && break
+                        _sf_auto+=(${(Q)_sf_words[_sf_j]})
+                    done ;;
+                (precmd|preexec|chpwd|periodic|zshexit|zshaddhistory|zsh_directory_name)_functions(\[*\]|)(|+)=?*)
+                    # One element (`precmd_functions[1]=f`, `+=f`).
+                    _sf_auto+=(${(Q)_sf_words[_sf_k]#*=}) ;;
+            esac
+        done
+    fi
+    for (( _sf_i = 1; _sf_i <= ${#_sf_words} && _sf_i <= 4000; _sf_i++ )); do
+        _sf_w=${_sf_words[_sf_i]}
+        if [[ -o aliases && -n ${galiases[$_sf_w]-} ]]; then
+            _sf_words[_sf_i]=${galiases[$_sf_w]}
+            _sf_w=${_sf_words[_sf_i]}
+            _sf_changed=1
+        fi
+        # Command substitutions (`$( )`, backticks, `<( )`) run commands of
+        # their own: expanded like a line of their own.
+        if [[ $_sf_w == *('$('|'`'|'<('|'>(')* && $_sf_w != \'* ]] && (( ${#_sf_subst} < 8 )); then
+            _sf_subst+=("$_sf_w")
+        fi
+        # A function definition (`f() { ... }`, `function f { ... }`) runs
+        # nothing: its body is checked when it is called.
+        if (( _sf_defnext || _sf_indef )); then
+            case $_sf_w in
+                '{') (( _sf_indef++ )); _sf_defnext=0 ;;
+                '}') (( _sf_indef > 0 )) && (( _sf_indef-- )) ;;
+            esac
+            # The body of a function that runs by itself, as a `{ ... }` group.
+            if (( _sf_hook && ( _sf_indef > 0 || ! _sf_defnext ) )); then
+                _sf_hookw+=("$_sf_w")
+                if (( ! _sf_indef )); then
+                    _sf_hookb+=("${(j: :)_sf_hookw}")
+                    _sf_hook=0 _sf_hookw=()
+                fi
+            fi
+        fi
+        if (( _sf_cmdpos && ! _sf_indef && ! _sf_defnext )); then
+            if [[ $_sf_w == function && -z $_sf_kw ]] || [[ ${_sf_words[_sf_i+1]-} == '()' && $_sf_w != [\;\&\|\(\)\{\}]* ]]; then
+                _sf_defnext=1
+                if [[ $_sf_w == function ]]; then _sf_dn=${(Q)_sf_words[_sf_i+1]-}; else _sf_dn=${(Q)_sf_w}; fi
+                # A function that runs by itself, also one registered
+                # earlier (`add-zsh-hook precmd g`, `zle -N w`) and the
+                # functions those call: its new body is checked now.
+                (( _sf_reach || _shellfirm_depth )) || { _sf_reach=1; _shellfirm_hook_reach; }
+                if [[ $_sf_dn == (precmd|preexec|chpwd|periodic|zshexit|zshaddhistory|zsh_directory_name|command_not_found_handler|TRAP[A-Z0-9]##) ]] || (( ${_sf_auto[(Ie)$_sf_dn]} )) \
+                    || (( ! _shellfirm_depth && ${_shellfirm_reach[(Ie)$_sf_dn]} )); then
+                    _sf_hook=1 _sf_hookw=()
+                    _sf_auto=(${_sf_auto:#$_sf_dn})
+                fi
+            fi
+        fi
+        case $_sf_w in
+            ';'|'&&'|'||'|'|'|'|&'|'&'|'&!'|'&|'|'('|')'|'{'|'}'|';;'|';&'|';|'|'!'|then|do|else|elif|if|while|until|time|nocorrect|noglob|coproc|'()')
+                _sf_cmdpos=1 _sf_kw="" _sf_skip=0 _sf_pre=0
+                continue ;;
+        esac
+        (( _sf_cmdpos )) || continue
+        if (( _sf_skip )); then
+            _sf_skip=0
+            continue
+        fi
+        # Variable assignments before the command name (remembered: a later
+        # `$name` in command position runs that value).
+        if [[ -z $_sf_kw && $_sf_w == [[:alpha:]_][[:alnum:]_]#=* ]]; then
+            [[ $_sf_w == *=\(* ]] || _shellfirm_assigned[${_sf_w%%=*}]=${(Q)_sf_w#*=}
+            _sf_pre=1
+            continue
+        fi
+        # A redirection before the command (`>/dev/null kd ...`).
+        if [[ $_sf_w == [0-9]#(\<|\>|\>\>|\<\<\<|\>\||\>\!|\<\>|\&\>|\&\>\>|\>\&|\<\&)* ]]; then
+            _sf_pre=1
+            [[ $_sf_w == [0-9]#(\<|\>|\>\>|\<\<\<|\>\||\>\!|\<\>|\&\>|\&\>\>|\>\&|\<\&) ]] && _sf_skip=1
+            continue
+        fi
+        case $_sf_w in
+            builtin|command|exec|-)
+                [[ -z $_sf_kw ]] && { _sf_kw=$_sf_w; continue; } ;;
+            repeat)
+                # `repeat N cmd`: the count, then the command.
+                [[ -z $_sf_kw ]] && { _sf_skip=1; continue; } ;;
+        esac
+        _sf_cmdpos=0
+        (( _sf_indef || _sf_defnext )) && { _sf_kw=""; continue; }
+        _sf_name=${(Q)_sf_w}
+        if [[ -z $_sf_kw && -o aliases && -n ${aliases[$_sf_w]-} && ${aliases[$_sf_w]} != _shellfirm_fc\ * ]]; then
+            _sf_head=$_sf_w _sf_tail=""
+            for (( _sf_k = 0; _sf_k < 5; _sf_k++ )); do
+                _sf_v=${aliases[$_sf_head]-}
+                [[ -n $_sf_v ]] || break
+                _sf_v=${_sf_v##[[:space:]]#}
+                _sf_nh=${_sf_v%%[[:space:]]*}
+                _sf_tail=${_sf_v#"$_sf_nh"}$_sf_tail
+                # `alias ls='ls -G'`: zsh does not expand an alias inside itself.
+                [[ $_sf_nh == $_sf_head ]] && break
+                _sf_head=$_sf_nh
+            done
+            _sf_words[_sf_i]=$_sf_head$_sf_tail
+            _sf_name=$_sf_head
+            _sf_changed=1
+            # An alias ending in a space also expands the next word.
+            [[ $_sf_tail == *[[:space:]] ]] && _sf_cmdpos=1
+        elif [[ -z $_sf_kw && -o aliases && $_sf_w == *.[^./]## && -n ${saliases[${_sf_w:e}]-} ]]; then
+            # Suffix alias: `alias -s d='rm -rf'` makes `build.d` run `rm -rf build.d`.
+            _sf_words[_sf_i]="${saliases[${_sf_w:e}]} $_sf_w"
+            _sf_name=${${saliases[${_sf_w:e}]}%%[[:space:]]*}
+            _sf_changed=1
+        fi
+        # The arguments of this command (up to the next control operator).
+        _sf_fargs=()
+        for (( _sf_k = _sf_i + 1; _sf_k <= ${#_sf_words} && _sf_k <= _sf_i + 64; _sf_k++ )); do
+            case ${_sf_words[_sf_k]} in
+                ';'|'&&'|'||'|'|'|'|&'|'&'|'&!'|'&|'|')'|'}'|';;') break ;;
+            esac
+            _sf_fargs+=("${(Q)_sf_words[_sf_k]}")
+        done
+        # A command named by a variable (`$K delete ...`, `${K}`, `${(P)n}`):
+        # its value from earlier on this line, else from this session.
+        if [[ -z $_sf_kw && $_sf_w == \$([[:alpha:]_][[:alnum:]_]#|\{(\(P\)|)[[:alpha:]_][[:alnum:]_]#\}) ]] && (( _shellfirm_depth < 3 )); then
+            _sf_v=${${${_sf_w#\$}#\{}%\}}
+            _shellfirm_var_value "${_sf_v#'(P)'}"
+            if [[ $_sf_v == '(P)'* ]]; then
+                _sf_v=$_shellfirm_vv
+                _shellfirm_vv=""
+                [[ $_sf_v == [[:alpha:]_][[:alnum:]_]# ]] && _shellfirm_var_value "$_sf_v"
+            fi
+            _sf_p=$_shellfirm_vv
+            if [[ -n ${_sf_p//[[:space:]]/} && $_sf_p != *_shellfirm* ]] && (( ${#_sf_p} <= 4000 )); then
+                _sf_saved=$_shellfirm_expanded
+                (( _shellfirm_depth++ ))
+                _shellfirm_expand "$_sf_p${_sf_fargs:+ ${(j: :)${(@q-)_sf_fargs}}}"
+                (( _shellfirm_depth-- ))
+                [[ -n $_shellfirm_expanded ]] && _sf_extra+=$'\n'$_shellfirm_expanded
+                _shellfirm_expanded=$_sf_saved
+            fi
+        fi
+        # CORRECT / CORRECT_ALL: zsh offers to correct a mistyped command
+        # name (`kubeclt` -> `kubectl`) after this check. Check the
+        # commands it could be corrected to as well.
+        if [[ ( -o correct || -o correctall ) && -z $_sf_kw && $_sf_name != */* && -n $_sf_name ]] \
+            && (( ! $+commands[$_sf_name] && ! $+aliases[$_sf_name] && ! $+functions[$_sf_name] && ! $+builtins[$_sf_name] && ! $+reswords[$_sf_name] )); then
+            for _sf_p in $(_shellfirm_spell_candidates "$_sf_name"); do
+                _sf_extra+=$'\n'"$_sf_p ${(j: :)${(@qq)_sf_fargs}}"
+            done
+        fi
+        if [[ ( $_sf_name == fc || ( $_sf_name == r && ( -z $_sf_kw || $_sf_kw == builtin ) ) ) ]] && (( _sf_nfc < 8 )) \
+            && (( ! $+functions[$_sf_name] || ${+aliases[$_sf_name]} )) || [[ $_sf_kw == builtin && $_sf_name == (fc|r) ]]; then
+            (( _sf_nfc++ ))
+            _shellfirm_fc_args "$_sf_name" "${_sf_fargs[@]}"
+            if [[ $_sf_how == rerun ]]; then
+                _shellfirm_fc_text
+                if [[ -n $_sf_fc_out ]]; then
+                    _shellfirm_fc_ok+=("$_sf_fc_out")
+                    # The whole line is the re-run: check (and show) just that.
+                    if (( _sf_i <= 2 && _sf_k > ${#_sf_words} && ! _sf_changed )); then
+                        _sf_whole=1
+                        _sf_cmd=$_sf_fc_out
+                    else
+                        _sf_extra+=$'\n'$_sf_fc_out
+                    fi
+                fi
+            elif [[ $_sf_how == edit && ( -n $_sf_kw || $_sf_w == \\* ) ]]; then
+                _shellfirm_block_msg="shellfirm: \`${_sf_kw:+$_sf_kw }$_sf_w\` with an editor runs the edited commands without a check; use \`fc\` instead. Command not run."
+            fi
+        elif [[ -z $_sf_kw && $_sf_name != _shellfirm* ]] && (( $+functions[$_sf_name] )); then
+            # A call of a function: its definition is sent with the line
+            # (_shellfirm_fn_defs). After assignments or a redirection
+            # (`A=1 f x`) the bare call too, which the check binds to it.
+            (( _sf_pre )) && _sf_extra+=$'\n'"$_sf_name ${(j: :)${(@q-)_sf_fargs}}"
+        elif [[ $_sf_name == eval && -z $_sf_kw ]] && (( ${#_sf_fargs} && _shellfirm_depth < 3 )); then
+            # The text `eval` runs (`eval 'builtin fc -e - a=b x'`), expanded
+            # and checked like a typed line.
+            _sf_saved=$_shellfirm_expanded
+            (( _shellfirm_depth++ ))
+            _shellfirm_expand "${(j: :)_sf_fargs}"
+            (( _shellfirm_depth-- ))
+            [[ -n $_shellfirm_expanded ]] && _sf_extra+=$'\n'$_shellfirm_expanded
+            _shellfirm_expanded=$_sf_saved
+        fi
+        _sf_kw=""
+    done
+    # Command substitutions: the commands inside them.
+    if (( ${#_sf_subst} && _shellfirm_depth < 3 )); then
+        _sf_saved=$_shellfirm_expanded
+        (( _shellfirm_depth++ ))
+        for _sf_w in $_sf_subst; do
+            _sf_v=${_sf_w#*(\$\(|\`|\<\(|\>\()}
+            _sf_v=${_sf_v%(\)|\`)*}
+            [[ -n ${_sf_v//[[:space:]]/} ]] || continue
+            _shellfirm_expand "$_sf_v"
+            [[ -n $_shellfirm_expanded && $_shellfirm_expanded != $_sf_v ]] && _sf_extra+=$'\n'$_shellfirm_expanded
+        done
+        (( _shellfirm_depth-- ))
+        _shellfirm_expanded=$_sf_saved
+    fi
+    # Functions that run by themselves: the bodies defined on this line, and
+    # those of functions this line registers that are already defined.
+    for _sf_v in ${_sf_auto:#_shellfirm*}; do
+        _shellfirm_fn_body "$_sf_v" && _sf_hookb+=("{ $_shellfirm_fb }")
+    done
+    if (( ${#_sf_hookb} && _shellfirm_depth < 3 )); then
+        _sf_saved=$_shellfirm_expanded
+        (( _shellfirm_depth++ ))
+        for _sf_v in ${_sf_hookb[1,8]}; do
+            _shellfirm_expand "$_sf_v"
+            _sf_extra+=$'\n'${_shellfirm_expanded:-$_sf_v}
+        done
+        (( _shellfirm_depth-- ))
+        _shellfirm_expanded=$_sf_saved
+    fi
+    (( _sf_changed && ! _sf_whole )) && _sf_cmd=${(j: :)_sf_words}
+    # Only adds text to history: nothing runs.
+    if [[ $_sf_cmd == [[:space:]]#(builtin[[:space:]]##|)print[[:space:]]##-[sS][[:space:]]* && $_sf_cmd != *[\;\|\&\`\$\(\)\<\>$'\n']* ]]; then
+        return
+    fi
+    _shellfirm_expanded_extra=$_sf_extra
+    if (( ! _shellfirm_depth )); then
+        # The definitions of the functions the line (and what it adds)
+        # names, ahead of it.
+        _shellfirm_fn_defs "$_sf_cmd$_sf_extra"
+        _shellfirm_expanded=${_shellfirm_defs#$'\n'}${_shellfirm_defs:+$'\n'}$_sf_cmd$_sf_extra$_shellfirm_defs_extra
+        # What the banner and the audit log show: the line as typed
+        # (aliases and re-runs resolved), not the definitions.
+        _shellfirm_line=$_sf_cmd
+    else
+        _shellfirm_expanded=$_sf_cmd$_sf_extra
+    fi
+}
+
+# Blocked: a single line stays in the buffer; a multi-line construct is
+# pulled back into one editable buffer. (After `zle -I` zle redraws by
+# itself; a reset-prompt would overwrite the message above it.)
+_shellfirm_keep_line() {
+    # The same words as in bash (the challenge already said "command not
+    # run"). A multi-line construct comes back as one buffer: Ctrl-U would
+    # only clear its last line.
+    local _sf_msg="shellfirm: the line is kept for editing (Ctrl-U clears it)." _sf_rn _sf_rv _sf_rp
+    # Ctrl-U (kill-whole-line) clears only one line of a multi-line buffer.
+    [[ -n $PREBUFFER || $BUFFER == *$'\n'* ]] && _sf_msg="shellfirm: the lines are kept for editing (Ctrl-C clears them all; Ctrl-U clears one line)."
+    if [[ -n $_shellfirm_rest ]]; then
+        # The lines read ahead of the challenge stay with it.
+        _shellfirm_rest_count
+        BUFFER+=$'\n'$_shellfirm_rest
+        CURSOR=${#BUFFER}
+        _shellfirm_rest=""
+        _sf_msg="shellfirm: the line and the $_sf_rn typed or pasted after it are kept for editing (Ctrl-C clears them all; Ctrl-U clears one line)."
+    fi
+    [[ -n ${1-} ]] && _sf_msg=""
+    # The display was given up (`zle -I`) before the check printed: zle
+    # draws the prompt again below whatever is printed now. A `zle -M`
+    # message would share the prompt's row and overwrite it.
+    # A multi-line construct is redrawn from its first line, which would
+    # take a `zle -M` message away: print it above instead.
+    if [[ ( -n $_shellfirm_trashed || -n $PREBUFFER ) && -n $_sf_msg ]]; then
+        [[ -z $_shellfirm_trashed ]] && { zle -I; _shellfirm_trashed=1; }
+        print -ru2 -- "$_sf_msg"
+        _sf_msg=""
+    fi
+    if [[ -n $PREBUFFER ]]; then
+        zle push-line-or-edit
+    elif [[ -z $_shellfirm_trashed ]]; then
+        zle reset-prompt
+    fi
+    # Shown below the line (a multi-line prompt redraw can hide the
+    # message printed above it); it goes away at the next key.
+    [[ -n $_sf_msg ]] && zle -M "$_sf_msg"
+}
+
+# $1 = name of the wrapped widget (never $WIDGET: that is the widget bound
+# to the key, e.g. atuin-search when atuin calls `zle accept-line`).
+_shellfirm_widget() {
+    local _sf_name=$1; shift
+    local _sf_orig=${_shellfirm_orig_widget[$_sf_name]:-.$_sf_name}
+    _shellfirm_seen=1
+    # Re-entered through a plugin chain: already checked, finish the chain.
+    if (( ${_shellfirm_in_widget:-0} )); then
+        if [[ $_sf_name == accept-* ]]; then
+            zle ".$_sf_name" -- "$@"
+        else
+            zle "$_sf_orig" -- "$@"
+        fi
+        return
+    fi
+    local -i _shellfirm_in_widget=1
+    _shellfirm_approved="" _shellfirm_restore="" _shellfirm_rest="" _shellfirm_rest_note=""
+    # In a recursive edit that a transient prompt runs from zle-line-init
+    # (romkatv / p10k style: it draws the line again once the edit ends),
+    # the line is checked at zle-line-finish instead, after that redraw: the
+    # banner then goes below the collapsed line and nothing draws over it.
+    # A blocked line comes back at the next prompt; in vi mode Ctrl-U would
+    # not clear it there, so vi mode keeps the check here.
+    if (( ${ZLE_RECURSIVE:-0} > 0 )) && [[ $_sf_name == accept-line && -z $PREBUFFER ]] \
+        && [[ $(bindkey -lL main 2>/dev/null) != *viins* ]] && _shellfirm_add_gate; then
+        zle "$_sf_orig" -- "$@"
+        return
+    fi
+    # Here-document body lines are data; the line that opened the
+    # here-document was checked when it was accepted.
+    if [[ -n $PREBUFFER && ${(%):-%_} == *heredoc* ]]; then
+        zle "$_sf_orig" -- "$@"
+        return
+    fi
+    setopt localoptions extendedglob
+    _shellfirm_fc_ok=()
+    _shellfirm_block_msg=""
+    _shellfirm_trashed=""
+    # History references are expanded first: zsh decides whether the input
+    # is complete after expanding them (`!$` can be the closing `fi`). The
+    # history characters can be changed (`histchars='@^#'`).
+    local _sf_h1=${histchars[1]-} _sf_h2=${histchars[2]-}
+    if [[ -o banghist && -n $_sf_h1 && ( $BUFFER == *"$_sf_h1"* || ( -n $_sf_h2 && $BUFFER == "$_sf_h2"* ) ) ]]; then
+        zle expand-history 2>/dev/null
+    fi
+    local _sf_full=$PREBUFFER$BUFFER
+    if [[ -n ${_sf_full//[[:space:]]/} ]] && _shellfirm_complete "$_sf_full"; then
+        _shellfirm_expand "$_sf_full"
+        if [[ -n $_shellfirm_block_msg ]]; then
+            _shellfirm_say "$_shellfirm_block_msg"
+            _shellfirm_keep_line said
+            return 1
+        fi
+        if [[ -n $_shellfirm_expanded ]] && ! _shellfirm_run "$_shellfirm_expanded"; then
+            _shellfirm_keep_line
+            return 1
+        fi
+        _shellfirm_give_back
+        _shellfirm_src_line "$_sf_full"
+    fi
+    # Checked: the line-finish gate lets exactly this text through.
+    _shellfirm_allowed=$PREBUFFER$BUFFER
+    zle "$_sf_orig" -- "$@"
+}
+
+# zle-line-finish: the last moment before zsh runs the line, whatever Enter
+# is bound to. A line that did not pass through the wrapped widgets (Enter
+# bound later, by a plugin loaded after the first prompt, to a widget that
+# calls `.accept-line`), or that the widget shellfirm ran after its check
+# changed (`BUFFER=...; zle .accept-line`), is checked here. Blocked: the
+# line is emptied, so nothing runs, and put back for editing.
+_shellfirm_line_finish() {
+    local _sf_full=$PREBUFFER$BUFFER
+    local _sf_ok=$_shellfirm_allowed
+    _shellfirm_allowed=""
+    [[ -n ${_sf_full//[[:space:]]/} && $_sf_full != "$_sf_ok" ]] || return 0
+    [[ -n $PREBUFFER && ${(%):-%_} == *heredoc* ]] && return 0
+    _shellfirm_complete "$_sf_full" || return 0
+    setopt localoptions extendedglob
+    local _sf_h1=${histchars[1]-} _sf_h2=${histchars[2]-}
+    if [[ -o banghist && -n $_sf_h1 && ( $BUFFER == *"$_sf_h1"* || ( -n $_sf_h2 && $BUFFER == "$_sf_h2"* ) ) ]]; then
+        zle expand-history 2>/dev/null
+        _sf_full=$PREBUFFER$BUFFER
+    fi
+    _shellfirm_gated=1
+    _shellfirm_fc_ok=()
+    _shellfirm_block_msg=""
+    _shellfirm_trashed=""
+    _shellfirm_rest="" _shellfirm_rest_note=""
+    _shellfirm_expand "$_sf_full"
+    if [[ -n $_shellfirm_block_msg ]]; then
+        _shellfirm_say "$_shellfirm_block_msg"
+    elif [[ -z $_shellfirm_expanded ]] || _shellfirm_run "$_shellfirm_expanded"; then
+        _shellfirm_give_back
+        _shellfirm_src_line "$_sf_full"
+        return 0
+    fi
+    local _sf_rn _sf_rv _sf_rp
+    if [[ -n $_shellfirm_rest ]]; then
+        _shellfirm_rest_count
+        print -rz -- "$_sf_full"$'\n'"$_shellfirm_rest"
+        _shellfirm_rest=""
+        print -ru2 -- "shellfirm: the line and the $_sf_rn typed or pasted after it are kept for editing (Ctrl-C clears them all; Ctrl-U clears one line)."
+    elif [[ -n $PREBUFFER || $_sf_full == *$'\n'* ]]; then
+        print -rz -- "$_sf_full"
+        print -ru2 -- "shellfirm: the lines are kept for editing (Ctrl-C clears them all; Ctrl-U clears one line)."
+    else
+        print -rz -- "$_sf_full"
+        print -ru2 -- "shellfirm: the line is kept for editing (Ctrl-U clears it)."
+    fi
+    BUFFER=""
+    # A multi-line construct: abandon it (the whole text is back in the editor).
+    [[ -n $PREBUFFER ]] && zle send-break
+    return 0
+}
+
+# zle-line-init: the zle-line-finish check is in place for this line.
+_shellfirm_line_init() { _shellfirm_add_gate }
+
+# Ctrl-R (incremental search) + Enter: accept the search, then run the
+# (checked) accept-line instead of zsh's built-in one.
+_shellfirm_isearch_accept() {
+    zle accept-search
+    zle accept-line -- "$@"
+}
+
+# A command is about to run that did not pass through the wrapped widgets
+# (Enter bound to a widget that calls `zle .accept-line`): the next prompt
+# wraps what Enter runs again. Without the line-finish check, warn once.
+_shellfirm_preexec() {
+    # After a passed challenge: "approved, running ..." now, below the line
+    # as zle (or a transient prompt) left it.
+    if [[ -n $_shellfirm_restore ]]; then
+        _shellfirm_restore=""
+        print -rnu2 -- $'\e8\e[J'
+    fi
+    if [[ -n $_shellfirm_approved ]]; then
+        if [[ $_shellfirm_notes == 0 ]]; then
+            # Nothing to keep quiet: stderr stays the terminal, so the line
+            # is dim when the terminal has colour.
+            command shellfirm pre-command --approved-notice --command="$_shellfirm_approved"
+        elif [[ -t 2 && -z ${NO_COLOR-} && ${CLICOLOR-} != 0 && ${TERM-} == (xterm|screen|tmux|rxvt|*color*|kitty|alacritty|foot|wezterm|vte|linux|iterm|ghostty)* && $TERM != *mono* ]]; then
+            CLICOLOR_FORCE=1 command shellfirm pre-command --approved-notice --command="$_shellfirm_approved" 2>/dev/null
+        else
+            command shellfirm pre-command --approved-notice --command="$_shellfirm_approved" 2>/dev/null
+        fi
+        _shellfirm_approved=""
+    fi
+    if [[ -n $_shellfirm_rest_note ]]; then
+        print -ru2 -- "$_shellfirm_rest_note"
+        _shellfirm_rest_note=""
+    fi
+    if [[ -z $_shellfirm_seen ]]; then
+        _shellfirm_rewrap_sig=""
+        if [[ -z $_shellfirm_gated && -z $_shellfirm_bypass_warned ]]; then
+            _shellfirm_bypass_warned=1
+            print -ru2 -- "shellfirm: warning: this command did not pass through shellfirm (Enter is bound to \`$(bindkey -M main '^M' 2>/dev/null)\`); commands are NOT being checked. Run \`shellfirm doctor\`."
+        fi
+    fi
+    _shellfirm_seen=""
+    _shellfirm_gated=""
+}
+
+# At the first prompt (after the rc files ran): `fc` and `r` typed on the
+# command line go through _shellfirm_fc, unless they are already an alias or
+# a function.
+_shellfirm_first_prompt() {
+    add-zsh-hook -d precmd _shellfirm_first_prompt
+    _shellfirm_srcnote=1
+    (( $+aliases[fc] || $+functions[fc] )) || alias fc='_shellfirm_fc fc'
+    (( $+aliases[r] || $+functions[r] )) || alias r='_shellfirm_fc r'
+}
+
+# How the widget $1 (bound to Enter) runs a command: `chained` (it calls the
+# checked accept-line), `bypass` (it calls zsh's built-in .accept-line) or
+# `unknown`. Looks one call deep into the functions it uses.
+_shellfirm_enter_kind() {
+    setopt localoptions extendedglob
+    local _sf_f=${widgets[$1]-} _sf_b _sf_w _sf_d
+    [[ $_sf_f == user:* ]] || { print -r -- unknown; return; }
+    _sf_f=${_sf_f#user:}
+    local -a _sf_todo=($_sf_f)
+    for (( _sf_d = 0; _sf_d < 2 && ${#_sf_todo}; _sf_d++ )); do
+        local -a _sf_next=()
+        for _sf_f in $_sf_todo; do
+            _sf_b=${functions[$_sf_f]-}
+            if [[ $_sf_b == *zle[[:space:]]##(-w[[:space:]]##|)[\"\']#.accept-* ]]; then
+                print -r -- bypass; return
+            fi
+            if [[ $_sf_b == *zle[[:space:]]##(-w[[:space:]]##|)[\"\']#(accept-line|accept-and-hold|accept-line-and-down-history|accept-and-infer-next-history)* ]]; then
+                print -r -- chained; return
+            fi
+            for _sf_w in ${(z)_sf_b}; do
+                [[ $_sf_w != $_sf_f && $_sf_w != _shellfirm* ]] || continue
+                if (( $+functions[$_sf_w] )); then
+                    _sf_next+=($_sf_w)
+                elif [[ ${widgets[$_sf_w]-} == user:* ]]; then
+                    _sf_next+=(${widgets[$_sf_w]#user:})
+                fi
+            done
+        done
+        _sf_todo=(${(u)_sf_next})
+    done
+    print -r -- unknown
+}
+
+# `shellfirm doctor` runs this in a fresh interactive shell; run it in this
+# shell to check the live state: `__shellfirm_doctor_probe | shellfirm doctor --stdin`
+# (the same name in every shell; `_shellfirm_doctor_probe` is the old one).
+__shellfirm_doctor_probe() {
+    # What the next prompt would do anyway (a probe run with -c has none).
+    _shellfirm_rewrap
+    print -r -- "shell=zsh"
+    print -r -- "shell_version=$ZSH_VERSION"
+    print -r -- "hook_version=$_shellfirm_hook_version"
+    print -r -- "pid=$$"
+    local _sf_w _sf_ok _sf_bad=""
+    for _sf_w in accept-line accept-and-hold accept-line-and-down-history accept-and-infer-next-history; do
+        _sf_ok=""
+        [[ ${widgets[$_sf_w]-} == user:_shellfirm_widget_$_sf_w ]] && _sf_ok=1
+        [[ -z $_sf_ok && " ${(v)widgets} " == *" user:_shellfirm_widget_$_sf_w "* ]] && _sf_ok=1
+        [[ -z $_sf_ok ]] && _sf_bad+=" $_sf_w=${widgets[$_sf_w]-}"
+    done
+    print -r -- "widgets=${${_sf_bad# }:-ok}"
+    local _sf_k=${${(z)$(bindkey -M main '^M' 2>/dev/null)}[2]}
+    [[ -n $_shellfirm_rewrapped ]] && print -r -- "rewrapped=${_shellfirm_rewrapped# }"
+    [[ -o correct || -o correctall ]] && print -r -- "correct=checked"
+    if [[ ${widgets[$_sf_k]-} == user:_shellfirm_widget_* ]]; then
+        print -r -- "enter=ok"
+    else
+        case $_sf_k in
+            accept-line|accept-and-hold|accept-line-and-down-history|accept-and-infer-next-history) print -r -- "enter=ok" ;;
+            .accept-*) print -r -- "enter=bypass:$_sf_k" ;;
+            *) print -r -- "enter=$(_shellfirm_enter_kind $_sf_k):$_sf_k" ;;
+        esac
+    fi
+    _sf_k=${${(z)$(bindkey -M isearch '^M' 2>/dev/null)}[2]}
+    [[ $_sf_k == _shellfirm_isearch_accept ]] && print -r -- "isearch=ok" || print -r -- "isearch=unchecked:$_sf_k"
+    (( ${preexec_functions[(I)_shellfirm_preexec]} )) && print -r -- "precmd=ok" || print -r -- "precmd=missing"
+    if [[ ${aliases[fc]-} == '_shellfirm_fc fc' ]] || (( ${precmd_functions[(I)_shellfirm_first_prompt]} )); then
+        print -r -- "fc=ok"
+    else
+        print -r -- "fc=unchecked"
+    fi
+    # The zle-line-finish check (registered again when a plugin replaced it).
+    _shellfirm_add_gate && print -r -- "line_finish=ok" || print -r -- "line_finish=missing"
+    [[ -n $_shellfirm_bypass_warned ]] && print -r -- "bypass_seen=yes"
+    [[ ${widgets[accept-line]-} == user:shellfirm-pre-command ]] && print -r -- "legacy_hook=active"
+    local _sf_pl=""
+    (( $+widgets[atuin-search] )) && _sf_pl+=" atuin"
+    (( $+widgets[fzf-cd-widget] || $+widgets[fzf-file-widget] )) && _sf_pl+=" fzf"
+    (( $+functions[_zsh_autosuggest_start] )) && _sf_pl+=" zsh-autosuggestions"
+    (( $+functions[_zsh_highlight] )) && _sf_pl+=" zsh-syntax-highlighting"
+    (( $+functions[zvm_init] )) && _sf_pl+=" zsh-vi-mode"
+    (( $+functions[abbr] )) && _sf_pl+=" zsh-abbr"
+    (( $+functions[prompt_powerlevel9k_setup] || $+functions[_p9k_precmd] )) && _sf_pl+=" powerlevel10k"
+    (( $+functions[starship_precmd] || $+functions[prompt_starship_precmd] )) && _sf_pl+=" starship"
+    print -r -- "plugins=${_sf_pl# }"
+}
+_shellfirm_doctor_probe() { __shellfirm_doctor_probe "$@" }
+
+# Wrap the widget $1 so that it checks the line first, then runs what the
+# widget did before.
+_shellfirm_wrap_widget() {
+    local _sf_w=$1
+    functions[_shellfirm_widget_$_sf_w]="_shellfirm_widget $_sf_w \"\$@\""
+    case ${widgets[$_sf_w]-} in
+        user:_shellfirm_widget_*) ;;
+        user:shellfirm-pre-command)
+            # Hook pasted from shellfirm <= 0.3.10: replace it.
+            print -ru2 -- "shellfirm: replaced an old shellfirm hook found in your shell startup files; remove it (run \`shellfirm init zsh\` to see where)."
+            _shellfirm_orig_widget[$_sf_w]=.$_sf_w
+            zle -N "$_sf_w" "_shellfirm_widget_$_sf_w" ;;
+        user:*|completion:*)
+            # A copy of the current widget, under a name of its own each time
+            # (a plugin may have replaced an earlier copy).
+            local -i _sf_n=1
+            while (( $+widgets[_shellfirm_orig${_sf_n}_$_sf_w] )); do (( _sf_n++ )); done
+            zle -A "$_sf_w" "_shellfirm_orig${_sf_n}_$_sf_w"
+            _shellfirm_orig_widget[$_sf_w]=_shellfirm_orig${_sf_n}_$_sf_w
+            zle -N "$_sf_w" "_shellfirm_widget_$_sf_w" ;;
+        *)
+            _shellfirm_orig_widget[$_sf_w]=.$_sf_w
+            zle -N "$_sf_w" "_shellfirm_widget_$_sf_w" ;;
+    esac
+}
+
+# Before every prompt: a plugin loaded after shellfirm may have replaced an
+# accept-line widget (`zle -N accept-line auto-ls`) or bound Enter to a
+# widget that calls zsh's built-in `.accept-line`. Wrap those again, before
+# the first command runs. A widget chain that still reaches shellfirm's
+# wrapper (zsh-autosuggestions keeps a copy of it) is left alone.
+_shellfirm_rewrap() {
+    [[ -n $_shellfirm_srcnote ]] && _shellfirm_note_src
+    _shellfirm_add_gate
+    # Nothing changed since the last prompt (no widget was added or
+    # replaced, no command bypassed the wrappers): nothing to do, and no
+    # `bindkey` subshell per prompt.
+    local _sf_sig="${#widgets}:${widgets[accept-line]-}:${widgets[accept-and-hold]-}"
+    [[ $_sf_sig == "$_shellfirm_rewrap_sig" ]] && return
+    _shellfirm_rewrap_sig=$_sf_sig
+    local _sf_w _sf_k _sf_vals=" ${(v)widgets} "
+    for _sf_w in accept-line accept-and-hold accept-line-and-down-history accept-and-infer-next-history; do
+        [[ $_sf_vals == *" user:_shellfirm_widget_$_sf_w "* ]] && continue
+        _shellfirm_wrap_widget $_sf_w
+        _shellfirm_rewrapped+=" $_sf_w"
+    done
+    for _sf_k in '^M' '^J'; do
+        _sf_w=${${(z)$(bindkey -M main "$_sf_k" 2>/dev/null)}[2]}
+        [[ -n $_sf_w && $_sf_w != (accept-line|accept-and-hold|accept-line-and-down-history|accept-and-infer-next-history|.*) ]] || continue
+        [[ ${widgets[$_sf_w]-} == user:_shellfirm_widget_* ]] && continue
+        [[ $(_shellfirm_enter_kind $_sf_w) == bypass ]] || continue
+        _shellfirm_wrap_widget $_sf_w
+        _shellfirm_rewrapped+=" $_sf_w"
+    done
+}
+typeset -g _shellfirm_rewrapped="" _shellfirm_rewrap_sig=""
+typeset -g _shellfirm_allowed="" _shellfirm_gated="" _shellfirm_approved=""
+
+# Registers the zle-line-finish check (zsh 5.3+) as the last line-finish
+# hook: after one added later (a plugin that rewrites $BUFFER there), and
+# again when a plugin replaced the zle-line-finish widget with its own
+# (`zle -N zle-line-finish f`), which is kept and runs first. Returns 1
+# when it is not in place.
+_shellfirm_add_gate() {
+    setopt localoptions extendedglob
+    local -a _sf_h
+    local _sf_e _sf_cur=${widgets[zle-line-finish]-}
+    local -i _sf_max=0 _sf_ours=-1 _sf_n=1
+    zstyle -g _sf_h zle-line-finish widgets
+    for _sf_e in $_sf_h; do
+        if [[ $_sf_e == <->:_shellfirm_line_finish ]]; then
+            _sf_ours=${_sf_e%%:*}
+        elif [[ $_sf_e == <->:* ]] && (( ${_sf_e%%:*} > _sf_max )); then
+            _sf_max=${_sf_e%%:*}
+        fi
+    done
+    [[ $_sf_cur == user:azhw:zle-line-finish ]] && (( _sf_ours > _sf_max )) && return 0
+    (( $+functions[add-zle-hook-widget] )) || autoload -Uz add-zle-hook-widget 2>/dev/null || return 1
+    # The dispatcher (azhw:*) is defined the first time add-zle-hook-widget runs.
+    (( $+functions[azhw:zle-line-finish] )) || add-zle-hook-widget -L >/dev/null 2>&1
+    (( $+functions[azhw:zle-line-finish] )) || return 1
+    _sf_h=(${_sf_h:#<->:_shellfirm_line_finish})
+    if [[ -n $_sf_cur && $_sf_cur != user:azhw:zle-line-finish ]]; then
+        # A plugin's own zle-line-finish: a copy of it stays a hook. A
+        # plugin that sets the same widget again at every prompt keeps the
+        # one copy it has (it must not run once more per prompt).
+        local _sf_have=""
+        for _sf_e in ${(M)_sf_h:#<->:_shellfirm_prev_lf*}; do
+            [[ ${widgets[${_sf_e#*:}]-} == "$_sf_cur" ]] && { _sf_have=1; break; }
+        done
+        if [[ -z $_sf_have ]]; then
+            while (( $+widgets[_shellfirm_prev_lf$_sf_n] )); do (( _sf_n++ )); done
+            zle -A zle-line-finish _shellfirm_prev_lf$_sf_n 2>/dev/null && _sf_h+=("$(( ++_sf_max )):_shellfirm_prev_lf$_sf_n")
+        fi
+    fi
+    (( $+widgets[_shellfirm_line_finish] )) || zle -N _shellfirm_line_finish
+    _sf_h+=("$(( _sf_max + 1 )):_shellfirm_line_finish")
+    zstyle zle-line-finish widgets "${_sf_h[@]}"
+    zle -N zle-line-finish azhw:zle-line-finish
+    [[ ${widgets[zle-line-finish]-} == user:azhw:zle-line-finish ]]
+}
+
+# Wrap once: re-sourcing ~/.zshrc must not wrap our own wrappers again
+# (with plugins such as zsh-autosuggestions that would loop forever).
+if (( ! ${+_shellfirm_zsh_loaded} )); then
+typeset -g _shellfirm_zsh_loaded=1
+() {
+    local _sf_w
+    for _sf_w in accept-line accept-and-hold accept-line-and-down-history accept-and-infer-next-history; do
+        _shellfirm_wrap_widget $_sf_w
+    done
+    zle -N _shellfirm_isearch_accept
+    local _sf_k
+    for _sf_k in '^M' '^J'; do
+        [[ $(bindkey -M isearch "$_sf_k" 2>/dev/null) == *undefined-key ]] && bindkey -M isearch "$_sf_k" _shellfirm_isearch_accept
+    done
+    if autoload -Uz add-zsh-hook 2>/dev/null; then
+        add-zsh-hook preexec _shellfirm_preexec
+        add-zsh-hook precmd _shellfirm_first_prompt
+        add-zsh-hook precmd _shellfirm_rewrap
+    fi
+    _shellfirm_add_gate
+    # Again when the editor starts, after every precmd hook: a plugin whose
+    # precmd (run after shellfirm's) replaces zle-line-finish cannot take
+    # the check away for that line.
+    if (( $+functions[add-zle-hook-widget] )) || autoload -Uz add-zle-hook-widget 2>/dev/null; then
+        zle -N _shellfirm_line_init
+        add-zle-hook-widget line-init _shellfirm_line_init 2>/dev/null
+    fi
+}
+fi
+fi

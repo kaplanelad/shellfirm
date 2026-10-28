@@ -238,3 +238,45 @@
 - test: "aws s3 rm s3://mybucket/ --recursive --dryrun"
   description: "EDGE: dryrun should be filtered out"
   expect_ids: []
+
+# -- round 2: aws --
+- test: 'aws ecr batch-delete-image --repository-name r --image-ids imageTag=v1'
+  description: "ecr images"
+  expect_ids: ["aws:ecr_batch_delete_image"]
+- test: 'aws redshift delete-cluster --cluster-identifier c1'
+  description: "redshift"
+  expect_ids: ["aws:redshift_delete_cluster"]
+- test: 'aws elasticache delete-replication-group --replication-group-id r1'
+  description: "elasticache"
+  expect_ids: ["aws:elasticache_delete_replication_group"]
+- test: 'aws docdb delete-db-cluster --db-cluster-identifier d1'
+  description: "docdb"
+  expect_ids: ["aws:docdb_delete"]
+- test: 'aws rds modify-db-instance --db-instance-identifier p --backup-retention-period 0'
+  description: "disable backups"
+  expect_ids: ["aws:rds_disable_backups"]
+- test: 'aws rds modify-db-instance --db-instance-identifier p --backup-retention-period 7'
+  description: "negative: keep backups"
+  expect_ids: []
+- test: 'aws --no-cli-pager --profile prod redshift delete-cluster --cluster-identifier c'
+  description: "global flags"
+  expect_ids: ["aws:redshift_delete_cluster"]
+# -- aws:scale_to_zero --
+- test: "aws autoscaling update-auto-scaling-group --auto-scaling-group-name web --desired-capacity 0"
+  description: "scales an ASG to zero"
+  expect_ids: ["aws:scale_to_zero"]
+- test: "aws ecs update-service --cluster prod --service web --desired-count 0"
+  description: "scales an ECS service to zero"
+  expect_ids: ["aws:scale_to_zero"]
+- test: "aws ecs update-service --cluster prod --service web --desired-count=0"
+  description: "the = form"
+  expect_ids: ["aws:scale_to_zero"]
+- test: "aws ecs update-service --cluster prod --service web --desired-count 10"
+  description: "negative: scaling to ten"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- aws:s3_recursive_delete --
+- test: "myaws s3 rm s3://bucket --recursive"
+  description: "another tool whose name ends in aws"
+  expect_ids: []

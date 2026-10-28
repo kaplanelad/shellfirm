@@ -12,7 +12,7 @@
 
 use crate::tui::draft::DraftSettings;
 use crate::tui::tabs::{FieldFocus, Tab, TabOutcome};
-use crate::tui::widgets::{handle_picker_key, Picker, PickerItem, PickerOutcome, PickerState};
+use crate::tui::widgets::{handle_picker_key_with, Picker, PickerItem, PickerOutcome, PickerState};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -92,13 +92,42 @@ impl IgnoreDenyTab {
 
     fn section_blurb(&self, side: Side) -> &'static str {
         match side {
-            Side::Ignore => "Patterns matching these IDs are silently skipped.",
-            Side::Deny => "Patterns matching these IDs are blocked outright.",
+            Side::Ignore => "Checks with these check ids never prompt.",
+            Side::Deny => "Commands matching these check ids are blocked outright.",
         }
     }
 }
 
 impl Tab for IgnoreDenyTab {
+    fn claims_key(&self, key: &KeyEvent) -> bool {
+        match &self.edit {
+            None => false,
+            // Tab / Shift-Tab switch zones while a list is open (the global
+            // Tab must not pre-empt that, or the entries list is
+            // unreachable from the keyboard).
+            Some(_) if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) => true,
+            // The filter is a text field: letters, and the caret keys
+            // (Left/Right must not switch tabs while typing).
+            Some(e) => {
+                e.zone == EditZone::AddPicker
+                    && matches!(
+                        key.code,
+                        KeyCode::Char(_)
+                            | KeyCode::Left
+                            | KeyCode::Right
+                            | KeyCode::Home
+                            | KeyCode::End
+                            | KeyCode::Backspace
+                            | KeyCode::Delete
+                    )
+            }
+        }
+    }
+
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
     fn title(&self) -> &str {
         "Ignore/Deny"
     }
@@ -149,7 +178,11 @@ impl Tab for IgnoreDenyTab {
             y += 1;
 
             if is_editing_this {
-                y = self.render_editing_body(buf, area.x, y, area.width, draft);
+                // Rows still needed below this section: the other section's
+                // summary when editing Ignore (title, blurb, preview, gap).
+                let reserve = if side == Side::Ignore { 4 } else { 0 };
+                let bottom = (area.y + area.height).saturating_sub(reserve);
+                y = self.render_editing_body(buf, area.x, y, area.width, bottom, draft);
             } else {
                 y = self.render_summary_body(buf, area.x, y, area.width, draft, side, is_focused);
             }
@@ -166,11 +199,16 @@ impl Tab for IgnoreDenyTab {
 
     fn current_focus(&self) -> FieldFocus {
         let label = self.section_title(self.section);
-        let (name, help) = if self.edit.is_some() {
-            (
-                format!("Editing: {label}"),
-                "↑↓ navigate · Enter add · d remove · Tab switch zone · Esc back".to_string(),
-            )
+        let (name, help) = if let Some(edit) = &self.edit {
+            let help = match edit.zone {
+                EditZone::AddPicker => {
+                    "Type to filter (←→ move the caret) · ↑↓ choose · Enter add · Tab to the list (d removes) · Esc back"
+                }
+                EditZone::EntriesList => {
+                    "↑↓ select · d remove · Tab back to the picker · Esc back"
+                }
+            };
+            (format!("Editing: {label}"), help.to_string())
         } else {
             (
                 label.to_string(),
@@ -186,11 +224,7 @@ impl Tab for IgnoreDenyTab {
 }
 
 impl IgnoreDenyTab {
-    fn handle_browsing_key(
-        &mut self,
-        key: KeyEvent,
-        _draft: &mut DraftSettings,
-    ) -> TabOutcome {
+    fn handle_browsing_key(&mut self, key: KeyEvent, _draft: &mut DraftSettings) -> TabOutcome {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.section == Side::Deny {
@@ -209,7 +243,7 @@ impl IgnoreDenyTab {
             KeyCode::Enter => {
                 self.edit = Some(EditState {
                     zone: EditZone::AddPicker,
-                    picker: PickerState::default(),
+                    picker: PickerState::requiring_choice(),
                     list_cursor: 0,
                 });
                 TabOutcome::FieldFocusChanged(self.current_focus())
@@ -230,8 +264,9 @@ impl IgnoreDenyTab {
             return TabOutcome::FieldFocusChanged(self.current_focus());
         }
 
-        // Tab toggles between zones (only if there are entries to focus).
-        if matches!(key.code, KeyCode::Tab) {
+        // Tab / Shift-Tab toggle between zones (only if there are entries
+        // to focus).
+        if matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
             let has_entries = !self.current_list(draft).is_empty();
             state.zone = match state.zone {
                 EditZone::AddPicker if has_entries => EditZone::EntriesList,
@@ -244,7 +279,7 @@ impl IgnoreDenyTab {
                 state.list_cursor = state.list_cursor.min(len.saturating_sub(1));
             }
             self.edit = Some(state);
-            return TabOutcome::None;
+            return TabOutcome::FieldFocusChanged(self.current_focus());
         }
 
         match state.zone {
@@ -259,7 +294,7 @@ impl IgnoreDenyTab {
         draft: &mut DraftSettings,
         mut state: EditState,
     ) -> TabOutcome {
-        let outcome = handle_picker_key(key, &mut state.picker, &self.all_ids);
+        let outcome = handle_picker_key_with(key, &mut state.picker, &self.all_ids, false);
         match outcome {
             PickerOutcome::Selected(value) => {
                 let trimmed = value.trim().to_string();
@@ -269,7 +304,7 @@ impl IgnoreDenyTab {
                         list.push(trimmed);
                     }
                 }
-                state.picker = PickerState::default();
+                state.picker = PickerState::requiring_choice();
                 self.edit = Some(state);
                 TabOutcome::Mutated
             }
@@ -277,7 +312,19 @@ impl IgnoreDenyTab {
                 self.edit = None;
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
-            PickerOutcome::StateChanged | PickerOutcome::None => {
+            PickerOutcome::StateChanged => {
+                self.edit = Some(state);
+                TabOutcome::FieldFocusChanged(self.current_focus())
+            }
+            PickerOutcome::None => {
+                // Enter with nothing chosen: say how to choose.
+                if key.code == KeyCode::Enter && state.picker.filter.is_empty() {
+                    self.edit = Some(state);
+                    return TabOutcome::FieldFocusChanged(FieldFocus {
+                        help: "Nothing chosen: type part of a check id or press ↓ to choose one, then Enter".to_string(),
+                        ..self.current_focus()
+                    });
+                }
                 self.edit = Some(state);
                 TabOutcome::None
             }
@@ -348,7 +395,12 @@ impl IgnoreDenyTab {
         let indent = area_x + 2;
 
         // Blurb
-        buf.set_string(indent, y, self.section_blurb(side), Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            indent,
+            y,
+            self.section_blurb(side),
+            Style::default().fg(Color::DarkGray),
+        );
         let y = y + 1;
 
         // Sample of entries
@@ -391,7 +443,9 @@ impl IgnoreDenyTab {
                 hint_x,
                 y,
                 hint,
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             );
         }
         y + 1
@@ -403,6 +457,7 @@ impl IgnoreDenyTab {
         area_x: u16,
         y: u16,
         area_width: u16,
+        bottom: u16,
         draft: &DraftSettings,
     ) -> u16 {
         let edit = self.edit.as_ref().expect("editing mode");
@@ -430,13 +485,21 @@ impl IgnoreDenyTab {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD)
         };
-        buf.set_string(indent, y, "Add a check ID", add_label_style);
+        buf.set_string(indent, y, "Add a check id", add_label_style);
         y += 1;
-        let picker_height = 5u16;
+        // Use the available height for the picker (it used to show only 3
+        // matches in a large terminal), keeping room for the entries list.
+        let entries = self.current_list(draft).len();
+        let entries_rows = 1 + entries.clamp(1, 6) as u16 + 2 * u16::from(entries > 6);
+        let picker_height = bottom
+            .saturating_sub(y)
+            .saturating_sub(1 + entries_rows)
+            .clamp(5, 40);
         Picker {
             items: &self.all_ids,
             state: &edit.picker,
             focused: picker_focused,
+            allow_create: false,
         }
         .render(
             Rect {
@@ -477,7 +540,23 @@ impl IgnoreDenyTab {
         } else {
             // Show up to N entries
             let max_visible = 6usize;
-            let shown = list.iter().take(max_visible).enumerate();
+            let start = if list_focused {
+                edit.list_cursor
+                    .saturating_sub(max_visible - 1)
+                    .min(list.len().saturating_sub(max_visible))
+            } else {
+                0
+            };
+            if start > 0 {
+                buf.set_string(
+                    indent + 2,
+                    y,
+                    format!("▲ {start} more"),
+                    Style::default().fg(Color::DarkGray),
+                );
+                y += 1;
+            }
+            let shown = list.iter().enumerate().skip(start).take(max_visible);
             for (i, value) in shown {
                 let is_cursor = list_focused && i == edit.list_cursor;
                 let style = if is_cursor {
@@ -489,14 +568,24 @@ impl IgnoreDenyTab {
                     Style::default().fg(Color::Cyan)
                 };
                 let prefix = if is_cursor { "► " } else { "  " };
-                buf.set_string(indent, y, format!("{prefix}{value}"), style);
+                let known = self.all_ids.iter().any(|p| &p.value == value);
+                let style = if known || is_cursor {
+                    style
+                } else {
+                    Style::default().fg(Color::Red)
+                };
+                let suffix = if known { "" } else { "  (unknown check id)" };
+                buf.set_string(indent, y, format!("{prefix}{value}{suffix}"), style);
                 y += 1;
             }
-            if list.len() > max_visible {
+            if list.len() > start + max_visible {
                 buf.set_string(
                     indent + 2,
                     y,
-                    format!("+ {} more (Tab to focus list, scroll)", list.len() - max_visible),
+                    format!(
+                        "▼ {} more (Tab to focus the list, then ↑↓)",
+                        list.len() - start - max_visible
+                    ),
                     Style::default().fg(Color::DarkGray),
                 );
                 y += 1;
@@ -522,10 +611,12 @@ mod tests {
             PickerItem {
                 value: "git:force_push".into(),
                 badge: Some("built-in"),
+                description: None,
             },
             PickerItem {
                 value: "fs:rm_rf".into(),
                 badge: Some("built-in"),
+                description: None,
             },
         ]
     }
@@ -563,7 +654,11 @@ mod tests {
         let mut draft = DraftSettings::from_settings(Settings::default());
         // Drill in
         tab.handle_key(key(KeyCode::Enter), &mut draft);
-        // Picker cursor on first item; Enter selects
+        // Nothing is chosen yet: a second Enter adds nothing.
+        tab.handle_key(key(KeyCode::Enter), &mut draft);
+        assert!(draft.current.ignores_patterns_ids.is_empty());
+        // Down chooses the first item; Enter adds it.
+        tab.handle_key(key(KeyCode::Down), &mut draft);
         let out = tab.handle_key(key(KeyCode::Enter), &mut draft);
         assert!(matches!(out, TabOutcome::Mutated));
         assert!(draft
@@ -586,5 +681,4 @@ mod tests {
         tab.handle_key(key(KeyCode::Char('d')), &mut draft);
         assert_eq!(draft.current.ignores_patterns_ids, vec!["b", "c"]);
     }
-
 }

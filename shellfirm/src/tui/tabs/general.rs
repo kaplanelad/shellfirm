@@ -86,7 +86,7 @@ fn section_options_count(section: usize) -> usize {
     match section {
         SECTION_CHALLENGE => CHALLENGE_OPTIONS.len(),
         SECTION_SEVERITY => SEVERITY_OPTIONS.len(),
-        SECTION_BEHAVIOR => 2, // Audit, Blast radius
+        SECTION_BEHAVIOR => 3, // Audit, Blast radius, Approved line
         _ => 0,
     }
 }
@@ -153,6 +153,10 @@ impl GeneralTab {
 }
 
 impl Tab for GeneralTab {
+    fn is_editing(&self) -> bool {
+        self.edit_cursor.is_some()
+    }
+
     fn title(&self) -> &str {
         "General"
     }
@@ -297,16 +301,29 @@ impl Tab for GeneralTab {
                                 }
                             }
                             SECTION_BEHAVIOR => {
-                                if inner == 0 {
-                                    draft.current.audit_enabled = !draft.current.audit_enabled;
-                                } else {
-                                    draft.current.blast_radius = !draft.current.blast_radius;
+                                match inner {
+                                    0 => {
+                                        draft.current.audit_enabled = !draft.current.audit_enabled;
+                                    }
+                                    // One switch: the budget (`0` = off).
+                                    1 => {
+                                        let on = draft.current.blast_radius_on();
+                                        draft.current.set_blast_radius_on(!on);
+                                    }
+                                    _ => {
+                                        draft.current.approved_notice =
+                                            !draft.current.approved_notice;
+                                    }
                                 }
                                 true
                             }
                             _ => false,
                         };
-                        if mutated { TabOutcome::Mutated } else { TabOutcome::None }
+                        if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        }
                     }
                     KeyCode::Enter => {
                         // Enter exits edit mode (Space already wrote the value).
@@ -326,6 +343,23 @@ impl Tab for GeneralTab {
             Self::focus_for_browsing(self.section)
         }
     }
+}
+
+/// `text` cut to `width` characters, ending with `…` when it was longer
+/// (shown as `...` in ASCII mode).
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mark = crate::tui::a11y::sym("…", "...");
+    let mut out: String = text
+        .chars()
+        .take(width.saturating_sub(mark.chars().count()))
+        .collect::<String>()
+        .trim_end()
+        .to_string();
+    out.push_str(mark);
+    out
 }
 
 /// Render a section's summary line (when not in edit mode).
@@ -349,30 +383,33 @@ fn render_summary_body(
             format!("Currently: {v}")
         }
         SECTION_BEHAVIOR => {
-            let mark = |on: bool| if on { "✓" } else { "✗" };
+            // Words, not glyphs: a lone `x` reads as "no" to many people,
+            // and screen readers say "check mark" / "ballot x".
+            let mark = |on: bool| if on { "on" } else { "off" };
             format!(
-                "Audit: {}  ·  Blast radius: {}",
+                "Audit: {} · Blast radius: {} · Approved line: {}",
                 mark(draft.current.audit_enabled),
-                mark(draft.current.blast_radius),
+                mark(draft.current.blast_radius_on()),
+                mark(draft.current.approved_notice),
             )
         }
         _ => String::new(),
     };
-    buf.set_string(
-        indent_x,
-        y,
-        &value_text,
-        Style::default().fg(Color::Cyan),
-    );
+    let value_text = clip(&value_text, area_width.saturating_sub(2) as usize);
+    buf.set_string(indent_x, y, &value_text, Style::default().fg(Color::Cyan));
 
-    if is_focused {
-        let hint = "Enter to edit";
+    let hint = "Enter to edit";
+    // The hint never covers the summary (the help line says it too).
+    let fits = 2 + value_text.chars().count() + 2 + hint.chars().count() <= area_width as usize;
+    if is_focused && fits {
         let hint_x = area_x + area_width.saturating_sub(hint.chars().count() as u16);
         buf.set_string(
             hint_x,
             y,
             hint,
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         );
     }
     y + 1
@@ -400,6 +437,8 @@ impl GeneralTab {
             Style::default().fg(Color::DarkGray),
         );
         let mut y = y + 1;
+        // Room for a row: anything longer ends with `…` (never cut silently).
+        let row_w = (area_x + area_width).saturating_sub(indent_x) as usize;
 
         match section {
             SECTION_CHALLENGE => {
@@ -419,7 +458,7 @@ impl GeneralTab {
                         "{bullet} {label:<8}  {desc}",
                         desc = CHALLENGE_DESCRIPTIONS[i]
                     );
-                    buf.set_string(indent_x, y, line, line_style);
+                    buf.set_string(indent_x, y, clip(&line, row_w), line_style);
                     y += 1;
                 }
             }
@@ -440,16 +479,29 @@ impl GeneralTab {
                         "{bullet} {label:<10}  {desc}",
                         desc = SEVERITY_DESCRIPTIONS[i]
                     );
-                    buf.set_string(indent_x, y, line, line_style);
+                    buf.set_string(indent_x, y, clip(&line, row_w), line_style);
                     y += 1;
                 }
             }
             SECTION_BEHAVIOR => {
                 let toggles = [
-                    ("Audit log", draft.current.audit_enabled),
-                    ("Blast radius", draft.current.blast_radius),
+                    (
+                        "Audit log",
+                        draft.current.audit_enabled,
+                        "log every intercepted command",
+                    ),
+                    (
+                        "Blast radius",
+                        draft.current.blast_radius_on(),
+                        "show the impact (files, size) before the prompt",
+                    ),
+                    (
+                        "Approved line",
+                        draft.current.approved_notice,
+                        "after a passed challenge, print `approved — running: <command>`",
+                    ),
                 ];
-                for (i, (label, on)) in toggles.iter().enumerate() {
+                for (i, (label, on, desc)) in toggles.iter().enumerate() {
                     let highlight = i == inner;
                     let label_style = if highlight {
                         Style::default()
@@ -474,6 +526,17 @@ impl GeneralTab {
                         Style::default().fg(Color::Cyan)
                     };
                     buf.set_string(indent_x + 16, y, value, value_style);
+                    // What the switch does, where there is room.
+                    let desc_x = indent_x + 16 + 16;
+                    let room = (area_x + area_width).saturating_sub(desc_x) as usize;
+                    if room >= 12 {
+                        buf.set_string(
+                            desc_x,
+                            y,
+                            clip(&crate::config::ascii_fallback(desc), room),
+                            Style::default().fg(Color::DarkGray),
+                        );
+                    }
                     y += 1;
                 }
             }
@@ -538,8 +601,10 @@ mod tests {
         for _ in 0..5 {
             tab.handle_key(key(KeyCode::Down), &mut draft);
         }
-        assert_eq!(draft.current.min_severity, None,
-            "navigation alone does not write");
+        assert_eq!(
+            draft.current.min_severity, None,
+            "navigation alone does not write"
+        );
         // Space writes.
         let out = tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
         assert!(matches!(out, TabOutcome::Mutated));
@@ -559,8 +624,10 @@ mod tests {
         }
         // Cursor on Critical, but nothing was Spaced. Enter exits.
         tab.handle_key(key(KeyCode::Enter), &mut draft);
-        assert_eq!(draft.current.min_severity, None,
-            "Enter must NOT commit — only Space commits");
+        assert_eq!(
+            draft.current.min_severity, None,
+            "Enter must NOT commit — only Space commits"
+        );
         assert!(tab.edit_cursor.is_none());
     }
 
@@ -589,9 +656,73 @@ mod tests {
         assert_eq!(draft.current.audit_enabled, !initial);
         // Down to Blast radius, Space.
         tab.handle_key(key(KeyCode::Down), &mut draft);
-        let initial_blast = draft.current.blast_radius;
+        let initial_blast = draft.current.blast_radius_on();
         tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
-        assert_eq!(draft.current.blast_radius, !initial_blast);
+        assert_eq!(draft.current.blast_radius_on(), !initial_blast);
+        // Off is the budget, not a second key that would override it.
+        assert!(draft.current.blast_radius);
+        assert_eq!(draft.current.blast_radius_budget_ms, 0);
+        tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
+        assert_eq!(
+            draft.current.blast_radius_budget_ms,
+            crate::config::DEFAULT_BLAST_RADIUS_BUDGET_MS
+        );
     }
 
+    #[test]
+    fn cut_behavior_rows_end_with_a_marker() {
+        let (mut tab, mut draft) = fresh();
+        tab.section = SECTION_BEHAVIOR;
+        tab.handle_key(key(KeyCode::Enter), &mut draft);
+        for w in [50u16, 60, 76] {
+            let mut buf = Buffer::empty(Rect::new(0, 0, w, 20));
+            tab.render(Rect::new(0, 0, w, 20), &mut buf, &draft);
+            let rows: Vec<String> = (0..20)
+                .map(|y| (0..w).map(|x| buf[(x, y)].symbol().to_string()).collect())
+                .collect();
+            let mut seen = 0;
+            for row in rows
+                .iter()
+                .filter(|r| r.contains("enabled") || r.contains("disabled"))
+            {
+                seen += 1;
+                let desc = row.trim_end();
+                let full = [
+                    "log every intercepted command",
+                    "show the impact (files, size) before the prompt",
+                    "after a passed challenge, print `approved — running: <command>`",
+                ]
+                .iter()
+                .any(|d| desc.ends_with(d));
+                let cut_marked = desc.ends_with('…') || desc.ends_with("...");
+                let no_desc = desc.ends_with(']');
+                assert!(
+                    full || cut_marked || no_desc,
+                    "{w}: cut with no marker: {row:?}"
+                );
+            }
+            assert_eq!(seen, 3, "{w}\n{}", rows.join("\n"));
+        }
+    }
+
+    #[test]
+    fn approved_line_is_the_third_behavior_toggle() {
+        // The "approved, running" line can be switched off.
+        let (mut tab, mut draft) = fresh();
+        assert!(draft.current.approved_notice, "on by default");
+        tab.section = SECTION_BEHAVIOR;
+        tab.handle_key(key(KeyCode::Enter), &mut draft);
+        tab.handle_key(key(KeyCode::Down), &mut draft);
+        tab.handle_key(key(KeyCode::Down), &mut draft);
+        let out = tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
+        assert!(matches!(out, TabOutcome::Mutated));
+        assert!(!draft.current.approved_notice);
+        assert!(draft.current.audit_enabled && draft.current.blast_radius_on());
+        // The cursor stops on the last toggle.
+        tab.handle_key(key(KeyCode::Down), &mut draft);
+        tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
+        assert!(draft.current.approved_notice);
+        let yaml = serde_yaml::to_string(&draft.current).unwrap();
+        assert!(yaml.contains("approved_notice: true"), "{yaml}");
+    }
 }

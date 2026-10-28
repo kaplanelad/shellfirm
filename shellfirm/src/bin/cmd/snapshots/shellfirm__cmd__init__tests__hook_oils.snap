@@ -1,0 +1,48 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for Oils (OSH/YSH)
+__shellfirm_hook_version=13
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
+export SHELLFIRM_HOOK_PID=$$
+__shellfirm_ready=""
+__shellfirm_histnum="__sf_none__"
+__shellfirm_blocked=""
+
+__shellfirm_prompt() {
+    __shellfirm_ready="1"
+    __shellfirm_blocked=""
+}
+
+__shellfirm_hook() {
+    [[ "$BASH_COMMAND" == __shellfirm_* || "${FUNCNAME[1]:-}" == __shellfirm_* ]] && return 0
+    if [[ -z "$__shellfirm_ready" ]]; then
+        [[ -n "$__shellfirm_blocked" ]] && return 1
+        return 0
+    fi
+    [[ -n "${COMP_LINE:-}" ]] && return 0
+    command -v shellfirm >/dev/null 2>&1 || return 0
+
+    local histnum
+    histnum=$(HISTTIMEFORMAT='' builtin history 1 | awk '{print $1}')
+    [[ "$histnum" == "$__shellfirm_histnum" ]] && return 0
+
+    __shellfirm_ready=""
+    __shellfirm_histnum="$histnum"
+
+    local full_cmd
+    full_cmd=$(HISTTIMEFORMAT='' builtin history 1 | sed 's/^[ ]*[0-9]*[ ]*//')
+    [[ -z "$full_cmd" ]] && return 0
+
+    shellfirm pre-command --command="$full_cmd"
+    case $? in
+        0|3|127) return 0 ;;
+    esac
+    __shellfirm_blocked="1"
+    return 1
+}
+
+PROMPT_COMMAND="__shellfirm_prompt${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
+shopt -s extdebug
+trap '__shellfirm_hook' DEBUG

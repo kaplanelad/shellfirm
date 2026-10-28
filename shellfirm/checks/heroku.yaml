@@ -1,95 +1,115 @@
 - from: heroku
-  test: heroku\s+ps:restart
-  description: "Restarting app dynos"
+  test: (?:^|\s)heroku\s+ps:restart
+  description: "This restarts the app's dynos."
   id: heroku:restart_app_dynos
   severity: Medium
 - from: heroku
-  test: heroku\s+ps:stop
-  description: "Stop app dynos"
+  test: (?:^|\s)heroku\s+ps:stop
+  description: "This stops the app's dynos."
   id: heroku:stop_app_dynos
   severity: High
 - from: heroku
-  test: heroku\s+ps:kill
-  description: "Kill app dynos"
+  test: (?:^|\s)heroku\s+ps:kill
+  description: "This kills the app's dynos."
   id: heroku:kill_app_dynos
   severity: High
 - from: heroku
-  test: heroku\s+maintenance:on
-  description: "Put the app into maintenance mode?"
+  test: (?:^|\s)heroku\s+maintenance:on
+  description: "This puts the app into maintenance mode."
   id: heroku:enable_maintenance_mode
   severity: High
 - from: heroku
-  test: heroku\s+members:remove
-  description: "Removes a user from a team"
+  test: (?:^|\s)heroku\s+members:remove
+  description: "This removes a user from the team."
   id: heroku:remove_member
   severity: High
 - from: heroku
-  test: heroku\s+features:disable
-  description: "Disables an app feature"
+  test: (?:^|\s)heroku\s+features:disable
+  description: "This disables an app feature."
   id: heroku:disable_app_feature
   severity: Medium
 - from: heroku
-  test: heroku\s+container:rm
-  description: "Remove the process type from your app"
+  test: (?:^|\s)heroku\s+container:rm
+  description: "This removes a process type from the app."
   id: heroku:remove_app_container
   severity: High
 - from: heroku
-  test: heroku\s+config:unset
-  description: "unset one or more config vars"
+  test: (?:^|\s)heroku\s+config:unset
+  description: "This removes config vars from the app."
   id: heroku:unset_environment_variable
   severity: Medium
 - from: heroku
-  test: heroku\s+clients:destroy
-  description: "Delete client by ID"
+  test: (?:^|\s)heroku\s+clients:destroy
+  description: "This deletes an OAuth client."
   id: heroku:destroy_client
   severity: High
 - from: heroku
-  test: heroku\s+clients:rotate
-  description: "Rotate OAuth client secret"
+  test: (?:^|\s)heroku\s+clients:rotate
+  description: "This rotates the OAuth client secret."
   id: heroku:rotate_oauth_client
   severity: Medium
 - from: heroku
-  test: heroku\s+clients:update
-  description: "Update OAuth client"
+  test: (?:^|\s)heroku\s+clients:update
+  description: "This updates an OAuth client."
   id: heroku:update_oauth_client
   severity: Medium
 - from: heroku
-  test: heroku\s+apps:destroy
-  description: "Permanently destroy an app"
+  test: (?:^|\s)heroku\s+apps:destroy
+  description: "This permanently destroys the app."
   id: heroku:destroy_app
   severity: Critical
 - from: heroku
-  test: heroku\s+apps:leave
-  description: "Remove yourself from a team app"
+  test: (?:^|\s)heroku\s+apps:leave
+  description: "This removes you from a team app."
   id: heroku:remove_yourself_from_app
   severity: Medium
 - from: heroku
-  test: heroku\s+apps:rename
-  description: "Rename an app"
+  test: (?:^|\s)heroku\s+apps:rename
+  description: "This renames the app and breaks its existing URLs."
   id: heroku:rename_app_name
   severity: Medium
 - from: heroku
-  test: heroku\s+addons:destroy
-  description: "Permanently destroy an add-on resource"
+  test: (?:^|\s)heroku\s+addons:destroy
+  description: "This permanently destroys an add-on."
   id: heroku:destroy_addons
   severity: High
 - from: heroku
-  test: heroku\s+addons:detach
-  description: "Detach an existing add-on resource from an app"
+  test: (?:^|\s)heroku\s+addons:detach
+  description: "This detaches an add-on from the app."
   id: heroku:detach_addon
   severity: Medium
 - from: heroku
-  test: heroku\s+access:remove
-  description: "Remove users from a team app"
+  test: (?:^|\s)heroku\s+access:remove
+  description: "This removes users from a team app."
   id: heroku:remove_user_access
   severity: High
 - from: heroku
-  test: heroku\s+access:update
-  description: "Update existing collaborators on an team app"
+  test: (?:^|\s)heroku\s+access:update
+  description: "This changes collaborator permissions on a team app."
   id: heroku:update_collaborators_access
   severity: Medium
 - from: heroku
-  test: heroku\s+repo:reset
-  description: "Reset heroku repo"
+  test: (?:^|\s)heroku\s+repo:reset
+  description: "This resets the Heroku git repository."
   id: heroku:reset_repo
   severity: High
+- from: heroku
+  test: (?:^|\s)heroku\s+pg:reset\b
+  description: "This deletes all data in the Heroku Postgres database."
+  id: heroku:pg_reset
+  severity: Critical
+- from: heroku
+  # Railway (`railway`), a hosting platform like Heroku.
+  test: (?:^|\s)railway\s+(?:\S+\s+)*?down(?:\s|$)
+  description: "railway down removes the most recent deployment of the service, which takes it offline."
+  id: heroku:railway_down
+  severity: High
+  alternative: "railway status"
+  alternative_info: "Check which project, environment and service are linked first."
+- from: heroku
+  test: (?:^|\s)railway\s+(?:\S+\s+)*?(?:delete|project\s+delete)(?:\s|$)
+  description: "railway delete deletes the Railway project with its services, databases and volumes."
+  id: heroku:railway_delete
+  severity: Critical
+  alternative: "railway status"
+  alternative_info: "Check which project is linked first, and back its databases up."

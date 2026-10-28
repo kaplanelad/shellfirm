@@ -19,8 +19,7 @@ const SECTION_OVR_MIN_SEV: usize = 1;
 const NUM_SECTIONS: usize = 2;
 
 const CHALLENGE_OPTIONS: &[&str] = &["Math", "Enter", "Yes"];
-const SEVERITY_OPTIONAL_OPTIONS: &[&str] =
-    &["(all)", "Info", "Low", "Medium", "High", "Critical"];
+const SEVERITY_OPTIONAL_OPTIONS: &[&str] = &["(all)", "Info", "Low", "Medium", "High", "Critical"];
 
 #[derive(Debug, Default)]
 pub struct WrapTab {
@@ -38,9 +37,16 @@ impl WrapTab {
                 "↑↓ navigate · Space to select · Enter to exit · Esc to exit".to_string(),
             )
         } else {
-            (title.to_string(), "↑↓ select section · Enter to edit.".to_string())
+            (
+                title.to_string(),
+                "↑↓ select section · Enter to edit.".to_string(),
+            )
         };
-        FieldFocus { name, badges: vec!["wrap"], help }
+        FieldFocus {
+            name,
+            badges: vec!["wrap"],
+            help,
+        }
     }
 }
 
@@ -51,21 +57,37 @@ pub enum EditState {
 }
 
 fn ch_index(c: Challenge) -> usize {
-    match c { Challenge::Math => 0, Challenge::Enter => 1, _ => 2 }
+    match c {
+        Challenge::Math => 0,
+        Challenge::Enter => 1,
+        _ => 2,
+    }
 }
 fn ch_from_idx(i: usize) -> Challenge {
-    match i { 1 => Challenge::Enter, 2 => Challenge::Yes, _ => Challenge::Math }
+    match i {
+        1 => Challenge::Enter,
+        2 => Challenge::Yes,
+        _ => Challenge::Math,
+    }
 }
 fn opt_sev_index(s: Option<Severity>) -> usize {
     match s {
-        None => 0, Some(Severity::Info) => 1, Some(Severity::Low) => 2,
-        Some(Severity::Medium) => 3, Some(Severity::High) => 4, Some(Severity::Critical) => 5,
+        None => 0,
+        Some(Severity::Info) => 1,
+        Some(Severity::Low) => 2,
+        Some(Severity::Medium) => 3,
+        Some(Severity::High) => 4,
+        Some(Severity::Critical) => 5,
     }
 }
 fn opt_sev_from_idx(i: usize) -> Option<Severity> {
     match i {
-        1 => Some(Severity::Info), 2 => Some(Severity::Low), 3 => Some(Severity::Medium),
-        4 => Some(Severity::High), 5 => Some(Severity::Critical), _ => None,
+        1 => Some(Severity::Info),
+        2 => Some(Severity::Low),
+        3 => Some(Severity::Medium),
+        4 => Some(Severity::High),
+        5 => Some(Severity::Critical),
+        _ => None,
     }
 }
 
@@ -87,36 +109,57 @@ impl WrapTab {
 }
 
 impl Tab for WrapTab {
-    fn title(&self) -> &str { "Wrap" }
-    fn mode_badge(&self) -> Option<&'static str> { Some("wrap") }
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
+    fn title(&self) -> &str {
+        "Wrap"
+    }
+    fn mode_badge(&self) -> Option<&'static str> {
+        Some("wrap")
+    }
 
     fn render(&self, area: Rect, buf: &mut Buffer, draft: &DraftSettings) {
-        if area.height < 14 || area.width < 60 { return; }
+        if area.height < 14 || area.width < 60 {
+            return;
+        }
         let mut y = area.y;
         for section in 0..NUM_SECTIONS {
             let is_focused = section == self.cursor;
             let is_editing_this = is_focused && self.edit.is_some();
-            let bar_color = if is_editing_this { Color::Green }
-                else if is_focused { Color::Yellow }
-                else { Color::DarkGray };
+            let bar_color = if is_editing_this {
+                Color::Green
+            } else if is_focused {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
             buf.set_string(area.x, y, "▌", Style::default().fg(bar_color));
             let title_style = if is_focused {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD)
             };
             buf.set_string(area.x + 2, y, Self::section_title(section), title_style);
             let badge = "[wrap]";
             buf.set_string(
                 area.x + area.width.saturating_sub(badge.chars().count() as u16),
-                y, badge, Style::default().fg(Color::Yellow),
+                y,
+                badge,
+                Style::default().fg(Color::Yellow),
             );
             y += 1;
 
             if is_editing_this {
                 y = self.render_editing_body(buf, area.x, y, area.width, draft, section);
             } else {
-                y = self.render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
+                y = self
+                    .render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
             }
             y += 1;
         }
@@ -132,13 +175,21 @@ impl Tab for WrapTab {
     fn current_focus(&self) -> FieldFocus {
         let title = Self::section_title(self.cursor);
         let (name, help) = if self.edit.is_some() {
-            (format!("Editing: {title}"),
-             "↑↓ navigate · Enter commit/exit · Esc cancel".to_string())
+            (
+                format!("Editing: {title}"),
+                "↑↓ navigate · Enter commit/exit · Esc cancel".to_string(),
+            )
         } else {
-            (title.to_string(),
-             "↑↓ select section · Enter to edit.".to_string())
+            (
+                title.to_string(),
+                "↑↓ select section · Enter to edit.".to_string(),
+            )
         };
-        FieldFocus { name, badges: vec!["wrap"], help }
+        FieldFocus {
+            name,
+            badges: vec!["wrap"],
+            help,
+        }
     }
 }
 
@@ -189,7 +240,10 @@ impl WrapTab {
     }
 
     fn handle_editing(
-        &mut self, key: KeyEvent, draft: &mut DraftSettings, state: EditState,
+        &mut self,
+        key: KeyEvent,
+        draft: &mut DraftSettings,
+        state: EditState,
     ) -> TabOutcome {
         if matches!(key.code, KeyCode::Esc | KeyCode::Left | KeyCode::Char('h')) {
             self.edit = None;
@@ -201,10 +255,14 @@ impl WrapTab {
                 let total = CHALLENGE_OPTIONS.len() + 1;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if cursor > 0 { cursor -= 1; }
+                        if cursor > 0 {
+                            cursor -= 1;
+                        }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if cursor + 1 < total { cursor += 1; }
+                        if cursor + 1 < total {
+                            cursor += 1;
+                        }
                     }
                     KeyCode::Char(' ') => {
                         let new_value = if cursor == 0 {
@@ -217,7 +275,11 @@ impl WrapTab {
                             draft.current.wrappers.challenge = new_value;
                         }
                         self.edit = Some(EditState::OvrChallenge(cursor));
-                        return if mutated { TabOutcome::Mutated } else { TabOutcome::None };
+                        return if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        };
                     }
                     KeyCode::Enter => {
                         self.edit = None;
@@ -233,10 +295,14 @@ impl WrapTab {
                 let total = SEVERITY_OPTIONAL_OPTIONS.len() + 1;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if cursor > 0 { cursor -= 1; }
+                        if cursor > 0 {
+                            cursor -= 1;
+                        }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if cursor + 1 < total { cursor += 1; }
+                        if cursor + 1 < total {
+                            cursor += 1;
+                        }
                     }
                     KeyCode::Char(' ') => {
                         let new_value = if cursor == 0 {
@@ -249,7 +315,11 @@ impl WrapTab {
                             draft.current.wrappers.min_severity = new_value;
                         }
                         self.edit = Some(EditState::OvrMinSev(cursor));
-                        return if mutated { TabOutcome::Mutated } else { TabOutcome::None };
+                        return if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        };
                     }
                     KeyCode::Enter => {
                         self.edit = None;
@@ -265,13 +335,23 @@ impl WrapTab {
     }
 
     fn render_summary_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize, is_focused: bool,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
+        is_focused: bool,
     ) -> u16 {
         let indent = area_x + 2;
         let global = draft.current.resolved_for(Mode::Shell);
-        buf.set_string(indent, y, Self::section_blurb(section),
-            Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            indent,
+            y,
+            Self::section_blurb(section),
+            Style::default().fg(Color::DarkGray),
+        );
         let y = y + 1;
 
         let summary = match section {
@@ -302,46 +382,65 @@ impl WrapTab {
             let mut s: String = summary.chars().take(max_w.saturating_sub(1)).collect();
             s.push('…');
             s
-        } else { summary };
+        } else {
+            summary
+        };
         buf.set_string(indent, y, &summary, Style::default().fg(Color::Cyan));
         if is_focused {
             let hint = "Enter to edit";
             let hint_x = area_x + area_width.saturating_sub(hint.chars().count() as u16);
-            buf.set_string(hint_x, y, hint,
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            buf.set_string(
+                hint_x,
+                y,
+                hint,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
         }
         y + 1
     }
 
     fn render_editing_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
     ) -> u16 {
         let indent = area_x + 2;
         let inner_w = area_width.saturating_sub(2);
-        buf.set_string(indent, y,
+        buf.set_string(
+            indent,
+            y,
             "─".repeat(inner_w as usize),
-            Style::default().fg(Color::DarkGray));
+            Style::default().fg(Color::DarkGray),
+        );
         let mut y = y + 1;
         let edit = self.edit.as_ref().expect("editing");
 
-        let render_radio = |buf: &mut Buffer, mut y: u16, options: &[&str],
-                            saved: usize, cursor: usize| -> u16 {
-            for (i, opt) in options.iter().enumerate() {
-                let bullet = if i == saved { "(•)" } else { "( )" };
-                let is_cursor = i == cursor;
-                let style = if is_cursor {
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
-                } else if i == saved {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default()
-                };
-                buf.set_string(indent, y, format!("{bullet} {opt}"), style);
-                y += 1;
-            }
-            y
-        };
+        let render_radio =
+            |buf: &mut Buffer, mut y: u16, options: &[&str], saved: usize, cursor: usize| -> u16 {
+                for (i, opt) in options.iter().enumerate() {
+                    let bullet = if i == saved { "(•)" } else { "( )" };
+                    let is_cursor = i == cursor;
+                    let style = if is_cursor {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else if i == saved {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    };
+                    buf.set_string(indent, y, format!("{bullet} {opt}"), style);
+                    y += 1;
+                }
+                y
+            };
 
         match (section, edit) {
             (SECTION_OVR_CHALLENGE, EditState::OvrChallenge(cursor)) => {
@@ -388,7 +487,10 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::empty())
     }
     fn fresh() -> (WrapTab, DraftSettings) {
-        (WrapTab::default(), DraftSettings::from_settings(Settings::default()))
+        (
+            WrapTab::default(),
+            DraftSettings::from_settings(Settings::default()),
+        )
     }
 
     #[test]

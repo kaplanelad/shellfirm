@@ -230,3 +230,20 @@
 - test: "herokurepo:reset"
   description: "negative: no space between heroku and command should not match"
   expect_ids: []
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- heroku:apps_destroy --
+- test: "myheroku apps:destroy"
+  description: "another tool whose name ends in heroku"
+  expect_ids: []
+
+# -- Railway --
+- test: "railway down -y"
+  description: "removes the latest deployment"
+  expect_ids: ["heroku:railway_down"]
+- test: "railway delete"
+  description: "deletes the project"
+  expect_ids: ["heroku:railway_delete"]
+- test: "railway status"
+  description: "negative: status"
+  expect_ids: []

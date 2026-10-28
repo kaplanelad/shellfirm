@@ -1,59 +1,95 @@
 - from: gcp
-  test: gcloud\s+projects\s+delete
+  test: (?:^|\s)gcloud\s+projects\s+delete
   description: "Deleting a GCP project will destroy all resources within it."
   id: gcp:delete_project
   severity: High
 - from: gcp
-  test: gcloud\s+compute\s+instances\s+delete
+  test: (?:^|\s)gcloud\s+compute\s+instances\s+delete
   description: "Deleting a Compute Engine instance permanently destroys it."
   id: gcp:delete_instance
   severity: High
   alternative: "gcloud compute instances stop <instance>"
   alternative_info: "Stop the instance instead of deleting to preserve it for later."
 - from: gcp
-  test: gcloud\s+sql\s+instances\s+delete
+  test: (?:^|\s)gcloud\s+sql\s+instances\s+delete
   description: "Deleting a Cloud SQL instance permanently destroys the database."
   id: gcp:delete_sql_instance
   severity: High
 - from: gcp
-  test: gcloud\s+container\s+clusters\s+delete
+  test: (?:^|\s)gcloud\s+container\s+clusters\s+delete
   description: "Deleting a GKE cluster will destroy all workloads running on it."
   id: gcp:delete_gke_cluster
   severity: High
 - from: gcp
-  test: gsutil\s+(?:-\S+\s+)*rm\s+(?:-r\s+gs://|gs://\S+\s+-r)
+  test: (?:^|\s)gsutil\s+(?:-\S+\s+)*rm\s+(?:-r\s+gs://|gs://\S+\s+-r)
   description: "Recursively deleting all objects in a GCS bucket."
   id: gcp:gcs_recursive_delete
   severity: High
   alternative: "gsutil ls gs://<bucket>"
   alternative_info: "List bucket contents first to verify what would be deleted."
 - from: gcp
-  test: gsutil\s+rb\s+gs://
+  test: (?:^|\s)gsutil\s+rb\s+gs://
   description: "Removing a GCS bucket and all its contents."
   id: gcp:gcs_remove_bucket
   severity: High
 - from: gcp
-  test: gcloud\s+iam\s+service-accounts\s+delete
+  test: (?:^|\s)gcloud\s+iam\s+service-accounts\s+delete
   description: "Deleting a service account can break applications using it."
   id: gcp:delete_service_account
   severity: High
 - from: gcp
-  test: gcloud\s+functions\s+delete
+  test: (?:^|\s)gcloud\s+functions\s+delete
   description: "Deleting a Cloud Function removes it permanently."
   id: gcp:delete_function
   severity: High
 - from: gcp
-  test: gcloud\s+run\s+services\s+delete
+  test: (?:^|\s)gcloud\s+run\s+services\s+delete
   description: "Deleting a Cloud Run service stops serving traffic."
   id: gcp:delete_cloud_run
   severity: High
 - from: gcp
-  test: gcloud\s+pubsub\s+topics\s+delete
+  test: (?:^|\s)gcloud\s+pubsub\s+topics\s+delete
   description: "Deleting a Pub/Sub topic breaks all connected subscriptions."
   id: gcp:delete_pubsub_topic
   severity: High
 - from: gcp
-  test: gcloud\s+secrets\s+delete
+  test: (?:^|\s)gcloud\s+secrets\s+delete
   description: "Deleting a secret can break applications depending on it."
   id: gcp:delete_secret
   severity: High
+- from: gcp
+  test: (?:^|\s)gcloud\s+storage\s+rm\s+(?:.*\s)?(?:-r|-R|--recursive)(?:\s|$)
+  description: "Recursively deleting objects in a Cloud Storage bucket."
+  id: gcp:storage_recursive_delete
+  severity: High
+  alternative: "gcloud storage ls gs://<bucket>"
+  alternative_info: "List bucket contents first to verify what would be deleted."
+- from: gcp
+  test: (?:^|\s)gcloud\s+sql\s+databases\s+delete\b
+  description: "Deleting a Cloud SQL database permanently destroys its data."
+  id: gcp:delete_sql_database
+  severity: High
+- from: gcp
+  test: (?:^|\s)gcloud\s+spanner\s+(?:instances|databases)\s+delete\b
+  description: "This deletes a Cloud Spanner instance or database and all its data."
+  id: gcp:spanner_delete
+  severity: High
+- from: gcp
+  test: (?:^|\s)bq\s+(?:--?\S+\s+)*rm\b
+  description: "This deletes a BigQuery dataset or table."
+  id: gcp:bq_rm
+  severity: High
+- from: gcp
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?projects:delete(?:\s|$)
+  description: "firebase projects:delete deletes the Firebase (Google Cloud) project with every resource and all data in it."
+  id: gcp:firebase_projects_delete
+  severity: High
+  alternative: "firebase projects:list"
+  alternative_info: "Check which project the id names first; a deleted project can be restored for 30 days with `gcloud projects undelete`."
+- from: gcp
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?hosting:disable(?:\s|$)
+  description: "firebase hosting:disable takes the hosted site offline: visitors get a 404 until the next deploy."
+  id: gcp:firebase_hosting_disable
+  severity: Medium
+  alternative: "firebase hosting:channel:list"
+  alternative_info: "Check which site and channels are live first; `firebase deploy --only hosting` brings the site back."

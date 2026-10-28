@@ -1,52 +1,546 @@
+# SQL statement checks. Patterns are anchored to the start of a statement:
+# the parser extracts statements from `psql -c`, `mysql -e`, here-strings and
+# `;`-separated input, so SQL keywords that only appear as arguments of other
+# commands (e.g. `grep drop table`) do not match.
 - from: database
-  test: (?i)DROP\s+DATABASE
-  description: "Dropping a database will permanently delete all its data."
+  test: (?i)^\s*DROP\s+DATABASE\b
+  description: "Dropping a database permanently deletes all of its data."
   id: database:drop_database
   severity: Critical
 - from: database
-  test: (?i)DROP\s+TABLE
-  description: "Dropping a table will permanently delete all its data."
+  test: (?i)^\s*DROP\s+TABLE\b
+  description: "Dropping a table permanently deletes all of its data."
   id: database:drop_table
   severity: Critical
 - from: database
-  test: (?i)TRUNCATE\s+TABLE
-  description: "Truncating a table will delete all rows permanently."
+  test: (?i)^\s*DROP\s+TABLESPACE\b
+  description: "Dropping a tablespace removes the storage location for its tables."
+  id: database:drop_tablespace
+  severity: High
+- from: database
+  test: '(?i)^\s*TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?[\w."`\[\]]+'
+  description: "Truncating a table permanently deletes all of its rows."
   id: database:truncate_table
   severity: Critical
+# A WHERE clause that is always true (`1=1`, `true`, `1`, `'a'='a'`,
+# `id IS NOT NULL`) is no WHERE clause. MySQL modifiers (`DELETE IGNORE |
+# LOW_PRIORITY | QUICK FROM t`) and the multi-table form (`DELETE t FROM t`,
+# `DELETE a, b FROM a, b`, `... LEFT JOIN u ON ...`) without a WHERE delete
+# every row of the target too; an inner `JOIN ... ON` filters, so it does
+# not match. String literals are masked before
+# matching: `'a'='a'` is seen as `''=''` (or as a bare `=` once the shell
+# parser removed the empty quotes).
 - from: database
-  test: (?i)DELETE\s+FROM\s+\w+\s*;?\s*$
-  description: "DELETE without a WHERE clause will delete all rows in the table."
+  test: '(?i)^\s*(?:DELETE\s+(?:(?:LOW_PRIORITY|QUICK|IGNORE)\s+)*(?:FROM\s+)?(?:ONLY\s+)?[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?(?:\s+USING\s+[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?(?:\s*,\s*[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?)*)?|DELETE\s+(?:(?:LOW_PRIORITY|QUICK|IGNORE)\s+)*[\w."`\[\]]+(?:\.\*)?(?:\s*,\s*[\w."`\[\]]+(?:\.\*)?)*\s+FROM\s+[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?(?:\s*,\s*[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?)*(?:\s+(?:LEFT|RIGHT)(?:\s+OUTER)?\s+JOIN\s+[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?\s+(?:ON|USING)\s+(?:[^\sw]\S*|w(?:[^\sh]\S*)?|wh(?:[^\se]\S*)?|whe(?:[^\sr]\S*)?|wher(?:[^\se]\S*)?|where\w\S*)(?:\s+(?:[^\sw]\S*|w(?:[^\sh]\S*)?|wh(?:[^\se]\S*)?|whe(?:[^\sr]\S*)?|wher(?:[^\se]\S*)?|where\w\S*))*?)*)(?:\s+WHERE\s+(?:1\s*=\s*1|true|1|(?:''''|"")?\s*=\s*(?:''''|"")?|(?:[\w"`]+\.)?["`]?id["`]?\s+IS\s+NOT\s+NULL))?(?:\s+RETURNING\b.*?)?\s*;?\s*(?:--.*)?$'
+  description: "DELETE without a WHERE clause deletes every row in the table."
   id: database:delete_all_rows
   severity: Critical
-  filters:
-    - type: NotContains
-      value: "WHERE"
-    - type: NotContains
-      value: "where"
   alternative: "DELETE FROM <table> WHERE <condition>"
   alternative_info: "Always include a WHERE clause to limit which rows are deleted."
+# The SET list is a run of words none of which is `WHERE`, optionally followed
+# by an always-true WHERE (same list as for DELETE) and the end of the
+# statement. Any real WHERE clause (also after `now()` or a `(SELECT ...)` in
+# the SET list) makes the statement not match.
 - from: database
-  test: (?i)UPDATE\s+\w+\s+SET\s+.*(?:;|\s*$)
-  description: "UPDATE without a WHERE clause will modify all rows in the table."
+  test: '(?i)^\s*UPDATE\s+(?:ONLY\s+)?[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?\s+SET\s+(?:[^\sw]\S*|w(?:[^\sh]\S*)?|wh(?:[^\se]\S*)?|whe(?:[^\sr]\S*)?|wher(?:[^\se]\S*)?|where\w\S*)(?:\s+(?:[^\sw]\S*|w(?:[^\sh]\S*)?|wh(?:[^\se]\S*)?|whe(?:[^\sr]\S*)?|wher(?:[^\se]\S*)?|where\w\S*))*(?:\s+WHERE\s+(?:1\s*=\s*1|true|1|(?:''''|"")?\s*=\s*(?:''''|"")?|(?:[\w"`]+\.)?["`]?id["`]?\s+IS\s+NOT\s+NULL)(?:\s+RETURNING\b.*?)?)?\s*;?\s*(?:--.*)?$'
+  description: "UPDATE without a WHERE clause modifies every row in the table."
   id: database:update_all_rows
   severity: High
-  filters:
-    - type: NotContains
-      value: "WHERE"
-    - type: NotContains
-      value: "where"
 - from: database
-  test: (?i)DROP\s+(SCHEMA|ROLE|USER)
-  description: "Dropping a schema, role, or user is a destructive and often irreversible operation."
+  test: (?i)^\s*DROP\s+(SCHEMA|ROLE|USER|OWNED)\b
+  description: "Dropping a schema, role, user or owned objects is destructive and often irreversible."
   id: database:drop_schema_role_user
   severity: High
 - from: database
-  test: (?i)ALTER\s+TABLE\s+[\w.]+\s+DROP\s+COLUMN
-  description: "Dropping a column permanently removes data from all rows."
+  test: (?i)^\s*ALTER\s+TABLE\s+[\w."`\[\]]+\s+DROP\s+COLUMN
+  description: "Dropping a column permanently removes its data from every row."
   id: database:alter_drop_column
   severity: High
 - from: database
-  test: (?i)DROP\s+INDEX
-  description: "Dropping an index on a production table can cause catastrophic performance degradation."
+  test: (?i)^\s*DROP\s+INDEX\b
+  description: "Dropping an index on a production table can severely degrade performance."
   id: database:drop_index
   severity: Medium
+- from: database
+  test: (?i)^\s*DROP\s+(?:MATERIALIZED\s+)?VIEW\b
+  description: "Dropping a view breaks every query, report and application that reads from it."
+  id: database:drop_view
+  severity: Medium
+- from: database
+  test: (?i)^\s*DROP\s+(?:FUNCTION|PROCEDURE|ROUTINE|TRIGGER|EXTENSION|SEQUENCE|TYPE|DOMAIN|AGGREGATE|EVENT|RULE|POLICY|PUBLICATION|SUBSCRIPTION|SERVER|FOREIGN\s+TABLE)\b
+  description: "Dropping a function, trigger, extension, sequence or type can break the application that depends on it."
+  id: database:drop_object
+  severity: Medium
+- from: database
+  test: (?i)^\s*DROP\s+(?:TABLE|(?:MATERIALIZED\s+)?VIEW|FUNCTION|PROCEDURE|ROUTINE|EXTENSION|SEQUENCE|TYPE|DOMAIN|OWNED|SERVER|FOREIGN\s+TABLE|COLLATION)\b.*\bCASCADE\b
+  description: "DROP ... CASCADE also drops every object that depends on it (views, foreign keys, columns of that type)."
+  id: database:drop_cascade
+  severity: High
+- from: database
+  test: (?i)^\s*DROP\s+SCHEMA\b.*\bCASCADE\b
+  description: "DROP SCHEMA ... CASCADE drops every table, view and function in the schema."
+  id: database:drop_schema_cascade
+  severity: Critical
+- from: database
+  test: (?i)^\s*REVOKE\s+ALL\b
+  description: "REVOKE ALL can lock users and applications out of the database."
+  id: database:revoke_all
+  severity: High
+- from: database
+  test: (?i)^\s*ALTER\s+SYSTEM\s+(?:SET|RESET)\b
+  description: "ALTER SYSTEM changes the server configuration for every database on the server."
+  id: database:alter_system
+  severity: Medium
+- from: database
+  test: (?i)^\s*COPY\b.*\b(?:TO|FROM)\s+PROGRAM\b
+  description: "COPY ... PROGRAM runs a shell command on the database server."
+  id: database:copy_program
+  severity: High
+- from: database
+  test: (?i)^\s*EXPLAIN\s+(?:\([^)]*\bANALY[SZ]E\b[^)]*\)|ANALY[SZ]E\b)\s*(?:VERBOSE\s+)?(?:DELETE|UPDATE|INSERT|MERGE|TRUNCATE)\b
+  description: "EXPLAIN ANALYZE really executes the statement it explains."
+  id: database:explain_analyze_write
+  severity: Medium
+  alternative: "BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;"
+  alternative_info: "Run it inside a transaction you roll back, or use EXPLAIN without ANALYZE."
+- from: database
+  test: (?i)^\s*PREPARE\s+\w+\s*(?:\([^)]*\))?\s+AS\s+(?:DELETE|UPDATE|TRUNCATE|DROP)\b
+  description: "This prepares a DELETE/UPDATE/TRUNCATE/DROP that runs on every EXECUTE."
+  id: database:prepare_write
+  severity: Medium
+- from: database
+  test: (?i)^\s*SELECT\b.*\bpg_terminate_backend\s*\(
+  description: "pg_terminate_backend kills client connections; their open transactions are rolled back."
+  id: database:terminate_backend
+  severity: Medium
+- from: database
+  test: (?i)^\s*DROP\s+KEYSPACE\b
+  description: "Dropping a Cassandra keyspace permanently deletes every table in it."
+  id: database:drop_keyspace
+  severity: Critical
+- from: database
+  test: (?i)(?:^|\s)cqlsh\b.*\s(?:-e|--execute)(?:=|\s+|)['"]?[\s\x01]*(?:DROP[\s\x01]+(?:KEYSPACE|TABLE|COLUMNFAMILY)|TRUNCATE)\b
+  description: "This runs a DROP KEYSPACE/TABLE or TRUNCATE statement through cqlsh (Cassandra)."
+  id: database:cqlsh_drop
+  severity: Critical
+- from: database
+  test: (?i)(?:^|\s)clickhouse(?:-client|\s+client)\b.*\s(?:--query|-q)(?:=|\s+|)['"]?[\s\x01]*(?:DROP[\s\x01]+(?:DATABASE|TABLE)|TRUNCATE)\b
+  description: "This runs a DROP DATABASE/TABLE or TRUNCATE statement through clickhouse-client."
+  id: database:clickhouse_drop
+  severity: Critical
+- from: database
+  test: '(?i)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?[\w."`\[\]]+\s+(?:.*,\s*)?DROP\s+(?:INDEX|KEY)\b'
+  description: "Dropping an index on a production table can severely degrade performance."
+  id: database:alter_drop_index
+  severity: Medium
+- from: database
+  test: '(?i)^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?[\w."`\[\]]+\s+(?:.*,\s*)?DROP\s+(?:PRIMARY|FOREIGN)\s+KEY\b'
+  description: "Dropping a primary or foreign key removes the integrity guarantees (duplicates and orphan rows can appear) and can slow every query that used it."
+  id: database:alter_drop_key
+  severity: High
+- from: database
+  test: (?i)^\s*MERGE\s+INTO\b.*\bWHEN\s+MATCHED\b.*?\bTHEN\s+DELETE\b
+  description: "MERGE ... WHEN MATCHED THEN DELETE deletes every row the join condition matches."
+  id: database:merge_delete
+  severity: Medium
+- from: database
+  test: '(?i)^\s*ALTER\s+TABLE\s+[\w."`\[\]]+(?:\s+ON\s+CLUSTER\s+\S+)?\s+DELETE\s+WHERE\s+(?:1\s*=\s*1|true|1|(?:''''|"")?\s*=\s*(?:''''|"")?|(?:[\w"`]+\.)?["`]?id["`]?\s+IS\s+NOT\s+NULL)\s*;?\s*$'
+  description: "ALTER TABLE ... DELETE WHERE <always true> (ClickHouse) deletes every row in the table."
+  id: database:alter_delete_all
+  severity: Critical
+  alternative: "ALTER TABLE <table> DELETE WHERE <condition>"
+  alternative_info: "Limit the mutation to the rows you mean; it cannot be rolled back."
+- from: database
+  test: (?i)(?:^|\s)cockroach\s+sql\b.*\s(?:-e|--execute)(?:=|\s+|)['"]?[\s\x01]*(?:DROP[\s\x01]+(?:DATABASE|TABLE|SCHEMA)|TRUNCATE)\b
+  description: "This runs a DROP DATABASE/TABLE/SCHEMA or TRUNCATE statement through cockroach sql."
+  id: database:cockroach_drop
+  severity: Critical
+- from: database
+  test: (?i)(?:^|\s)sqlcmd\b.*\s(?:-[Qq]|--query|--initial-query)(?:=|\s+|)['"]?[\s\x01]*(?:DROP[\s\x01]+(?:DATABASE|TABLE|SCHEMA)|TRUNCATE)\b
+  description: "This runs a DROP DATABASE/TABLE/SCHEMA or TRUNCATE statement through sqlcmd (SQL Server)."
+  id: database:sqlcmd_drop
+  severity: Critical
+- from: database
+  test: (?i)^\s*SELECT\b.*\blo_unlink\s*\(.*\bFROM\s+(?:pg_catalog\.)?pg_largeobject(?:_metadata)?\b
+  description: "lo_unlink over pg_largeobject deletes every large object in the database (the files and blobs stored in it)."
+  id: database:lo_unlink_all
+  severity: High
+- from: database
+  test: (?i)^\s*SET\s+(?:GLOBAL\s+|PERSIST\s+|@@global\.|@@persist\.)innodb_flush_log_at_trx_commit\s*=\s*0\b
+  description: "innodb_flush_log_at_trx_commit = 0 stops flushing the redo log on every commit: committed transactions can be lost in a crash."
+  id: database:innodb_flush_log_off
+  severity: Medium
+# `DELETE ... [ORDER BY ...] LIMIT n` with no WHERE (MySQL / SQLite): it
+# deletes n arbitrary rows; a batch purge always has a WHERE clause.
+- from: database
+  test: '(?i)^\s*DELETE\s+(?:(?:LOW_PRIORITY|QUICK|IGNORE)\s+)*(?:FROM\s+)?[\w."`\[\]]+(?:\s+(?:AS\s+)?\w+)?(?:\s+WHERE\s+(?:1\s*=\s*1|true|1|(?:''''|"")?\s*=\s*(?:''''|"")?|(?:[\w"`]+\.)?["`]?id["`]?\s+IS\s+NOT\s+NULL))?(?:\s+ORDER\s+BY\s+[\w."`\[\],\s]+?)?\s+LIMIT\s+\d+(?:\s*,\s*\d+)?\s*;?\s*(?:--.*)?$'
+  description: "DELETE ... LIMIT without a WHERE clause deletes that many arbitrary rows of the table."
+  id: database:delete_limit_without_where
+  severity: High
+  alternative: "DELETE FROM <table> WHERE <condition> LIMIT <n>"
+  alternative_info: "A batch delete still needs a WHERE clause that selects the rows to purge."
+# Migration frameworks and ORMs: the commands that drop, wipe or fully roll
+# back a database (what an agent runs when "the migration is stuck").
+- from: database
+  test: (?:^|\s)prisma\b.*\smigrate\s+reset(?:\s|$)
+  description: "prisma migrate reset drops the database (or every table in it), re-applies all migrations and runs the seed: all data is lost."
+  id: database:prisma_migrate_reset
+  severity: Critical
+  filters:
+    - type: NotMatches
+      value: (?:^|\s)(?:--help|-h)(?:\s|$)
+  alternative: "prisma migrate status"
+  alternative_info: "See which migrations are applied (and whether the schema drifted) first; back the database up (`pg_dump -Fc`) before a reset."
+- from: database
+  test: (?:^|\s)prisma\b.*\sdb\s+push\b.*\s--force-reset(?:\s|$)
+  description: "prisma db push --force-reset drops and recreates the whole database schema: all data is lost."
+  id: database:prisma_db_push_force_reset
+  severity: Critical
+  alternative: "prisma migrate dev --create-only"
+  alternative_info: "Create a migration file to review instead of resetting the schema."
+- from: database
+  test: (?:^|\s)prisma\b.*\sdb\s+push\b.*\s--accept-data-loss(?:\s|$)
+  description: "prisma db push --accept-data-loss applies schema changes that drop columns or tables without asking."
+  id: database:prisma_db_push_data_loss
+  severity: High
+  alternative: "prisma migrate dev --create-only"
+  alternative_info: "Create a migration file and review which columns or tables it drops before applying it."
+- from: database
+  test: (?:^|[\s/])(?:rails|rake)\b.*\sdb:(?:drop(?::all|:_unsafe)?|reset|purge(?::all)?|migrate:reset|truncate_all|seed:replant)(?:\s|$|\[)
+  description: "This Rails task drops or wipes the database (db:drop / db:reset / db:purge / db:migrate:reset / db:truncate_all): all data is lost."
+  id: database:rails_db_drop
+  severity: Critical
+  alternative: "rails db:migrate:status"
+  alternative_info: "Check the migration state first; to undo the last migration use `rails db:rollback`, and back the database up before dropping it."
+- from: database
+  test: (?:^|[\s/])(?:rails|rake)\b.*\sdb:(?:schema:load|structure:load|setup)(?:\s|$|\[)
+  description: "db:schema:load / db:structure:load / db:setup recreate every table from the schema file: the data in the existing tables is lost."
+  id: database:rails_schema_load
+  severity: High
+  alternative: "rails db:migrate:status"
+  alternative_info: "Check the migration state first; `rails db:migrate` applies pending migrations without recreating the tables."
+- from: database
+  test: (?:^|\s)flyway\b.*\sclean(?:\s|$)
+  description: "flyway clean drops every object (tables, views, functions) in the configured schemas."
+  id: database:flyway_clean
+  severity: Critical
+  alternative: "flyway info"
+  alternative_info: "Shows the applied and pending migrations without changing anything; take a backup before any clean."
+- from: database
+  test: (?:^|\s)\S*(?:mvnw?|gradlew?)\b.*\sflyway(?::clean|Clean)(?:\s|$)
+  description: "The Maven / Gradle flyway clean goal drops every object (tables, views, functions) in the configured schemas."
+  id: database:flyway_clean_build_tool
+  severity: Critical
+  alternative: "mvn flyway:info"
+  alternative_info: "Shows the applied and pending migrations without changing anything; take a backup before any clean."
+- from: database
+  test: (?i)(?:(?:^|\s)liquibase\b.*\s(?:dropAll|drop-all)(?:\s|$)|(?:^|[\s/])mvnw?\b.*\sliquibase:dropAll\b)
+  description: "liquibase dropAll drops every database object in the configured schemas."
+  id: database:liquibase_drop_all
+  severity: Critical
+  alternative: "liquibase status --verbose"
+  alternative_info: "Shows the pending changesets without changing anything; roll back a tag with `liquibase rollback-sql <tag>` to preview it."
+- from: database
+  test: (?:(?:^|[\s/])(?:django-admin(?:\.py)?|manage\.py)|(?:^|\s)python[\d.]*\s+(?:-\S+\s+)*?-m\s*django)\s+(?:\S+\s+)*?(?:flush|reset_db|reset_schema)(?:\s|$)
+  description: "flush / reset_db deletes all data from every table of the Django database (reset_db drops and recreates it)."
+  id: database:django_flush
+  severity: Critical
+  filters:
+    - type: NotMatches
+      value: (?:^|\s)(?:--help|-h)(?:\s|$)
+  alternative: "python manage.py dumpdata --output backup.json"
+  alternative_info: "Back the data up first (`loaddata backup.json` restores it)."
+- from: database
+  test: (?:(?:^|[\s/])(?:django-admin(?:\.py)?|manage\.py)|(?:^|\s)python[\d.]*\s+(?:-\S+\s+)*?-m\s*django)\s+(?:\S+\s+)*?migrate\s+(?:\S+\s+)+?zero(?:\s|$)
+  description: "migrate <app> zero un-applies every migration of the app: its tables are dropped."
+  id: database:django_migrate_zero
+  severity: High
+  filters:
+    # `--plan` only prints the operations.
+    - type: NotMatches
+      value: \s--plan(?:\s|$)
+  alternative: "python manage.py migrate <app> zero --plan"
+  alternative_info: "--plan lists the operations (the tables it would drop) without running them."
+- from: database
+  test: (?:^|\s)dbmate\b.*\sdrop(?:\s|$)
+  description: "dbmate drop drops the database."
+  id: database:dbmate_drop
+  severity: Critical
+  alternative: "dbmate status"
+  alternative_info: "Shows the applied migrations; `dbmate dump` saves the schema first."
+- from: database
+  test: (?:^|\s)(?:alembic|flask(?:\s+\S+)*?\s+db)\b.*\sdowngrade\s+(?:\S+\s+)*?base(?:\s|$)
+  description: "alembic / flask db downgrade base runs every down migration: the tables they created are dropped."
+  id: database:alembic_downgrade_base
+  severity: High
+  filters:
+    - type: NotMatches
+      value: \s--sql(?:\s|$)
+  alternative: "alembic downgrade base --sql"
+  alternative_info: "Prints the SQL the downgrade would run without touching the database; roll back one step with `alembic downgrade -1` (`flask db downgrade -1`)."
+- from: database
+  test: (?:^|\s)knex\b.*\smigrate:rollback\b.*\s--all(?:\s|$)
+  description: "knex migrate:rollback --all rolls back every migration batch: the tables they created are dropped."
+  id: database:knex_rollback_all
+  severity: High
+  alternative: "knex migrate:rollback"
+  alternative_info: "Roll back only the last batch (`knex migrate:list` shows the batches)."
+- from: database
+  test: (?:^|\s)sqitch\b.*\s(?:revert|rebase)\b.*\s(?:-y|--y)(?:\s|$)
+  description: "sqitch revert -y reverts deployed changes without asking (their tables and data are dropped)."
+  id: database:sqitch_revert
+  severity: High
+  alternative: "sqitch status"
+  alternative_info: "Shows what is deployed; run `sqitch revert` without -y to confirm each change."
+- from: database
+  test: (?:^|[\s/])sequelize(?:-cli)?\b.*\sdb:drop(?:\s|$)
+  description: "sequelize db:drop drops the database."
+  id: database:sequelize_db_drop
+  severity: Critical
+  alternative: "sequelize db:migrate:status"
+  alternative_info: "Check the migration state first and back the database up before dropping it."
+- from: database
+  test: (?:^|[\s/])sequelize(?:-cli)?\b.*\sdb:migrate:undo:all(?:\s|$)
+  description: "sequelize db:migrate:undo:all reverts every migration: the tables they created are dropped."
+  id: database:sequelize_undo_all
+  severity: High
+  alternative: "sequelize db:migrate:undo"
+  alternative_info: "Undo only the last migration (`sequelize db:migrate:status` lists them)."
+- from: database
+  test: (?:^|[\s/])typeorm(?:-ts-node-(?:commonjs|esm))?\b.*\sschema:drop(?:\s|$)
+  description: "typeorm schema:drop drops every table of the database."
+  id: database:typeorm_schema_drop
+  severity: Critical
+  alternative: "typeorm schema:log"
+  alternative_info: "Shows the SQL a schema sync would run, without changing the database."
+- from: database
+  test: (?:^|[\s/])drizzle-kit\b.*\spush\b.*\s--force(?:\s|$)
+  description: "drizzle-kit push --force applies schema changes that drop columns or tables without asking."
+  id: database:drizzle_push_force
+  severity: High
+  alternative: "drizzle-kit generate"
+  alternative_info: "Generate a migration file to review instead of pushing destructive changes directly."
+- from: database
+  test: (?:^|[\s/])drizzle-kit\s+(?:\S+\s+)*?drop(?:\s|$)
+  description: "drizzle-kit drop deletes a generated migration (its SQL file and journal entry)."
+  id: database:drizzle_kit_drop
+  severity: Medium
+- from: database
+  test: (?:^|\s)mix\s+(?:\S+\s+)*?ecto\.(?:drop|reset)(?:\s|$)
+  description: "mix ecto.drop / ecto.reset drops the database."
+  id: database:ecto_drop
+  severity: Critical
+  alternative: "mix ecto.migrations"
+  alternative_info: "Lists the applied migrations; back the database up before dropping it."
+- from: database
+  test: (?:^|[\s/])artisan\s+(?:\S+\s+)*?(?:migrate:fresh|db:wipe)(?:\s|$)
+  description: "artisan migrate:fresh / db:wipe drops every table of the database."
+  id: database:artisan_wipe
+  severity: Critical
+  alternative: "php artisan migrate:status"
+  alternative_info: "Check the migration state first; back the database up before wiping it."
+- from: database
+  test: (?:^|[\s/])artisan\s+(?:\S+\s+)*?migrate:(?:reset|refresh)(?:\s|$)
+  description: "artisan migrate:reset / migrate:refresh rolls back every migration: the tables they created are dropped."
+  id: database:artisan_migrate_reset
+  severity: High
+  alternative: "php artisan migrate:rollback --pretend"
+  alternative_info: "--pretend prints the SQL of the last batch's rollback without running it."
+- from: database
+  test: (?:^|[\s/])console\b.*\sdoctrine:(?:database|schema):drop\b.*\s(?:--force|-f)(?:\s|$)
+  description: "doctrine:database:drop / doctrine:schema:drop --force drops the database or every table in it."
+  id: database:doctrine_drop
+  severity: Critical
+  alternative: "bin/console doctrine:schema:drop --dump-sql"
+  alternative_info: "Prints the SQL that would drop the schema without running it."
+- from: database
+  test: (?:^|\s)migrate\s+(?:\S+\s+)*?-(?:database|path|source)[=\s](?:\S+\s+)*?drop(?:\s|$)
+  description: "migrate drop (golang-migrate) drops everything in the database."
+  id: database:golang_migrate_drop
+  severity: Critical
+  alternative: "migrate -path <dir> -database <url> version"
+  alternative_info: "Shows the current migration version; roll back one step with `down 1` instead."
+- from: database
+  test: (?:^|\s)goose\b.*\s(?:reset|down-to\s+0+)(?:\s|$)
+  description: "goose reset / down-to 0 rolls back every migration: the tables they created are dropped."
+  id: database:goose_reset
+  severity: High
+  alternative: "goose status"
+  alternative_info: "Shows the applied migrations; `goose down` rolls back only the last one."
+- from: database
+  test: (?:^|\s)(?:diesel|sqlx)\s+(?:\S+\s+)*?database\s+(?:drop|reset)(?:\s|$)
+  description: "diesel / sqlx database drop|reset drops the database (reset recreates it empty)."
+  id: database:cli_database_drop
+  severity: Critical
+  alternative: "diesel migration list"
+  alternative_info: "Lists the applied migrations; `diesel migration revert` undoes only the last one."
+- from: database
+  test: (?:^|\s)atlas\s+schema\s+clean(?:\s|$)
+  description: "atlas schema clean drops every object in the target database or schema."
+  id: database:atlas_schema_clean
+  severity: Critical
+  alternative: "atlas schema inspect -u <url>"
+  alternative_info: "Inspect the schema first; `atlas schema apply --dry-run` previews changes."
+- from: database
+  test: (?:^|\s)dotnet(?:\s+|-)ef\s+(?:\S+\s+)*?database\s+drop(?:\s|$)
+  description: "dotnet ef database drop drops the Entity Framework Core database: all data is lost."
+  id: database:dotnet_ef_database_drop
+  severity: Critical
+  filters:
+    # `--dry-run` only shows which database would be dropped.
+    - type: NotMatches
+      value: \s--dry-run(?:\s|$)
+  alternative: "dotnet ef database drop --dry-run"
+  alternative_info: "Shows which database (server and name) would be dropped without dropping it; back it up first."
+- from: database
+  test: (?:^|\s)dotnet(?:\s+|-)ef\s+(?:\S+\s+)*?database\s+update\s+(?:\S+\s+)*?0(?:\s|$)
+  description: "dotnet ef database update 0 reverts every Entity Framework Core migration: the tables they created are dropped."
+  id: database:dotnet_ef_update_zero
+  severity: High
+  alternative: "dotnet ef migrations script <current> <target>"
+  alternative_info: "Generate and review the down SQL first, then update to the previous migration only (`dotnet ef migrations list` shows them)."
+- from: database
+  test: (?:^|\s)mix\s+(?:\S+\s+)*?ecto\.rollback\b(?:\s+\S+)*?\s+--all(?:\s|$)
+  description: "mix ecto.rollback --all rolls back every migration: the tables they created are dropped."
+  id: database:ecto_rollback_all
+  severity: High
+  alternative: "mix ecto.rollback --step 1"
+  alternative_info: "Roll back only the last migration (`mix ecto.migrations` lists what is applied)."
+- from: database
+  test: (?:^|\s)migrate\s+(?:\S+\s+)*?-(?:database|path|source)[=\s](?:\S+\s+)*?down\s+(?:\S+\s+)*?--?all(?:\s|$)
+  description: "migrate down -all (golang-migrate) applies every down migration without asking: the tables they created are dropped."
+  id: database:golang_migrate_down_all
+  severity: High
+  alternative: "migrate -path <dir> -database <url> down 1"
+  alternative_info: "Roll back only the last migration (`migrate ... version` shows the current one)."
+# Supabase and Firebase: the backends of many agent-built apps (agents add
+# `--force` / `--yes` to skip the CLI's own question).
+- from: database
+  test: (?:^|\s)supabase\s+(?:\S+\s+)*?db\s+reset\b(?:\s+\S+)*?\s--(?:linked|db-url)(?:[\s=]|$)
+  description: "supabase db reset --linked resets the database of the linked remote project (often production): every table is dropped and the migrations and seed re-run."
+  id: database:supabase_db_reset_remote
+  severity: Critical
+  alternative: "supabase db dump --linked -f backup.sql"
+  alternative_info: "Back the remote database up first. To reset only your local database, run `supabase db reset` without --linked."
+- from: database
+  test: (?:^|\s)supabase\s+(?:\S+\s+)*?db\s+reset(?:\s|$)
+  description: "supabase db reset drops the local database and re-runs the migrations and seed: local data is lost."
+  id: database:supabase_db_reset
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: \s--(?:linked|db-url)(?:[\s=]|$)
+  alternative: "supabase migration list"
+  alternative_info: "See which migrations are applied first; `supabase db dump --local -f backup.sql` keeps a copy of the data."
+- from: database
+  test: (?:^|\s)supabase\s+(?:\S+\s+)*?projects\s+delete(?:\s|$)
+  description: "supabase projects delete deletes the Supabase project with its database, storage and auth users."
+  id: database:supabase_projects_delete
+  severity: Critical
+  alternative: "supabase projects list"
+  alternative_info: "Check which project the ref names first, and back its database up (`supabase db dump --linked -f backup.sql`)."
+- from: database
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?firestore:delete\s+(?:\S+\s+)*?--all-collections(?:\s|$)
+  description: "firebase firestore:delete --all-collections deletes every document of every collection in the Firestore database."
+  id: database:firebase_firestore_delete_all
+  severity: Critical
+  alternative: "gcloud firestore export gs://<bucket>/backup"
+  alternative_info: "Export the database first; delete one collection or document at a time once you know what it holds."
+- from: database
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?firestore:delete(?:\s|$)
+  description: "firebase firestore:delete deletes Firestore documents (with -r, every document under the path)."
+  id: database:firebase_firestore_delete
+  severity: High
+  filters:
+    - type: NotMatches
+      value: \s--all-collections(?:\s|$)
+  alternative: "gcloud firestore export gs://<bucket>/backup"
+  alternative_info: "Export the data first, so the documents can be imported back."
+- from: database
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?database:remove\s+(?:-\S+\s+)*?/(?:\s|$)
+  description: "firebase database:remove / deletes the whole Realtime Database."
+  id: database:firebase_database_remove_root
+  severity: Critical
+  alternative: "firebase database:get / -o backup.json"
+  alternative_info: "Save a copy of the data first; remove a narrower path once you know what it holds."
+- from: database
+  test: (?:^|\s)firebase\s+(?:\S+\s+)*?database:remove(?:\s|$)
+  description: "firebase database:remove deletes the data at the given path of the Realtime Database, with everything under it."
+  id: database:firebase_database_remove
+  severity: High
+  filters:
+    - type: NotMatches
+      value: \sdatabase:remove\s+(?:-\S+\s+)*?/(?:\s|$)
+  alternative: "firebase database:get <path> -o backup.json"
+  alternative_info: "Save a copy of the data at that path first."
+# SQL read from a file by a client run from the shell: the file's statements
+# are not visible to the shell-level checks (`shellfirm wrap` scans them,
+# also when the file is named on the wrapped client's command line).
+- from: database
+  test: '(?i)(?:\bpsql\b.*\s(?:-[1aAbeEnqsStwWxX]*f[\s\x01]*|--file(?:=|\s+))[^\s\x01-]|\b(?:psql|mysql|mariadb|sqlite3|duckdb|clickhouse-client|cqlsh|mongosh|mongo|cockroach\s+sql)\b[^<|]*\s<\s*(?:[^\s<&(]*/\S*|[^\s<&(]+\.(?:sql|psql|pgsql|dump|ddl|dml|cql|js|txt|gz|bz2|xz|zst))(?:\s|$)|\b(?:cat|zcat|bzcat|xzcat|zstdcat|pv)\s[^|;&]*\|\s*(?:psql|mysql|mariadb|sqlite3|duckdb)\b|(?:^\s*|\b(?:sqlite3|duckdb)\b.*[\s\x01])\.read[\s\x01]+[^\s\x01|]|\bpsql\b.*\s(?:-[a-zA-Z]*c|--command)(?:=|\s+)\\i(?:r|nclude(?:_relative)?)?[\s\x01]+\S|\b(?:mysql|mariadb)\b.*\s(?:-[a-zA-Z]*e|--execute)(?:=|\s+)(?:source|\\\.)[\s\x01]+\S|\bsqlcmd\b.*\s(?:-i|--input-file)(?:=|\s+)[^\s\x01-])'
+  description: "SQL from a file is not checked here: shellfirm cannot see the statements this file runs (prefix the same client command with `shellfirm wrap`, e.g. `shellfirm wrap <client> …`, to have the file scanned)."
+  id: database:sql_from_file
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '<\s*/dev/null\b'
+- from: database
+  # Cloudflare D1 (`wrangler d1 …`, usually through `npx wrangler`).
+  test: (?:^|\s)wrangler\s+(?:\S+\s+)*?d1\s+delete(?:\s|$)
+  description: "wrangler d1 delete deletes the Cloudflare D1 database with all of its data."
+  id: database:wrangler_d1_delete
+  severity: Critical
+  alternative: "wrangler d1 export <database> --remote --output backup.sql"
+  alternative_info: "Export the database first; `wrangler d1 list` shows which database the name refers to."
+- from: database
+  test: (?:^|\s)wrangler\s+(?:\S+\s+)*?kv(?::|\s+)namespace\s+delete(?:\s|$)
+  description: "wrangler kv namespace delete deletes the Workers KV namespace and every key in it."
+  id: database:wrangler_kv_namespace_delete
+  severity: Critical
+  alternative: "wrangler kv namespace list"
+  alternative_info: "Check which namespace the id or binding refers to first."
+- from: database
+  test: (?:^|\s)wrangler\s+(?:\S+\s+)*?r2\s+bucket\s+delete(?:\s|$)
+  description: "wrangler r2 bucket delete deletes the Cloudflare R2 bucket."
+  id: database:wrangler_r2_bucket_delete
+  severity: High
+  alternative: "wrangler r2 bucket list"
+  alternative_info: "Check the bucket name first; objects deleted to empty it cannot be brought back."
+- from: database
+  # Neon (`neonctl`, also installed as `neon`).
+  test: (?:^|\s)(?:neonctl|neon)\s+(?:\S+\s+)*?projects?\s+(?:delete|rm)(?:\s|$)
+  description: "neonctl projects delete deletes the Neon project with all of its branches and databases."
+  id: database:neon_project_delete
+  severity: Critical
+  alternative: "neonctl projects list"
+  alternative_info: "Check which project the id names first, and back the databases up (`pg_dump`)."
+- from: database
+  test: (?:^|\s)(?:neonctl|neon)\s+(?:\S+\s+)*?branch(?:es)?\s+(?:delete|rm)(?:\s|$)
+  description: "neonctl branches delete deletes the Neon branch and the data written on it."
+  id: database:neon_branch_delete
+  severity: High
+  alternative: "neonctl branches list"
+  alternative_info: "Check which branch the name refers to first (the default branch usually holds production data)."
+- from: database
+  # PlanetScale (`pscale`).
+  test: (?:^|\s)pscale\s+(?:\S+\s+)*?(?:database|db)\s+delete(?:\s|$)
+  description: "pscale database delete deletes the PlanetScale database with all of its branches and data."
+  id: database:pscale_database_delete
+  severity: Critical
+  alternative: "pscale database list"
+  alternative_info: "Check the database name first and take a backup (`pscale backup create`)."
+- from: database
+  test: (?:^|\s)pscale\s+(?:\S+\s+)*?branch\s+delete(?:\s|$)
+  description: "pscale branch delete deletes the PlanetScale branch and its data."
+  id: database:pscale_branch_delete
+  severity: High
+  alternative: "pscale branch list <database>"
+  alternative_info: "Check which branch the name refers to first (the production branch holds live data)."
+- from: database
+  # Turso (`turso db destroy`, also `group destroy`).
+  test: (?:^|\s)turso\s+(?:\S+\s+)*?(?:db|database|group)\s+(?:destroy|delete|rm)(?:\s|$)
+  description: "turso db destroy deletes the Turso database (group destroy: every database in the group)."
+  id: database:turso_db_destroy
+  severity: Critical
+  alternative: "turso db shell <database> .dump > backup.sql"
+  alternative_info: "Dump the database first; `turso db list` shows which database the name refers to."

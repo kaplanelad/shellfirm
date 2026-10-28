@@ -74,6 +74,10 @@ fn write_cell(draft: &mut DraftSettings, row_i: usize, c: Challenge) {
 }
 
 impl Tab for EscalationTab {
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
     fn title(&self) -> &str {
         "Escalation"
     }
@@ -126,7 +130,8 @@ impl Tab for EscalationTab {
             if is_editing_this {
                 y = self.render_editing_body(buf, area.x, y, area.width, draft, section);
             } else {
-                y = self.render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
+                y = self
+                    .render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
             }
             y += 1;
         }
@@ -154,14 +159,8 @@ impl Tab for EscalationTab {
             }
         } else {
             match self.section {
-                SECTION_TOGGLE => (
-                    "Severity escalation",
-                    "↑↓ select section · Enter to edit.",
-                ),
-                SECTION_MATRIX => (
-                    "Severity → Challenge",
-                    "↑↓ select section · Enter to edit.",
-                ),
+                SECTION_TOGGLE => ("Severity escalation", "↑↓ select section · Enter to edit."),
+                SECTION_MATRIX => ("Severity → Challenge", "↑↓ select section · Enter to edit."),
                 _ => ("", ""),
             }
         };
@@ -325,13 +324,15 @@ impl EscalationTab {
             SECTION_MATRIX => {
                 let e = &draft.current.severity_escalation;
                 format!(
-                    "Critical→{} · High→{} · Medium→{} · Low→{} · Info→{}",
+                    "Critical→{}  High→{}  Medium→{}  Low→{}  Info→{}",
                     e.critical, e.high, e.medium, e.low, e.info,
                 )
             }
             _ => String::new(),
         };
-        let max_w = area_width.saturating_sub(2 + 16) as usize;
+        // Leave room for the "Enter to edit" hint only when it is shown.
+        let reserve = if is_focused { 16 } else { 0 };
+        let max_w = area_width.saturating_sub(2 + reserve) as usize;
         let summary = if summary.chars().count() > max_w {
             let mut s: String = summary.chars().take(max_w.saturating_sub(1)).collect();
             s.push('…');
@@ -347,7 +348,9 @@ impl EscalationTab {
                 hint_x,
                 y,
                 hint,
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             );
         }
         y + 1
@@ -384,13 +387,18 @@ impl EscalationTab {
                     indent,
                     y,
                     "Severity-based escalation",
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
                 );
                 buf.set_string(
                     indent + 28,
                     y,
                     value_text,
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 );
                 y += 1;
                 buf.set_string(
@@ -408,7 +416,9 @@ impl EscalationTab {
                 let math_col = label_col + 12;
                 let enter_col = math_col + 8;
                 let yes_col = enter_col + 8;
-                let header_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD);
+                let header_style = Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD);
                 buf.set_string(label_col, y, "Severity", header_style);
                 buf.set_string(math_col, y, "Math", header_style);
                 buf.set_string(enter_col, y, "Enter", header_style);
@@ -427,7 +437,9 @@ impl EscalationTab {
                     let val_i = ch_index(val);
                     let row_y = y + row_i as u16;
                     let sev_style = if edit.matrix_row == row_i {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     };
@@ -442,7 +454,10 @@ impl EscalationTab {
                         let mark = if col_i == val_i { "(•)" } else { "( )" };
                         let here = edit.matrix_row == row_i && edit.matrix_col == col_i;
                         let style = if here {
-                            Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Green)
+                                .add_modifier(Modifier::BOLD)
                         } else if col_i == val_i {
                             Style::default().fg(Color::Cyan)
                         } else {
@@ -497,7 +512,7 @@ mod tests {
         tab.handle_key(key(KeyCode::Down), &mut draft);
         tab.handle_key(key(KeyCode::Right), &mut draft);
         tab.handle_key(key(KeyCode::Right), &mut draft);
-        assert_eq!(draft.current.severity_escalation.high, Challenge::Enter);
+        assert_eq!(draft.current.severity_escalation.high, Challenge::Math);
         // Space writes the cell but stays in edit mode.
         tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
         assert_eq!(draft.current.severity_escalation.high, Challenge::Yes);
@@ -535,15 +550,18 @@ mod tests {
         tab.section = SECTION_MATRIX;
         tab.handle_key(key(KeyCode::Enter), &mut draft);
         // Navigate to a non-saved cell. Cursor is at (0, ch_index(Critical=Yes)) = (0, 2).
-        // Down to High → cursor resets to High's saved (Enter = 1). Move to col 0 (Math).
+        // Down to High → cursor resets to High's saved (Math = 0). Left stays on col 0.
         tab.handle_key(key(KeyCode::Down), &mut draft);
         tab.handle_key(key(KeyCode::Left), &mut draft);
-        // High is still Enter — Space wasn't pressed, no write.
-        assert_eq!(draft.current.severity_escalation.high, Challenge::Enter);
+        // High is still Math — Space wasn't pressed, no write.
+        assert_eq!(draft.current.severity_escalation.high, Challenge::Math);
         // Enter exits without writing.
         tab.handle_key(key(KeyCode::Enter), &mut draft);
-        assert_eq!(draft.current.severity_escalation.high, Challenge::Enter,
-            "Enter must NOT write the cell — only Space writes");
+        assert_eq!(
+            draft.current.severity_escalation.high,
+            Challenge::Math,
+            "Enter must NOT write the cell — only Space writes"
+        );
         assert!(tab.edit.is_none());
     }
 
@@ -556,5 +574,4 @@ mod tests {
         tab.handle_key(key(KeyCode::Esc), &mut draft);
         assert!(tab.edit.is_none());
     }
-
 }

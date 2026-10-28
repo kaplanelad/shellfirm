@@ -3,8 +3,10 @@ name = "shellfirm"
 description = "`shellfirm` will intercept any risky patterns (default or defined by you) and prompt you a small challenge for double verification, kinda like a captcha for your terminal."
 version = "0.3.10"
 edition = "2021"
+# Minimum supported Rust version (verified with rust:1.88; ratatui deps need 1.88).
+rust-version = "1.88"
 authors = ["Elad-Kaplan <kaplan.elad@gmail.com>"]
-license = "MIT"
+license = "Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/kaplanelad/shellfirm"
 homepage = "https://github.com/kaplanelad/shellfirm"
@@ -13,7 +15,8 @@ build = "build.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.5", features = ["cargo"], optional = true }
+aho-corasick = "1.1"
+clap = { version = "4.5", features = ["cargo", "wrap_help"], optional = true }
 clap_complete = { version = "4.5", optional = true }
 clap_complete_nushell = { version = "4.5", optional = true }
 dirs = "6.0"
@@ -30,7 +33,7 @@ console = "0.16"
 exitcode = "1.1"
 requestty = "0.6"
 wait-timeout = "0.2"
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 reqwest = { version = "0.12", features = [
     "json",
     "rustls-tls",
@@ -49,7 +52,7 @@ crossterm = { version = "0.28", optional = true }
 tui-input = { version = "0.13", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-nix = { version = "0.31", features = ["term"] }
+nix = { version = "0.31", features = ["term", "fs", "hostname"] }
 rustix = { version = "1.0", features = ["termios"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -65,6 +68,12 @@ tree-fs = "0.2"
 proptest = "1.5"
 
 [build-dependencies]
+# build.rs validates checks/*.yaml (YAML shape, unknown keys, regexes) so a
+# broken built-in check fails the build with the file name in the error.
+serde_yaml = "0.9"
+regex = "1.12"
+# Derives each built-in check's required literals (runtime prefilter).
+regex-syntax = "0.8"
 
 [features]
 default = ["all"]

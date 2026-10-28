@@ -1,10 +1,10 @@
 //! Regex input — text input with live compile validation.
 
+use crate::tui::widgets::text_input::TextInput;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
-use crate::tui::widgets::text_input::TextInput;
 
 #[derive(Debug, Clone)]
 pub enum RegexValidity {
@@ -45,11 +45,14 @@ impl<'a> Widget for RegexInput<'a> {
         };
         buf.set_string(area.x, area.y, self.label, label_style);
 
-        let cursor = if self.focused { "_" } else { "" };
-        buf.set_string(
-            area.x,
+        crate::tui::a11y::draw_text_with_caret(
+            buf,
+            area.x + 1,
             area.y + 1,
-            format!(" {}{}", self.input.value(), cursor),
+            area.width.saturating_sub(1),
+            self.input.value(),
+            self.input.cursor(),
+            self.focused,
             Style::default(),
         );
 
@@ -74,7 +77,10 @@ mod tests {
 
     #[test]
     fn valid_regex_compiles() {
-        assert!(matches!(RegexValidity::for_value("^foo.*"), RegexValidity::Valid));
+        assert!(matches!(
+            RegexValidity::for_value("^foo.*"),
+            RegexValidity::Valid
+        ));
     }
 
     #[test]
@@ -84,5 +90,4 @@ mod tests {
             other => panic!("expected Invalid, got {other:?}"),
         }
     }
-
 }

@@ -18,8 +18,7 @@ const NUM_SECTIONS: usize = 5;
 
 const CHALLENGE_OPTIONS: &[&str] = &["Math", "Enter", "Yes"];
 const SEVERITY_OPTIONS: &[&str] = &["Info", "Low", "Medium", "High", "Critical"];
-const SEVERITY_OPTIONAL_OPTIONS: &[&str] =
-    &["(all)", "Info", "Low", "Medium", "High", "Critical"];
+const SEVERITY_OPTIONAL_OPTIONS: &[&str] = &["(all)", "Info", "Low", "Medium", "High", "Critical"];
 
 #[derive(Debug, Default)]
 pub struct AITab {
@@ -37,9 +36,16 @@ impl AITab {
                 "↑↓ navigate · Space to select · Enter to exit · Esc to exit".to_string(),
             )
         } else {
-            (title.to_string(), "↑↓ select section · Enter to edit.".to_string())
+            (
+                title.to_string(),
+                "↑↓ select section · Enter to edit.".to_string(),
+            )
         };
-        FieldFocus { name, badges: vec!["ai"], help }
+        FieldFocus {
+            name,
+            badges: vec!["ai"],
+            help,
+        }
     }
 }
 
@@ -58,30 +64,49 @@ pub enum EditState {
 }
 
 fn ch_index(c: Challenge) -> usize {
-    match c { Challenge::Math => 0, Challenge::Enter => 1, _ => 2 }
+    match c {
+        Challenge::Math => 0,
+        Challenge::Enter => 1,
+        _ => 2,
+    }
 }
 fn ch_from_idx(i: usize) -> Challenge {
-    match i { 1 => Challenge::Enter, 2 => Challenge::Yes, _ => Challenge::Math }
+    match i {
+        1 => Challenge::Enter,
+        2 => Challenge::Yes,
+        _ => Challenge::Math,
+    }
 }
 fn sev_index(s: Severity) -> usize {
     match s {
-        Severity::Info => 0, Severity::Low => 1, Severity::Medium => 2,
-        Severity::High => 3, Severity::Critical => 4,
+        Severity::Info => 0,
+        Severity::Low => 1,
+        Severity::Medium => 2,
+        Severity::High => 3,
+        Severity::Critical => 4,
     }
 }
 fn sev_from_idx(i: usize) -> Severity {
     match i {
-        0 => Severity::Info, 1 => Severity::Low, 2 => Severity::Medium,
-        3 => Severity::High, _ => Severity::Critical,
+        0 => Severity::Info,
+        1 => Severity::Low,
+        2 => Severity::Medium,
+        3 => Severity::High,
+        _ => Severity::Critical,
     }
 }
 fn opt_sev_index(s: Option<Severity>) -> usize {
     match s {
-        None => 0, Some(s) => sev_index(s) + 1,
+        None => 0,
+        Some(s) => sev_index(s) + 1,
     }
 }
 fn opt_sev_from_idx(i: usize) -> Option<Severity> {
-    if i == 0 { None } else { Some(sev_from_idx(i - 1)) }
+    if i == 0 {
+        None
+    } else {
+        Some(sev_from_idx(i - 1))
+    }
 }
 
 impl AITab {
@@ -97,8 +122,8 @@ impl AITab {
     }
     fn section_blurb(section: usize) -> &'static str {
         match section {
-            SECTION_AUTO_DENY => "When the agent's max severity ≥ this, deny outright.",
-            SECTION_HUMAN_APPROVAL => "Reserved for future agent flows that pause on denial.",
+            SECTION_AUTO_DENY => "When the agent's max severity is at least this, deny outright.",
+            SECTION_HUMAN_APPROVAL => "On: at the auto-deny level, ask a human instead of denying.",
             SECTION_OVR_CHALLENGE => "Override the global Challenge type for AI mode.",
             SECTION_OVR_MIN_SEV => "Override the global Minimum severity for AI mode.",
             SECTION_OVR_SEV_ESC => "Override the global Severity escalation for AI mode.",
@@ -108,36 +133,57 @@ impl AITab {
 }
 
 impl Tab for AITab {
-    fn title(&self) -> &str { "AI" }
-    fn mode_badge(&self) -> Option<&'static str> { Some("ai") }
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
+    fn title(&self) -> &str {
+        "AI"
+    }
+    fn mode_badge(&self) -> Option<&'static str> {
+        Some("ai")
+    }
 
     fn render(&self, area: Rect, buf: &mut Buffer, draft: &DraftSettings) {
-        if area.height < 18 || area.width < 60 { return; }
+        if area.height < 18 || area.width < 60 {
+            return;
+        }
         let mut y = area.y;
         for section in 0..NUM_SECTIONS {
             let is_focused = section == self.cursor;
             let is_editing_this = is_focused && self.edit.is_some();
-            let bar_color = if is_editing_this { Color::Green }
-                else if is_focused { Color::Yellow }
-                else { Color::DarkGray };
+            let bar_color = if is_editing_this {
+                Color::Green
+            } else if is_focused {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
             buf.set_string(area.x, y, "▌", Style::default().fg(bar_color));
             let title_style = if is_focused {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD)
             };
             buf.set_string(area.x + 2, y, Self::section_title(section), title_style);
             let badge = "[ai]";
             buf.set_string(
                 area.x + area.width.saturating_sub(badge.chars().count() as u16),
-                y, badge, Style::default().fg(Color::Magenta),
+                y,
+                badge,
+                Style::default().fg(Color::Magenta),
             );
             y += 1;
 
             if is_editing_this {
                 y = self.render_editing_body(buf, area.x, y, area.width, draft, section);
             } else {
-                y = self.render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
+                y = self
+                    .render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
             }
             y += 1;
         }
@@ -153,13 +199,21 @@ impl Tab for AITab {
     fn current_focus(&self) -> FieldFocus {
         let title = Self::section_title(self.cursor);
         let (name, help) = if self.edit.is_some() {
-            (format!("Editing: {title}"),
-             "↑↓ navigate · Enter commit/exit · Esc cancel".to_string())
+            (
+                format!("Editing: {title}"),
+                "↑↓ navigate · Enter commit/exit · Esc cancel".to_string(),
+            )
         } else {
-            (title.to_string(),
-             "↑↓ select section · Enter to edit.".to_string())
+            (
+                title.to_string(),
+                "↑↓ select section · Enter to edit.".to_string(),
+            )
         };
-        FieldFocus { name, badges: vec!["ai"], help }
+        FieldFocus {
+            name,
+            badges: vec!["ai"],
+            help,
+        }
     }
 }
 
@@ -190,7 +244,9 @@ impl AITab {
 
     fn initial_edit_state(&self, draft: &DraftSettings) -> EditState {
         match self.cursor {
-            SECTION_AUTO_DENY => EditState::AutoDeny(sev_index(draft.current.agent.auto_deny_severity)),
+            SECTION_AUTO_DENY => {
+                EditState::AutoDeny(sev_index(draft.current.agent.auto_deny_severity))
+            }
             SECTION_HUMAN_APPROVAL => EditState::HumanApproval,
             SECTION_OVR_CHALLENGE => {
                 // Cursor 0 = Inherit; cursor 1+i = Set(CHALLENGE_OPTIONS[i]).
@@ -220,7 +276,10 @@ impl AITab {
     }
 
     fn handle_editing(
-        &mut self, key: KeyEvent, draft: &mut DraftSettings, state: EditState,
+        &mut self,
+        key: KeyEvent,
+        draft: &mut DraftSettings,
+        state: EditState,
     ) -> TabOutcome {
         // Esc and Left exit edit mode.
         if matches!(key.code, KeyCode::Esc | KeyCode::Left | KeyCode::Char('h')) {
@@ -230,12 +289,16 @@ impl AITab {
         match state {
             EditState::AutoDeny(mut cursor) => match key.code {
                 KeyCode::Up | KeyCode::Char('k') => {
-                    if cursor > 0 { cursor -= 1; }
+                    if cursor > 0 {
+                        cursor -= 1;
+                    }
                     self.edit = Some(EditState::AutoDeny(cursor));
                     TabOutcome::None
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    if cursor + 1 < SEVERITY_OPTIONS.len() { cursor += 1; }
+                    if cursor + 1 < SEVERITY_OPTIONS.len() {
+                        cursor += 1;
+                    }
                     self.edit = Some(EditState::AutoDeny(cursor));
                     TabOutcome::None
                 }
@@ -243,9 +306,15 @@ impl AITab {
                     // Space writes cursor's value to draft (stays in edit).
                     let new_sev = sev_from_idx(cursor);
                     let mutated = draft.current.agent.auto_deny_severity != new_sev;
-                    if mutated { draft.current.agent.auto_deny_severity = new_sev; }
+                    if mutated {
+                        draft.current.agent.auto_deny_severity = new_sev;
+                    }
                     self.edit = Some(EditState::AutoDeny(cursor));
-                    if mutated { TabOutcome::Mutated } else { TabOutcome::None }
+                    if mutated {
+                        TabOutcome::Mutated
+                    } else {
+                        TabOutcome::None
+                    }
                 }
                 KeyCode::Enter => {
                     // Enter exits edit mode (Space already wrote).
@@ -279,10 +348,14 @@ impl AITab {
                 let total = CHALLENGE_OPTIONS.len() + 1;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if cursor > 0 { cursor -= 1; }
+                        if cursor > 0 {
+                            cursor -= 1;
+                        }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if cursor + 1 < total { cursor += 1; }
+                        if cursor + 1 < total {
+                            cursor += 1;
+                        }
                     }
                     KeyCode::Char(' ') => {
                         let new_value = if cursor == 0 {
@@ -295,7 +368,11 @@ impl AITab {
                             draft.current.agent.challenge = new_value;
                         }
                         self.edit = Some(EditState::OvrChallenge(cursor));
-                        return if mutated { TabOutcome::Mutated } else { TabOutcome::None };
+                        return if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        };
                     }
                     KeyCode::Enter => {
                         self.edit = None;
@@ -311,10 +388,14 @@ impl AITab {
                 let total = SEVERITY_OPTIONAL_OPTIONS.len() + 1;
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if cursor > 0 { cursor -= 1; }
+                        if cursor > 0 {
+                            cursor -= 1;
+                        }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if cursor + 1 < total { cursor += 1; }
+                        if cursor + 1 < total {
+                            cursor += 1;
+                        }
                     }
                     KeyCode::Char(' ') => {
                         let new_value = if cursor == 0 {
@@ -327,7 +408,11 @@ impl AITab {
                             draft.current.agent.min_severity = new_value;
                         }
                         self.edit = Some(EditState::OvrMinSev(cursor));
-                        return if mutated { TabOutcome::Mutated } else { TabOutcome::None };
+                        return if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        };
                     }
                     KeyCode::Enter => {
                         self.edit = None;
@@ -343,10 +428,14 @@ impl AITab {
                 let global = draft.current.resolved_for(Mode::Shell);
                 match key.code {
                     KeyCode::Up | KeyCode::Char('k') => {
-                        if cursor > 0 { cursor -= 1; }
+                        if cursor > 0 {
+                            cursor -= 1;
+                        }
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        if cursor < 1 { cursor += 1; }
+                        if cursor < 1 {
+                            cursor += 1;
+                        }
                     }
                     KeyCode::Char(' ') => {
                         let new_value = if cursor == 0 {
@@ -359,7 +448,11 @@ impl AITab {
                             draft.current.agent.severity_escalation = new_value;
                         }
                         self.edit = Some(EditState::OvrSevEsc(cursor));
-                        return if mutated { TabOutcome::Mutated } else { TabOutcome::None };
+                        return if mutated {
+                            TabOutcome::Mutated
+                        } else {
+                            TabOutcome::None
+                        };
                     }
                     KeyCode::Enter => {
                         self.edit = None;
@@ -375,13 +468,23 @@ impl AITab {
     }
 
     fn render_summary_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize, is_focused: bool,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
+        is_focused: bool,
     ) -> u16 {
         let indent = area_x + 2;
         let global = draft.current.resolved_for(Mode::Shell);
-        buf.set_string(indent, y, Self::section_blurb(section),
-            Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            indent,
+            y,
+            Self::section_blurb(section),
+            Style::default().fg(Color::DarkGray),
+        );
         let y = y + 1;
 
         let summary = match section {
@@ -431,41 +534,58 @@ impl AITab {
         if is_focused {
             let hint = "Enter to edit";
             let hint_x = area_x + area_width.saturating_sub(hint.chars().count() as u16);
-            buf.set_string(hint_x, y, hint,
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            buf.set_string(
+                hint_x,
+                y,
+                hint,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
         }
         y + 1
     }
 
     fn render_editing_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
     ) -> u16 {
         let indent = area_x + 2;
         let inner_w = area_width.saturating_sub(2);
-        buf.set_string(indent, y,
+        buf.set_string(
+            indent,
+            y,
             "─".repeat(inner_w as usize),
-            Style::default().fg(Color::DarkGray));
+            Style::default().fg(Color::DarkGray),
+        );
         let mut y = y + 1;
         let edit = self.edit.as_ref().expect("editing");
 
-        let render_radio = |buf: &mut Buffer, mut y: u16, options: &[&str],
-                            saved: usize, cursor: usize| -> u16 {
-            for (i, opt) in options.iter().enumerate() {
-                let bullet = if i == saved { "(•)" } else { "( )" };
-                let is_cursor = i == cursor;
-                let style = if is_cursor {
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
-                } else if i == saved {
-                    Style::default().fg(Color::Cyan)
-                } else {
-                    Style::default()
-                };
-                buf.set_string(indent, y, format!("{bullet} {opt}"), style);
-                y += 1;
-            }
-            y
-        };
+        let render_radio =
+            |buf: &mut Buffer, mut y: u16, options: &[&str], saved: usize, cursor: usize| -> u16 {
+                for (i, opt) in options.iter().enumerate() {
+                    let bullet = if i == saved { "(•)" } else { "( )" };
+                    let is_cursor = i == cursor;
+                    let style = if is_cursor {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
+                    } else if i == saved {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default()
+                    };
+                    buf.set_string(indent, y, format!("{bullet} {opt}"), style);
+                    y += 1;
+                }
+                y
+            };
 
         match (section, edit) {
             (SECTION_AUTO_DENY, EditState::AutoDeny(cursor)) => {
@@ -474,11 +594,28 @@ impl AITab {
             }
             (SECTION_HUMAN_APPROVAL, _) => {
                 let on = draft.current.agent.require_human_approval;
-                let value = if on { "[ ✓ enabled  ]" } else { "[   disabled ]" };
-                buf.set_string(indent, y, "Require human approval",
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
-                buf.set_string(indent + 28, y, value,
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD));
+                let value = if on {
+                    "[ ✓ enabled  ]"
+                } else {
+                    "[   disabled ]"
+                };
+                buf.set_string(
+                    indent,
+                    y,
+                    "Require human approval",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
+                buf.set_string(
+                    indent + 28,
+                    y,
+                    value,
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                );
                 y += 1;
             }
             (SECTION_OVR_CHALLENGE, EditState::OvrChallenge(cursor)) => {
@@ -533,7 +670,10 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::empty())
     }
     fn fresh() -> (AITab, DraftSettings) {
-        (AITab::default(), DraftSettings::from_settings(Settings::default()))
+        (
+            AITab::default(),
+            DraftSettings::from_settings(Settings::default()),
+        )
     }
 
     #[test]

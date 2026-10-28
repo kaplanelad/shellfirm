@@ -24,11 +24,7 @@ pub enum DiffLine {
 /// Returns 0 when there are no changes, or when the change already fits
 /// in the initial visible window.
 #[must_use]
-pub fn first_change_offset(
-    diff: &[DiffLine],
-    visible_height: usize,
-    tail_padding: usize,
-) -> usize {
+pub fn first_change_offset(diff: &[DiffLine], visible_height: usize, tail_padding: usize) -> usize {
     let first_change = diff
         .iter()
         .position(|l| matches!(l, DiffLine::Added(_) | DiffLine::Removed(_)));
@@ -99,6 +95,79 @@ pub fn line_diff(original: &str, current: &str) -> Vec<DiffLine> {
     out
 }
 
+/// Leading spaces of a YAML line.
+fn indent_of(line: &str) -> usize {
+    line.len() - line.trim_start_matches(' ').len()
+}
+
+/// Is `parent` an enclosing key of `child` in block YAML? A key encloses
+/// lines indented deeper, and also the `- item` lines at its own indent
+/// (serde_yaml writes list items at the key's indent).
+fn encloses(parent: &str, child: &str) -> bool {
+    let p = parent.trim_start();
+    if p.is_empty() || p.starts_with('#') || !p.trim_end().ends_with(':') {
+        return false;
+    }
+    let (pi, ci) = (indent_of(parent), indent_of(child));
+    pi < ci || (pi == ci && child.trim_start().starts_with("- ") && !p.starts_with("- "))
+}
+
+/// A diff for review, with context lines and enclosing keys.
+///
+/// Changed lines come with `context` unchanged lines around them, plus the
+/// enclosing keys of every change (so a nested change shows `context:` /
+/// `protected_branches:` above it). `None` marks a gap of omitted
+/// unchanged lines.
+#[must_use]
+pub fn diff_with_context(original: &str, current: &str, context: usize) -> Vec<Option<DiffLine>> {
+    let diff = line_diff(original, current);
+    let mut keep = vec![false; diff.len()];
+    let text = |l: &DiffLine| -> String {
+        match l {
+            DiffLine::Same(s) | DiffLine::Added(s) | DiffLine::Removed(s) => s.clone(),
+        }
+    };
+    for (i, line) in diff.iter().enumerate() {
+        if matches!(line, DiffLine::Same(_)) {
+            continue;
+        }
+        let lo = i.saturating_sub(context);
+        let hi = (i + context).min(diff.len().saturating_sub(1));
+        for k in keep.iter_mut().take(hi + 1).skip(lo) {
+            *k = true;
+        }
+        // Enclosing keys, nearest first, up to the top level.
+        let mut child = text(line);
+        for j in (0..i).rev() {
+            if matches!(diff[j], DiffLine::Added(_)) {
+                continue;
+            }
+            let cand = text(&diff[j]);
+            if encloses(&cand, &child) {
+                keep[j] = true;
+                if indent_of(&cand) == 0 {
+                    break;
+                }
+                child = cand;
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut gap = false;
+    for (i, line) in diff.into_iter().enumerate() {
+        if keep[i] {
+            if gap && !out.is_empty() {
+                out.push(None);
+            }
+            gap = false;
+            out.push(Some(line));
+        } else {
+            gap = true;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,14 +187,53 @@ mod tests {
     #[test]
     fn diff_replacement() {
         let d = line_diff("challenge: Math", "challenge: Yes");
-        let added: Vec<_> = d.iter().filter_map(|l| {
-            if let DiffLine::Added(s) = l { Some(s.clone()) } else { None }
-        }).collect();
-        let removed: Vec<_> = d.iter().filter_map(|l| {
-            if let DiffLine::Removed(s) = l { Some(s.clone()) } else { None }
-        }).collect();
+        let added: Vec<_> = d
+            .iter()
+            .filter_map(|l| {
+                if let DiffLine::Added(s) = l {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let removed: Vec<_> = d
+            .iter()
+            .filter_map(|l| {
+                if let DiffLine::Removed(s) = l {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
         assert_eq!(added, vec!["challenge: Yes".to_string()]);
         assert_eq!(removed, vec!["challenge: Math".to_string()]);
+    }
+
+    #[test]
+    fn context_diff_shows_enclosing_keys() {
+        let old = "challenge: Math\ncontext:\n  protected_branches:\n  - main\n  - master\n  - production\n  - release/*\n  production_k8s_patterns:\n  - prod\n";
+        let new = "challenge: Math\ncontext:\n  protected_branches:\n  - main\n  - master\n  - production\n  - release/*\n  - hotfix\n  production_k8s_patterns:\n  - prod\n";
+        let d = diff_with_context(old, new, 1);
+        let shown: Vec<String> = d
+            .iter()
+            .map(|l| match l {
+                None => "...".into(),
+                Some(DiffLine::Same(s)) => format!("  {s}"),
+                Some(DiffLine::Added(s)) => format!("+ {s}"),
+                Some(DiffLine::Removed(s)) => format!("- {s}"),
+            })
+            .collect();
+        let expected = [
+            "  context:",
+            "    protected_branches:",
+            "...",
+            "    - release/*",
+            "+   - hotfix",
+            "    production_k8s_patterns:",
+        ];
+        assert_eq!(shown, expected, "{shown:#?}");
     }
 
     #[test]
@@ -166,12 +274,16 @@ mod tests {
         let offset = first_change_offset(&diff, 28, 3);
         assert_eq!(offset, 26);
         // Sanity: the change must be in the visible window.
-        assert!((offset..offset + 28).contains(&50),
+        assert!(
+            (offset..offset + 28).contains(&50),
             "change at index 50 must be visible from offset {offset} \
-             with visible_height 28");
+             with visible_height 28"
+        );
         // And there must be substantial context above the change.
-        assert!(offset >= 20,
-            "expected ≥20 lines of context above the change, got offset {offset}");
+        assert!(
+            offset >= 20,
+            "expected ≥20 lines of context above the change, got offset {offset}"
+        );
     }
 
     #[test]
@@ -209,12 +321,17 @@ mod tests {
         // The visible slice [offset .. offset+28] must contain at least one
         // change line referencing min_severity OR audit_enabled.
         let visible: Vec<&DiffLine> = diff.iter().skip(offset).take(28).collect();
-        let surfaces_change = visible.iter().any(|l| matches!(l,
-            DiffLine::Added(s) | DiffLine::Removed(s)
-            if s.contains("audit_enabled") || s.contains("min_severity")
-        ));
-        assert!(surfaces_change,
+        let surfaces_change = visible.iter().any(|l| {
+            matches!(l,
+                DiffLine::Added(s) | DiffLine::Removed(s)
+                if s.contains("audit_enabled") || s.contains("min_severity")
+            )
+        });
+        assert!(
+            surfaces_change,
             "auto-scroll must place a change line in the visible window; \
-             got offset={offset}, diff_len={}", diff.len());
+             got offset={offset}, diff_len={}",
+            diff.len()
+        );
     }
 }

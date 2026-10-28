@@ -7,9 +7,13 @@ labels: kind/bug
 <!-- 
 Please use this template while reporting a bug and provide as much info as possible. 
 
-In case the issue related to check please run the following command (this command will NOT be executed!) and provide more details
+If the issue is about a check (a command that should or should not be caught),
+run the following and paste the output. `check` only analyses the command, it
+does NOT execute it:
 
-$ RUST_LOG=trace shellfirm pre-command --command "{type here the command}"
+$ SHELLFIRM_LOG=trace shellfirm check -c "{type here the command}"
+
+Also paste the output of `shellfirm status` (shell, hooks, active groups).
 -->
 
 **Shellfirm version**:
@@ -26,3 +30,5 @@ $ shellfirm --version
 **Anything else we need to know?**:
 
 **OS**:
+
+**Shell and version** (bash/zsh/fish/nu/... ; Claude Code / MCP if relevant):

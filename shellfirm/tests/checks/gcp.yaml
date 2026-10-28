@@ -128,3 +128,33 @@
 - test: "gcloud secrets list"
   description: "negative: listing secrets should not match"
   expect_ids: []
+
+# -- round 2: gcp --
+- test: 'gcloud spanner instances delete i1'
+  description: "spanner instance"
+  expect_ids: ["gcp:spanner_delete"]
+- test: 'gcloud --project p spanner databases delete d --instance i'
+  description: "spanner db with global flag"
+  expect_ids: ["gcp:spanner_delete"]
+- test: 'bq rm -r -f -d ds1'
+  description: "bq rm"
+  expect_ids: ["gcp:bq_rm"]
+- test: 'bq ls'
+  description: "negative: bq ls"
+  expect_ids: []
+
+# -- gcp:firebase_projects_delete --
+- test: "firebase projects:delete my-proj"
+  description: "deleting a Firebase project"
+  expect_ids: ["gcp:firebase_projects_delete"]
+- test: "firebase projects:list"
+  description: "listing projects is safe"
+  expect_ids: []
+
+# -- gcp:firebase_hosting_disable --
+- test: "firebase hosting:disable --force"
+  description: "taking the hosted site offline"
+  expect_ids: ["gcp:firebase_hosting_disable"]
+- test: "firebase hosting:channel:list"
+  description: "listing channels is safe"
+  expect_ids: []

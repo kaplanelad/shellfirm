@@ -134,8 +134,8 @@
   description: "match systemctl mask"
   expect_ids: ["systemd:disable_service"]
 - test: "systemctl enable nginx"
-  description: "negative: enable should not match"
-  expect_ids: []
+  description: "enable is not a disable, but starts the service at every boot (Low)"
+  expect_ids: ["base:systemctl_enable"]
 - test: "systemctl start nginx"
   description: "negative: start should not match"
   expect_ids: []
@@ -257,4 +257,141 @@
   expect_ids: ["base:delete_all_cron_tasks"]
 - test: "crontab -l"
   description: "EDGE: list should not match"
+  expect_ids: []
+
+# -- process:kill_init_or_all --
+- test: "kill -9 1"
+  description: "SIGKILL to init"
+  expect_ids: ["process:kill_init_or_all", "process:kill_9"]
+- test: "kill -9 -1"
+  description: "SIGKILL to every process"
+  expect_ids: ["process:kill_init_or_all", "process:kill_9"]
+- test: "kill -s KILL 1"
+  description: "signal by name"
+  expect_ids: ["process:kill_init_or_all"]
+- test: "kill -- -1"
+  description: "-- separator"
+  expect_ids: ["process:kill_init_or_all"]
+- test: "kill -9 1234"
+  description: "negative: an ordinary pid"
+  expect_ids: ["process:kill_9"]
+- test: "kill 12"
+  description: "negative: pid 12"
+  expect_ids: []
+# -- base:clear_history --
+- test: "history -c"
+  description: "erases history"
+  expect_ids: ["base:clear_history"]
+- test: "history -cw"
+  description: "clustered flags"
+  expect_ids: ["base:clear_history"]
+- test: "history 20"
+  description: "negative: listing history"
+  expect_ids: []
+- test: "history -s kubectl delete namespace prod"
+  description: "negative: history -s only stores text"
+  expect_ids: []
+- test: "print -s git push -f origin main"
+  description: "negative: zsh print -s only stores text"
+  expect_ids: []
+# -- base:userdel_remove_home / base:passwd_delete (R4) --
+- test: 'userdel -r bob'
+  description: "delete user and home"
+  expect_ids: ["base:userdel_remove_home"]
+- test: 'userdel bob'
+  description: "negative: keeps the home directory"
+  expect_ids: []
+- test: 'passwd -d root'
+  description: "remove a password"
+  expect_ids: ["base:passwd_delete"]
+- test: 'passwd bob'
+  description: "negative: change a password"
+  expect_ids: []
+# -- round 5 (Omar R4 N7) --
+- test: "deluser --remove-home alice"
+  description: "Debian deluser with the home directory"
+  expect_ids: ["base:userdel_remove_home"]
+- test: "deluser alice"
+  description: "deluser keeps the home directory"
+  expect_ids: []
+- test: "echo o | sudo tee /proc/sysrq-trigger"
+  description: "power off through sysrq"
+  expect_ids: ["base:sysrq_trigger"]
+
+# -- base:crontab_replace (rosa-r5:N5) --
+- test: "crontab /tmp/cron"
+  description: "replacing the crontab with a file"
+  expect_ids: ["base:crontab_replace"]
+- test: "crontab -"
+  description: "replacing the crontab from stdin"
+  expect_ids: ["base:crontab_replace"]
+- test: "crontab -l"
+  description: "negative: listing"
+  expect_ids: []
+- test: "crontab -e"
+  description: "negative: editing interactively"
+  expect_ids: []
+
+# -- base:systemctl_enable (round 6, manager follow-up) --
+- test: "systemctl --user enable x.service"
+  description: "a user service started at every login"
+  expect_ids: ["base:systemctl_enable"]
+- test: "sudo systemctl enable --now nginx"
+  description: "a system service started at boot"
+  expect_ids: ["base:systemctl_enable"]
+- test: "systemctl status nginx"
+  description: "negative: status"
+  expect_ids: []
+# -- round 7 (omar-r6:R6-2, R6-3, R6-5) --
+- test: "sudo systemctl stop kubelet"
+  description: "stopping the kubelet"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl stop containerd"
+  description: "stopping the container runtime"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "sudo service postgresql stop"
+  description: "the SysV service form"
+  expect_ids: ["systemd:stop_critical_service"]
+- test: "systemctl status kubelet"
+  description: "negative: status"
+  expect_ids: []
+- test: "sudo systemctl isolate rescue.target"
+  description: "single-user mode"
+  expect_ids: ["systemd:isolate_rescue"]
+- test: "systemctl isolate graphical.target"
+  description: "negative: a normal target"
+  expect_ids: []
+- test: "sudo passwd -l root"
+  description: "locking root"
+  expect_ids: ["base:lock_root_account"]
+- test: "passwd -l alice"
+  description: "negative: another account"
+  expect_ids: []
+- test: "sudo mount -o remount,ro /"
+  description: "root read-only"
+  expect_ids: ["base:remount_root_readonly"]
+- test: "sudo mount -o remount,rw /"
+  description: "negative: read-write again"
+  expect_ids: []
+- test: "journalctl --vacuum-time=1s"
+  description: "deleting the journal"
+  expect_ids: ["base:journal_vacuum"]
+- test: "journalctl -u nginx --since today"
+  description: "negative: reading the journal"
+  expect_ids: []
+# -- systemd:isolate_rescue (systemctl rescue) --
+- test: "systemctl rescue"
+  description: "the short form of isolate rescue.target"
+  expect_ids: ["systemd:isolate_rescue"]
+- test: "sudo systemctl emergency"
+  description: "emergency mode"
+  expect_ids: ["systemd:isolate_rescue"]
+- test: "systemctl status rescue.service"
+  description: "negative: a status query"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- base:kill_9 --
+- test: "pkill_9 x"
+  description: "not kill"
   expect_ids: []

@@ -250,3 +250,72 @@
 - test: "docker run --security-opt seccomp=unconfined --privileged nginx"
   description: "EDGE: long option before --privileged"
   expect_ids: ["docker:run_privileged"]
+
+# -- round 2: docker --
+- test: 'docker network prune -f'
+  description: "network prune"
+  expect_ids: ["docker:network_prune"]
+- test: 'docker kill $(docker ps -q)'
+  description: "kill all"
+  expect_ids: ["docker:kill_all_containers"]
+- test: 'docker kill web'
+  description: "negative: one container"
+  expect_ids: []
+# -- docker:run_mount_host_root (R4) --
+- test: 'docker run -v /:/host -it alpine sh'
+  description: "host root bind mount"
+  expect_ids: ["docker:run_mount_host_root"]
+- test: 'docker run --mount type=bind,source=/,target=/host alpine'
+  description: "host root via --mount"
+  expect_ids: ["docker:run_mount_host_root"]
+- test: 'docker run -v /data:/data alpine'
+  description: "negative: a data directory"
+  expect_ids: []
+# -- round 5 (Omar R4 N7) --
+- test: "nerdctl run -v /:/host alpine sh"
+  description: "nerdctl host root mount"
+  expect_ids: ["docker:run_mount_host_root"]
+- test: "docker run -v /var/run/docker.sock:/var/run/docker.sock alpine"
+  description: "the docker socket is root on the host"
+  expect_ids: ["docker:run_mount_host_sensitive"]
+- test: "docker run -v /etc:/host-etc alpine"
+  description: "the host /etc"
+  expect_ids: ["docker:run_mount_host_sensitive"]
+- test: "docker run -v /etc/nginx/conf.d:/etc/nginx/conf.d:ro nginx"
+  description: "one config directory read-only is fine"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- docker:system_prune_all --
+- test: "xdocker system prune -a"
+  description: "another tool whose name ends in docker"
+  expect_ids: []
+- test: "sudo docker system prune -a"
+  description: "sudo is removed by the parser"
+  expect_ids: ["docker:system_prune_all"]
+
+# -- docker <object> <verb> long forms --
+- test: "docker image rm -f abc"
+  description: "image rm -f is rmi -f"
+  expect_ids: ["docker:force_remove_images"]
+- test: "docker image remove --force abc"
+  description: "image remove --force is rmi -f"
+  expect_ids: ["docker:force_remove_images"]
+- test: "docker image rm abc"
+  description: "negative: without -f, like rmi"
+  expect_ids: []
+- test: "docker container rm -f $(docker container ls -aq)"
+  description: "container rm -f of every container"
+  expect_ids: ["docker:force_remove_all_containers"]
+- test: "docker container remove -f $(docker ps -aq)"
+  description: "container remove -f of every container"
+  expect_ids: ["docker:force_remove_all_containers"]
+- test: "docker volume remove $(docker volume ls -q)"
+  description: "volume remove is volume rm"
+  expect_ids: ["docker:remove_volume"]
+- test: "docker network remove frontend"
+  description: "network remove is network rm"
+  expect_ids: ["docker:remove_network"]
+- test: "docker volume ls"
+  description: "negative: listing volumes"
+  expect_ids: []

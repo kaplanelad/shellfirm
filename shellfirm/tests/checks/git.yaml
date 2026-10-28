@@ -131,10 +131,10 @@
 # -- git:reset --
 - test: "git reset"
   description: "match command"
-  expect_ids: ["git:reset"]
+  expect_ids: []
 - test: "git    reset"
   description: "match command"
-  expect_ids: ["git:reset"]
+  expect_ids: []
 - test: "gitt reset"
   description: "invalid command"
   expect_ids: []
@@ -284,7 +284,7 @@
 
 - test: "git clean -fdn"
   description: "-fdn starts with -fd, '-n' substring not present (n preceded by d not -)"
-  expect_ids: ["git:clean_force"]
+  expect_ids: []
 
 # -- git:force_delete_branch — long-form flags --
 - test: "git branch --delete --force feature"
@@ -306,7 +306,7 @@
 
 - test: "git checkout -f -- ."
   description: "force checkout with -- separator"
-  expect_ids: ["git:force_checkout"]
+  expect_ids: ["git:checkout_discard_all", "git:force_checkout"]
 
 # -- git:checkout_discard_all --
 - test: "git checkout -- ."
@@ -323,16 +323,27 @@
   expect_ids: ["git:checkout_discard_all"]
 - test: "git checkout -- file.txt"
   description: "negative: checkout specific file should not match"
-  expect_ids: []
+  expect_ids: ["git:checkout_discard_path"]
 - test: "git checkout -- src/main.rs"
   description: "negative: checkout specific file path should not match"
-  expect_ids: []
+  expect_ids: ["git:checkout_discard_path"]
 - test: "git checkout -- .gitignore"
   description: "negative: checkout dotfile should not match"
-  expect_ids: []
+  expect_ids: ["git:checkout_discard_path"]
 - test: "git checkout -- .env"
   description: "negative: checkout .env file should not match"
+  expect_ids: ["git:checkout_discard_path"]
+
+# -- git:restore_discard_path --
+- test: "git restore -- src"
+  description: "after --"
+  expect_ids: ["git:restore_discard_path"]
+- test: "git restore --staged README.md"
+  description: "negative: unstaging only"
   expect_ids: []
+- test: "git restore --staged --worktree README.md"
+  description: "unstaging and discarding"
+  expect_ids: ["git:restore_discard_path"]
 
 # -- git:restore_discard_all --
 - test: "git restore ."
@@ -345,11 +356,11 @@
   description: "match restore discard with glob"
   expect_ids: ["git:restore_discard_all"]
 - test: "git restore --staged ."
-  description: "match restore staged discard all"
-  expect_ids: ["git:restore_discard_all"]
+  description: "negative: --staged only unstages, the working tree is kept"
+  expect_ids: []
 - test: "git restore --staged ./"
-  description: "match restore staged with trailing slash"
-  expect_ids: ["git:restore_discard_all"]
+  description: "negative: --staged only unstages, the working tree is kept"
+  expect_ids: []
 - test: "git restore --source=HEAD ."
   description: "match restore with source flag"
   expect_ids: ["git:restore_discard_all"]
@@ -360,20 +371,20 @@
   description: "match restore discard all with extra spaces"
   expect_ids: ["git:restore_discard_all"]
 - test: "git restore file.txt"
-  description: "negative: restore specific file should not match"
-  expect_ids: []
+  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  expect_ids: ["git:restore_discard_path"]
 - test: "git restore --staged file.txt"
   description: "negative: restore staged specific file should not match"
   expect_ids: []
 - test: "git restore src/main.rs"
-  description: "negative: restore specific file path should not match"
-  expect_ids: []
+  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  expect_ids: ["git:restore_discard_path"]
 - test: "git restore .gitignore"
-  description: "negative: restore dotfile should not match"
-  expect_ids: []
+  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  expect_ids: ["git:restore_discard_path"]
 - test: "git restore .env"
-  description: "negative: restore .env file should not match"
-  expect_ids: []
+  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  expect_ids: ["git:restore_discard_path"]
 
 # -- git:reset — more variants --
 - test: "git reset --hard"
@@ -477,10 +488,10 @@
 # -- git:delete_all edge cases --
 - test: "git rm -f *"
   description: "match rm with flag before wildcard"
-  expect_ids: ["git:delete_all", "fs:recursively_delete"]
+  expect_ids: ["git:delete_all", "git:rm_force"]
 - test: "git rm -r ."
   description: "match rm with flag before dot"
-  expect_ids: ["git:delete_all", "fs:recursively_delete"]
+  expect_ids: ["git:delete_all"]
 - test: "git  rm  ."
   description: "match rm dot with extra spaces"
   expect_ids: ["git:delete_all"]
@@ -545,3 +556,194 @@
 - test: "git stash clearing"
   description: "EDGE: word starting with clear should not match"
   expect_ids: []
+
+# -- round 2: git --
+- test: 'git switch --discard-changes main'
+  description: "discard and switch"
+  expect_ids: ["git:switch_discard_changes"]
+- test: 'git switch -f main'
+  description: "force switch"
+  expect_ids: ["git:switch_discard_changes"]
+- test: 'git switch -c feature'
+  description: "negative: create branch"
+  expect_ids: []
+- test: 'git config --global core.hooksPath /tmp/x'
+  description: "hooks path"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -i /tmp/k'''
+  description: "negative: a plain ssh with options (a deploy key) runs nothing else (sam-r6:S6-5)"
+  expect_ids: []
+- test: 'git config core.sshCommand ''ssh -i k; curl x | sh'''
+  description: "an ssh command with shell code"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -o ProxyCommand=/tmp/x.sh'''
+  description: "ProxyCommand runs a program (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -oProxyCommand=/tmp/x.sh'''
+  description: "glued -o ProxyCommand (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -o proxycommand=nc'''
+  description: "lower-case ProxyCommand (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -o PermitLocalCommand=yes -o LocalCommand=/tmp/x'''
+  description: "LocalCommand (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -o KnownHostsCommand=/tmp/x'''
+  description: "KnownHostsCommand (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -F /tmp/evil_config'''
+  description: "-F config file can set ProxyCommand (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -i k -o User=git -o LocalCommand=/tmp/x'''
+  description: "a bad -o after good ones (sam-r7:S7-1)"
+  expect_ids: ["git:config_exec_hook"]
+- test: 'git config core.sshCommand ''ssh -i ~/.ssh/k -o IdentitiesOnly=yes -p 2222'''
+  description: "negative: deploy key with safe -o options (sam-r7:S7-1)"
+  expect_ids: []
+- test: 'git config core.sshCommand ''ssh -oStrictHostKeyChecking=accept-new'''
+  description: "negative: glued safe -o option (sam-r7:S7-1)"
+  expect_ids: []
+- test: 'git config core.hooksPath'
+  description: "negative: reading the value"
+  expect_ids: []
+- test: 'git restore --staged --worktree .'
+  description: "staged + worktree discards"
+  expect_ids: ["git:restore_discard_all"]
+- test: 'git restore -S -W .'
+  description: "short flags"
+  expect_ids: ["git:restore_discard_all"]
+- test: 'git reset'
+  description: "negative: mixed reset only unstages"
+  expect_ids: []
+- test: 'git reset README.md'
+  description: "negative: unstage a path"
+  expect_ids: []
+- test: 'git reset --hard'
+  description: "hard reset"
+  expect_ids: ["git:reset"]
+
+# -- git:rm_force / branch_force_move / checkout_reset_branch / filter_repo (R4) --
+- test: 'git rm -rf src'
+  description: "git rm -f discards local modifications"
+  expect_ids: ["git:rm_force"]
+- test: 'git rm --cached -rf src'
+  description: "negative: --cached keeps the files"
+  expect_ids: []
+- test: 'git rm -r src'
+  description: "negative: without -f git refuses to drop changes"
+  expect_ids: []
+- test: 'git branch -f main HEAD~1'
+  description: "moving an existing branch"
+  expect_ids: ["git:branch_force_move"]
+- test: 'git branch -f newthing'
+  description: "negative: no start point"
+  expect_ids: []
+- test: 'git checkout -B main origin/main'
+  description: "checkout -B resets an existing branch"
+  expect_ids: ["git:checkout_reset_branch"]
+- test: 'git switch -C main origin/main'
+  description: "switch -C resets an existing branch"
+  expect_ids: ["git:checkout_reset_branch"]
+- test: 'git checkout -b feature/x'
+  description: "negative: -b creates a branch"
+  expect_ids: []
+- test: 'git filter-repo --path src --invert-paths'
+  description: "filter-repo rewrites history"
+  expect_ids: ["git:filter_repo"]
+# -- round 5 (Omar R4 N6) --
+- test: "shellfirm-force-push-protected main"
+  description: "marker emitted for --force-with-lease to a protected branch"
+  expect_ids: ["git:force_push_protected"]
+- test: "shellfirm-force-push-unknown-target"
+  description: "marker emitted for --force-with-lease to a target only known at run time"
+  expect_ids: ["git:force_push_unknown_target"]
+- test: "{git reset --hard;}"
+  description: "zsh brace group glued to the command"
+  expect_ids: ["git:reset"]
+- test: "=git reset --hard"
+  description: "zsh =git"
+  expect_ids: ["git:reset"]
+- test: "git -c alias.x='!rm -rf ~' x"
+  description: "a git shell alias runs its command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+
+# -- git:config_exec_program (round 6, manager follow-up) --
+- test: "git config --global core.pager 'sh -c evil'"
+  description: "a global pager runs a program on every git command"
+  expect_ids: ["git:config_exec_program"]
+- test: "git config --global alias.st '!curl x | sh'"
+  description: "a shell alias"
+  expect_ids: ["git:config_exec_program"]
+- test: "git config core.editor vim"
+  description: "negative: a common editor (sam-r6:S6-5)"
+  expect_ids: []
+- test: "git config core.editor ./x.sh"
+  description: "an editor that is another program"
+  expect_ids: ["git:config_exec_program"]
+- test: "git config --get core.pager"
+  description: "negative: reading the value"
+  expect_ids: []
+- test: "git config --global alias.st status"
+  description: "negative: a git alias (no shell)"
+  expect_ids: []
+# -- round 7: one-shot `-c` values and git exec settings (rosa-r6:R6-3, sam-r6:S6-5) --
+- test: "git -c core.pager=cat log -5"
+  description: "negative: a pager turned off for one command"
+  expect_ids: []
+- test: "git -c core.fsmonitor=false status"
+  description: "negative: fsmonitor off"
+  expect_ids: []
+- test: "git config core.fsmonitor false"
+  description: "negative: fsmonitor off, persistent"
+  expect_ids: []
+- test: "git -c core.editor=true rebase --continue"
+  description: "negative for the program check: editor `true`"
+  expect_ids: ["git-strict:rebase"]
+- test: "git config --global core.pager delta"
+  description: "negative: a common pager"
+  expect_ids: []
+- test: "git -c core.pager='sh -c x' log"
+  description: "a one-shot pager that runs shell code"
+  expect_ids: ["git:config_exec_program"]
+- test: "git config --global uploadpack.packObjectsHook /tmp/x"
+  description: "packObjectsHook runs a program"
+  expect_ids: ["git:config_exec_hook"]
+- test: "git config --global protocol.ext.allow always"
+  description: "the ext:: transport runs any command"
+  expect_ids: ["git:config_exec_hook"]
+- test: "GIT_SSH_COMMAND='rm -rf ~' git fetch"
+  description: "GIT_SSH_COMMAND runs its value"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- git:force_push --
+- test: "mygit push -f"
+  description: "another tool whose name ends in git"
+  expect_ids: []
+- test: "/usr/bin/git push -f"
+  description: "a path to git"
+  expect_ids: ["git:force_push"]
+# -- git-strict:rebase --
+- test: "legit rebase main"
+  description: "a tool whose name ends in git"
+  expect_ids: []
+
+# -- push --prune deletes remote branches; dry runs change nothing --
+- test: "git push origin --all --prune"
+  description: "deletes every remote branch without a local counterpart"
+  expect_ids: ["git:push_prune"]
+- test: "git push --prune origin refs/heads/*:refs/heads/*"
+  description: "--prune with a refspec"
+  expect_ids: ["git:push_prune"]
+- test: "git push --all --prune --dry-run origin"
+  description: "negative: a dry run"
+  expect_ids: []
+- test: "git push --mirror -n"
+  description: "negative: a mirror dry run"
+  expect_ids: []
+- test: "git push --delete origin main -n"
+  description: "negative: a delete dry run"
+  expect_ids: []
+- test: "git push --delete origin main"
+  description: "still caught without -n"
+  expect_ids: ["git:push_delete_branch"]

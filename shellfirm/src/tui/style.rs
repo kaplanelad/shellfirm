@@ -34,11 +34,7 @@ pub fn section_header(
     badge: Option<&str>,
     focused: bool,
 ) -> u16 {
-    let bar_color = if focused {
-        Color::Yellow
-    } else {
-        Color::Cyan
-    };
+    let bar_color = if focused { Color::Yellow } else { Color::Cyan };
     buf.set_string(area_x, area_y, "▌", Style::default().fg(bar_color));
     let title_style = Style::default()
         .fg(Color::White)

@@ -1,161 +1,297 @@
 - from: git
-  test: git\s{1,}reset
-  description: "This command going to reset all your local changes."
+  test: (?:^|\s)git\s+reset\b.*\s--hard(?:\s|$)
+  description: "This discards all uncommitted changes in your working tree."
   id: git:reset
   severity: High
-  filters:
-    - type: NotContains
-      value: "--soft"
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}rm\s{1,}(?:-\S+\s+)*(\*|\.)(\s|$)
-  description: "This command going to delete all files."
+  test: (?:^|\s)git\s+rm\s+(?:-\S+\s+)*(\*|\.)(\s|$)
+  description: "This deletes all tracked files from the working tree."
   id: git:delete_all
   severity: High
+  filters:
+    # `git rm --cached` only untracks files; it does not delete them.
+    - type: NotMatches
+      value: '\s--cached(?:\s|$)'
 - from: git
-  test: git\s{1,}clean\s{1,}(?:-[a-zA-Z]*f[a-zA-Z]*d[a-zA-Z]*|-[a-zA-Z]*d[a-zA-Z]*f[a-zA-Z]*|(?:-\S+\s+)*-f(?:\s+-\S+)*\s+-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+-f|--force\s+(?:-\S+\s+)*-d|(?:-\S+\s+)*-d(?:\s+-\S+)*\s+--force)
-  description: "This command will remove all untracked files and directories."
+  test: (?:^|\s)git\s+clean\b.*\s(?:-[a-zA-Z]*f[a-zA-Z]*|--force)(?:\s|$)
+  description: "This permanently deletes untracked files (and directories with -d). Git cannot restore them."
   id: git:clean_force
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
-    - type: NotContains
-      value: "-n"
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
   alternative: "git clean -fdn"
   alternative_info: "Dry-run mode shows what would be deleted without actually removing anything."
 - from: git
-  test: git\s{1,}push\s{1,}.*(-f\b|--force)
-  description: "This command will force push and overwrite remote history."
+  # Token-based: -f, combined short flags (-uf), --force, or a +refspec.
+  # --force-with-lease alone does not match; combined with -f it does.
+  test: (?:^|\s)git\s+push\b.*\s(?:-[a-zA-Z]*f[a-zA-Z]*|--force|\+\S+)(?:\s|$)
+  description: "This force-pushes and can overwrite remote history."
   id: git:force_push
   severity: High
   filters:
-    - type: NotContains
-      value: "--force-with-lease"
-    - type: NotContains
-      value: "--force-if-includes"
+    # `git push --dry-run -f` / `git push -n --force` changes nothing.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
   alternative: "git push --force-with-lease"
   alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
-  test: git\s{1,}branch\s{1,}(?:-D|(?:-d|--delete)\s+--force|--force\s+(?:-d|--delete))
-  description: "This command will force delete a branch."
+  test: (?:^|\s)git\s{1,}branch\s{1,}(?:-D|(?:-d|--delete)\s+--force|--force\s+(?:-d|--delete))
+  description: "This deletes a branch even if it has unmerged commits."
   id: git:force_delete_branch
   severity: High
   alternative: "git branch -d <branch>"
   alternative_info: "Uses safe delete (-d) which refuses to delete a branch with unmerged changes."
 - from: git
-  test: git\s{1,}checkout\s{1,}.*(-f\b|--force)
-  description: "This command will force checkout and discard local changes."
+  test: (?:^|\s)git\s{1,}checkout\s{1,}.*(-f\b|--force)
+  description: "This force-checks-out and discards local changes."
   id: git:force_checkout
   severity: High
   alternative: "git stash && git checkout <branch>"
   alternative_info: "Stash your changes first so they can be recovered later."
 - from: git
-  test: git\s{1,}checkout\s{1,}--\s{1,}(\.\/?|\*)(\s|$)
-  description: "This command will discard all local changes in the working directory."
+  test: (?:^|\s)git\s+checkout\s+(?:\S+\s+)*?(?:--\s+)?(\.\/?|\*|:/)(\s|$)
+  description: "This discards all uncommitted changes in the working tree."
   id: git:checkout_discard_all
   severity: High
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}restore\s{1,}(.*\s)?(\.\/?|\*)(\s|$)
-  description: "This command will discard all local changes in the working directory."
+  test: (?:^|\s)git\s+checkout\s+(?:\S+\s+)*?--\s+\S+
+  description: "This discards uncommitted changes in the given paths."
+  id: git:checkout_discard_path
+  severity: Medium
+  filters:
+    # The whole-tree form is covered by git:checkout_discard_all.
+    - type: NotMatches
+      value: '\s--\s+(?:\.\/?|\*|:/)(?:\s|$)'
+  alternative: "git stash push -- <path>"
+  alternative_info: "Stash the changes for that path so they can be restored later."
+- from: git
+  # `git restore [opts] .` discards the working tree unless it only unstages
+  # (`--staged` / `-S` without `--worktree` / `-W`).
+  test: '(?:^|\s)git\s+restore(?:\s+(?:[^-\s]\S*|-[^-\sS]+|--(?:(?:[^s\s]|s[^t\s])\S*)?))*?\s+(\.\/?|\*)(?:\s|$)|(?:^|\s)git\s+restore\s+(?:\S+\s+)*?(?:--worktree|-[a-zA-Z]*W[a-zA-Z]*)\s+(?:\S+\s+)*?(\.\/?|\*)(?:\s|$)'
+  description: "This discards all uncommitted changes in the working tree."
   id: git:restore_discard_all
   severity: High
   alternative: "git stash"
   alternative_info: "Saves your changes to the stash so you can recover them later with 'git stash pop'."
 - from: git
-  test: git\s{1,}rebase\s{1,}(-i\b|--interactive)
-  description: "This command will start an interactive rebase which can modify commit history."
+  # `git restore README.md` / `git restore -- src`: the modern spelling of
+  # `git checkout -- <path>` (unstaging with `--staged` alone is fine).
+  test: '(?:^|\s)git\s+restore(?:\s+(?:[^-\s]\S*|-[^-\sS]+|--(?:(?:[^s\s]|s[^t\s])\S*)?))*?\s+(?:--\s+)?[^-\s]\S*(?:\s|$)|(?:^|\s)git\s+restore\s+(?:\S+\s+)*?(?:--worktree|-[a-zA-Z]*W[a-zA-Z]*)\s+(?:\S+\s+)*?[^-\s]\S*(?:\s|$)'
+  description: "This discards uncommitted changes in the given paths."
+  id: git:restore_discard_path
+  severity: Medium
+  filters:
+    # The whole-tree form is covered by git:restore_discard_all.
+    - type: NotMatches
+      value: '\s(?:\.\/?|\*|:/)(?:\s|$)'
+  alternative: "git stash push -- <path>"
+  alternative_info: "Stash the changes for that path so they can be restored later."
+- from: git
+  test: (?:^|\s)git\s{1,}rebase\s{1,}(-i\b|--interactive)
+  description: "This starts an interactive rebase, which rewrites commit history."
   id: git:interactive_rebase
   severity: Medium
 - from: git
-  test: git\s{1,}filter-branch
-  description: "This command will rewrite Git history and can be dangerous if used incorrectly."
+  test: (?:^|\s)git\s{1,}filter-branch
+  description: "This rewrites Git history."
   id: git:filter_branch
   severity: High
   alternative: "git-filter-repo"
   alternative_info: "A faster, safer, and officially recommended alternative to filter-branch."
 - from: git
-  test: git\s{1,}gc\s{1,}.*--prune=now
-  description: "This command will permanently delete unreachable objects."
+  test: (?:^|\s)git\s{1,}gc\s{1,}.*--prune=now
+  description: "This permanently deletes unreachable objects."
   id: git:gc_prune
   severity: High
 - from: git
-  test: git\s{1,}update-ref\s{1,}(-d\b|--delete)
-  description: "This command will delete a Git reference."
+  test: (?:^|\s)git\s{1,}update-ref\s{1,}(-d\b|--delete)
+  description: "This deletes a Git reference."
   id: git:delete_ref
   severity: High
 - from: git
-  test: git\s{1,}merge\s{1,}(--no-ff|--abort)
-  description: "This command will perform a non-fast-forward merge or abort an ongoing merge."
+  test: (?:^|\s)git\s{1,}merge\s{1,}(--no-ff|--abort)
+  description: "This creates a merge commit or aborts an ongoing merge."
   id: git:merge_no_ff
   severity: Medium
 - from: git
-  test: git\s{1,}cherry-pick
-  description: "This command will apply changes from existing commits to the current branch."
+  test: (?:^|\s)git\s{1,}cherry-pick
+  description: "This applies existing commits onto the current branch."
   id: git:cherry_pick
   severity: Medium
 - from: git
-  test: git\s{1,}bisect
-  description: "This command will start a binary search to find a commit that introduced a bug."
+  test: (?:^|\s)git\s{1,}bisect
+  description: "This starts a bisect session that checks out other commits."
   id: git:bisect
   severity: Medium
 - from: git
-  test: git\s{1,}worktree\s{1,}(add|remove)
-  description: "This command will add or remove a Git worktree."
+  test: (?:^|\s)git\s{1,}worktree\s{1,}(add|remove)
+  description: "This adds or removes a Git worktree."
   id: git:worktree_management
   severity: Medium
 - from: git
-  test: git\s{1,}add\s{1,}(\.|--all|-A)(\s|$)
-  description: "Do you want to add all changes files to the staging area?"
+  test: (?:^|\s)git\s{1,}add\s{1,}(\.|--all|-A)(\s|$)
+  description: "This stages every changed file."
   id: git-strict:add_all
   severity: Low
 - from: git
-  test: git\s{1,}commit\s{1,}(--all\b|-[a-z]*a)
-  description: "Do you want to commit all changes file and commit them?"
+  test: (?:^|\s)git\s{1,}commit\s{1,}(--all\b|-[a-z]*a)
+  description: "This commits every changed tracked file."
   id: git-strict:commit_all
   severity: Low
 - from: git
-  test: git\s{1,}rebase
-  description: "This command will rewrite commit history by moving commits to a new base."
+  # A plain rebase onto another branch is routine (`git rebase main`); the
+  # interactive form has its own check (git:interactive_rebase).
+  test: (?:^|\s)git\s{1,}rebase
+  description: "This rewrites commit history by moving commits to a new base."
   id: git-strict:rebase
-  severity: Medium
+  severity: Low
 - from: git
-  test: git\s{1,}stash\s{1,}(pop|drop)
-  description: "This command will apply or remove stashed changes."
+  test: (?:^|\s)git\s{1,}stash\s{1,}(pop|drop)
+  description: "This applies or removes stashed changes."
   id: git-strict:stash_pop_drop
   severity: Low
 - from: git
-  test: git\s{1,}stash\s{1,}clear(\s|$)
-  description: "This command will permanently delete all stash entries with no way to recover them."
+  test: (?:^|\s)git\s{1,}stash\s{1,}clear(\s|$)
+  description: "This permanently deletes all stash entries."
   id: git:stash_clear
   severity: High
   alternative: "git stash list"
   alternative_info: "Review your stashes before clearing them. Use 'git stash drop stash@{N}' to remove individual entries."
 - from: git
-  test: git\s{1,}submodule\s{1,}(update|deinit)
-  description: "This command will update or deinitialize Git submodules."
+  test: (?:^|\s)git\s{1,}submodule\s{1,}(update|deinit)
+  description: "This updates or deinitializes Git submodules."
   id: git-strict:submodule_update
   severity: Low
 - from: git
-  test: git\s{1,}tag\s{1,}(-a\b|--annotate)
-  description: "This command will create an annotated tag."
+  test: (?:^|\s)git\s{1,}tag\s{1,}(-a\b|--annotate)
+  description: "This creates an annotated tag."
   id: git-strict:create_tag
   severity: Low
 - from: git
-  test: git\s{1,}push\s{1,}.*--mirror
+  test: (?:^|\s)git\s{1,}push\s{1,}.*--mirror
   description: "Mirror push overwrites the ENTIRE remote — all branches, tags, and refs."
   id: git:push_mirror
   severity: Critical
+  filters:
+    # `git push --mirror -n` / `--dry-run` changes nothing.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
 - from: git
-  test: git\s{1,}push\s{1,}(\S+\s{1,}--delete\s|--delete\s{1,}\S+\s|\S+\s{1,}:\S)
-  description: "This command will delete a remote branch."
+  test: (?:^|\s)git\s{1,}push\s{1,}(\S+\s{1,}--delete\s|--delete\s{1,}\S+\s|\S+\s{1,}:\S)
+  description: "This deletes a remote branch or tag."
   id: git:push_delete_branch
   severity: High
+  filters:
+    # `git push --delete origin x -n` / `--dry-run` changes nothing.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
 - from: git
-  test: git\s{1,}reflog\s{1,}expire\s{1,}.*--expire=now
+  # `git push --prune` deletes every remote branch that has no local
+  # counterpart: with `--all` in a fresh clone, every other branch.
+  test: (?:^|\s)git\s+push\b(?:\s+\S+)*?\s--prune(?:\s|$)
+  description: "This deletes every branch on the remote that does not exist locally (with --all in a fresh clone: every other branch)."
+  id: git:push_prune
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+  alternative: "git push --all --prune --dry-run origin"
+  alternative_info: "The dry run lists the remote branches that would be deleted."
+- from: git
+  test: (?:^|\s)git\s{1,}reflog\s{1,}expire\s{1,}.*--expire=now
   description: "Expiring all reflog entries destroys the last recovery mechanism for lost commits."
   id: git:reflog_expire
   severity: Critical
+- from: git
+  test: (?:^|\s)git\s+switch\s+(?:\S+\s+)*?(?:--discard-changes|-f|--force)(?:\s|$)
+  description: "This switches branches and discards local changes."
+  id: git:switch_discard_changes
+  severity: High
+  alternative: "git stash && git switch <branch>"
+  alternative_info: "Stash your changes first so they can be recovered later."
+- from: git
+  # Also the `ext::` transport (`protocol.ext.allow`, an `ext::` url
+  # rewrite) and `uploadpack.packObjectsHook`, which run any command.
+  test: (?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:core\.hooksPath|core\.sshCommand|core\.fsmonitor|uploadpack\.packObjectsHook|protocol\.ext\.allow|url\.["']?ext::\S*\.insteadOf)\s+\S
+  description: "This makes git run a program from the given location on every git command (hooks / ssh / fsmonitor / the ext:: transport), a common persistence trick."
+  id: git:config_exec_hook
+  severity: High
+  filters:
+    # Values that run nothing else: fsmonitor on/off (`true` is git's own
+    # daemon), and an `ssh` with only options (`ssh -i ~/.ssh/deploy_key -o
+    # IdentitiesOnly=yes`, the usual deploy-key setup). `-F`, `-I`, `-E` and
+    # any `-o` outside the list (ProxyCommand, LocalCommand,
+    # KnownHostsCommand, Match exec, ...) run programs: not allowed. Keep the
+    # list in sync with SSH_SAFE_OPTIONS in src/agent.rs.
+    - type: NotMatches
+      value: '(?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:core\.fsmonitor[\s\x{1}]+["'']?(?:true|false|yes|no|on|off|0|1)["'']?|core\.sshCommand[\s\x{1}]+["'']?ssh(?:[\s\x{1}]+(?:-[46AaCGgKkMNnqsTtVvXxYy]+|-[BbcDeiJLlmOPpQRSWw][\s\x{1}]*[^\s\x{1};&|`$()<>]+|-o[\s\x{1}]*(?i:IdentitiesOnly|IdentityFile|IdentityAgent|CertificateFile|StrictHostKeyChecking|UserKnownHostsFile|GlobalKnownHostsFile|HostKeyAlias|HostName|Port|User|ConnectTimeout|ConnectionAttempts|ServerAliveInterval|ServerAliveCountMax|TCPKeepAlive|ProxyJump|BatchMode|LogLevel|ControlMaster|ControlPath|ControlPersist|AddKeysToAgent|ForwardAgent|Compression|PubkeyAuthentication|PasswordAuthentication|PreferredAuthentications|HostKeyAlgorithms|PubkeyAcceptedKeyTypes|PubkeyAcceptedAlgorithms|CheckHostIP|UpdateHostKeys|AddressFamily|VerifyHostKeyDNS|HashKnownHosts|RequestTTY|Ciphers|MACs|KexAlgorithms|BindAddress|ExitOnForwardFailure|NumberOfPasswordPrompts)=[^\s\x{1};&|`$()<>]+))*["'']?)\s*$'
+- from: git
+  # `-f` also discards local modifications of the removed files.
+  test: (?:^|\s)git\s+rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*f[a-zA-Z]*|--force)(?:\s|$)
+  description: "This deletes the files from the working tree and discards their uncommitted changes."
+  id: git:rm_force
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s--cached(?:\s|$)'
+  alternative: "git rm --cached <path>"
+  alternative_info: "Stops tracking the files but keeps them (and their changes) on disk."
+- from: git
+  # `git branch -f main HEAD~1` moves an existing branch; commits after the
+  # new tip are dropped from it. (On a protected branch the context makes it
+  # Critical.)
+  test: (?:^|\s)git\s+branch\s+(?:\S+\s+)*?(?:-f|--force)\s+[^-\s]\S*\s+\S+
+  description: "This moves an existing branch to another commit; commits after it are dropped from the branch."
+  id: git:branch_force_move
+  severity: Medium
+- from: git
+  # `git checkout -B main origin/main` / `git switch -C main x` reset an
+  # existing branch to the start point.
+  test: (?:^|\s)git\s+(?:checkout\s+(?:\S+\s+)*?-B|switch\s+(?:\S+\s+)*?(?:-C|--force-create))\s+\S+
+  description: "This resets the branch to the start point if it already exists, dropping its commits."
+  id: git:checkout_reset_branch
+  severity: Medium
+- from: git
+  test: (?:^|\s)git\s+filter-repo\b
+  description: "This rewrites the whole repository history (and removes the origin remote)."
+  id: git:filter_repo
+  severity: High
+- from: git
+  # Emitted by shellfirm when `git push --force-with-lease` (or
+  # `--force-if-includes`) pushes to a protected branch
+  # (`context.protected_branches`): the lease only checks for unseen remote
+  # work, the push still rewrites the branch.
+  test: '^shellfirm-force-push-protected\s'
+  description: "This force-pushes (with lease) to a protected branch and rewrites its shared history."
+  id: git:force_push_protected
+  severity: High
+- from: git
+  # Emitted by shellfirm when `git push --force-with-lease` pushes to a
+  # target only known when the line runs (`origin $B` with `B` unset,
+  # `$(cat file)`) in a repository with a protected branch.
+  test: '^shellfirm-force-push-unknown-target(?:\s|$)'
+  description: "This force-pushes (with lease) to a branch that is only known when the line runs; this repository has a protected branch, so it may rewrite that branch's shared history."
+  id: git:force_push_unknown_target
+  severity: High
+- from: git
+  # Settings that make git run a program on later commands (`core.pager`,
+  # `core.editor`, `sequence.editor`, a `!` alias), also in `--global`
+  # config, where they apply to every repository.
+  test: '(?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:core\.pager|core\.editor|core\.askpass|sequence\.editor|diff\.external|alias\.\S+\s+["'']?!)'
+  description: "This makes git run a program of your choice on later git commands (pager, editor or a shell alias), a common persistence trick, in every repository with --global."
+  id: git:config_exec_program
+  severity: Medium
+  filters:
+    # Reading a value (`--get`, `--list`) changes nothing.
+    - type: NotMatches
+      value: '\s(?:--get\S*|--list|-l|--unset\S*)(?:\s|$)'
+    # A pager / editor that is a common, plain program (`git -c
+    # core.pager=cat log`, `core.editor vim`, `code --wait`) runs nothing
+    # unexpected; only another program or shell code is reported.
+    - type: NotMatches
+      value: '(?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:core\.pager|core\.editor|sequence\.editor)[\s\x{1}]+["'']?(?:cat|true|false|:|less|more|most|delta|diff-so-fancy|bat|vi|vim|nvim|nano|emacs|micro|hx|code|code-insiders|cursor|subl|mate|zed)(?:[\s\x{1}]+-[-\w=]+)*["'']?\s*$'

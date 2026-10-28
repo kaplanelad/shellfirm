@@ -1,28 +1,78 @@
 - from: shell
-  test: 'curl\s+.*\|\s*(?:sudo\s+)?(bash|sh|zsh|fish|source\s)'
+  test: '(?:^|\s)curl\s+.*\|\s*(?:sudo\s+)?(bash|sh|zsh|fish|source\s)'
   description: "Piping remote content directly to shell executes arbitrary code without inspection."
   id: shell:curl_pipe_to_shell
   severity: High
-  alternative: "curl -o script.sh <url> && cat script.sh && bash script.sh"
-  alternative_info: "Download first, review the script, then execute it."
+  alternative: "curl -o script.sh <url> && cat script.sh"
+  alternative_info: "Download it and read it. Run it (`bash script.sh`) in a separate command once you have reviewed it."
 - from: shell
-  test: 'wget\s+.*-\S*O\s*-\s.*\|\s*(?:sudo\s+)?(bash|sh|zsh|fish)'
+  test: '(?:^|\s)wget\s+.*-\S*O\s*-\s.*\|\s*(?:sudo\s+)?(bash|sh|zsh|fish)'
   description: "Piping downloaded content to shell executes arbitrary code without inspection."
   id: shell:wget_pipe_to_shell
   severity: High
-  alternative: "wget -O script.sh <url> && cat script.sh && bash script.sh"
-  alternative_info: "Download first, review the script, then execute it."
+  alternative: "wget -O script.sh <url> && cat script.sh"
+  alternative_info: "Download it and read it. Run it (`bash script.sh`) in a separate command once you have reviewed it."
 - from: shell
-  test: 'eval\s+"?\$\(curl'
+  test: '(?:^|\s)eval\s+"?\$\(curl'
   description: "Evaluating remote content executes arbitrary code without inspection."
   id: shell:eval_curl
   severity: High
-  alternative: "curl -o script.sh <url> && cat script.sh && source script.sh"
-  alternative_info: "Download first, review the script, then source it."
+  alternative: "curl -o script.sh <url> && cat script.sh"
+  alternative_info: "Download it and read it. Source it (`source script.sh`) in a separate command once you have reviewed it."
 - from: shell
-  test: 'curl\s+.*\|\s*(?:sudo\s+)?(python3?|perl|ruby)\b'
+  test: '(?:^|\s)(?:curl|wget)\s+.*\|\s*(?:sudo\s+)?(python[\d.]*|perl|ruby|node|nodejs|bun|deno|php|lua)\b'
   description: "Piping remote content to an interpreter executes arbitrary code without inspection."
   id: shell:curl_pipe_to_interpreter
   severity: High
-  alternative: "curl -o script.py <url> && cat script.py && python script.py"
-  alternative_info: "Download first, review the script, then execute it."
+  alternative: "curl -o script.py <url> && cat script.py"
+  alternative_info: "Download it and read it. Run it (`python script.py`) in a separate command once you have reviewed it."
+- from: shell
+  # Also hex (`xxd -r`), reversed (`rev`) and compressed text.
+  test: '(?:^|\s)(?:(?:base64|base32)\s+(?:\S+\s+)*?(?:-d|--decode|-D)|xxd\s+(?:\S+\s+)*?-r|rev|(?:gzip|bzip2|xz|zstd)\s+(?:\S+\s+)*?-d|gunzip|zcat|openssl\s+(?:enc|base64)\s+(?:\S+\s+)*?-d)(?:\s.*)?\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:ba|z|da|k|fi)?sh(?:\s|$)'
+  description: "This decodes hidden text and runs it as shell commands, so you cannot see what it does."
+  id: shell:decode_pipe_to_shell
+  severity: High
+  alternative: "base64 -d <<< '<data>'"
+  alternative_info: "Decode and read the text first; run it only after reviewing it."
+- from: shell
+  # Emitted by shellfirm for `eval "$(rev <<< '/ fr- mr')"`, `eval "$(echo …
+  # | xxd -r -p)"`, `sh -c "$(… | base64 -d)"`: the code is hidden by a text
+  # transform and only exists when it runs.
+  test: '^shellfirm-transformed-code\s'
+  description: "This runs (eval) text that is decoded or transformed first, so you cannot see the commands it runs."
+  id: shell:eval_transformed_text
+  severity: High
+  alternative: "echo \"$(<transform>)\""
+  alternative_info: "Print the decoded text and read it before running it."
+- from: shell
+  test: '(?:^|\s)(?:(?:ba|z|da|k)?sh|source|\.|python[\d.]*|perl|ruby|node|php)\s+(?:-\S+\s+)*<\s*\(\s*(?:curl|wget)\b'
+  description: "This runs a downloaded script directly (process substitution) without inspection."
+  id: shell:process_substitution_remote
+  severity: High
+  alternative: "curl -o script.sh <url> && cat script.sh"
+  alternative_info: "Download it and read it. Run it (`bash script.sh`) in a separate command once you have reviewed it."
+- from: shell
+  test: '^shellfirm-nesting-limit\s'
+  description: "The command is nested too deeply (eval / $( ) / bash -c inside each other) or is too large or malformed to be analyzed safely."
+  id: shell:nesting_too_deep
+  severity: High
+# `sh -c "$(curl …)"`: the installer idiom, the same as `curl … | sh`.
+- from: shell
+  test: '(?:^|\s)(?:(?:ba|z|da|k|mk|fi|c|tc)?sh|nu|elvish|xonsh|pwsh|powershell)\s+(?:-\S+\s+)*?-[a-zA-Z]*c\s+["'']?(?:\$\(|`)\s*(?:sudo\s+)?(?:curl|wget|fetch|aria2c|http|https|xh)\b'
+  description: "This downloads a script and runs it as shell code without inspection (`sh -c \"$(curl …)\"` is the same as `curl … | sh`)."
+  id: shell:shell_c_remote_script
+  severity: High
+  alternative: "curl -o script.sh <url> && cat script.sh"
+  alternative_info: "Download it and read it. Run it (`bash script.sh`) in a separate command once you have reviewed it."
+- from: shell
+  test: '^shellfirm-unknown-shell-payload\s'
+  description: "This runs shell code that shellfirm cannot see before it runs (input lines executed as commands, as in `xargs -I{} sh -c '{}'`), so it cannot be checked."
+  id: shell:unknown_shell_payload
+  severity: High
+# The shell hooks follow the functions a line calls (and the functions those
+# call) within a size budget; past it they emit this marker.
+- from: shell
+  test: '^shellfirm-function-depth-limit\s'
+  description: "This calls a shell function too large or too deeply nested for the shell hook to read ahead, so part of what it runs was not checked."
+  id: shell:function_depth_limit
+  severity: Medium

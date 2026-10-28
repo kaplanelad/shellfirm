@@ -14,13 +14,21 @@ pub struct Toggle<'a> {
 impl<'a> Toggle<'a> {
     #[must_use]
     pub fn new(label: &'a str, value: bool, focused: bool) -> Self {
-        Self { label, value, focused }
+        Self {
+            label,
+            value,
+            focused,
+        }
     }
 }
 
 impl<'a> Widget for Toggle<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let on = if self.value { "[ ✓ enabled ]" } else { "[   disabled  ]" };
+        let on = if self.value {
+            "[ ✓ enabled ]"
+        } else {
+            "[   disabled  ]"
+        };
         let style = if self.focused {
             Style::default()
                 .fg(Color::Black)
@@ -33,4 +41,3 @@ impl<'a> Widget for Toggle<'a> {
         buf.set_string(area.x, area.y, line, style);
     }
 }
-

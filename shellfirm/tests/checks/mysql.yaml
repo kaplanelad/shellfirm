@@ -2,10 +2,10 @@
 # -- mysql:drop --
 - test: "mysql -e DROP DATABASE test"
   description: "executing DROP commands via mysql CLI"
-  expect_ids: ["database:drop_database", "mysql:drop"]
+  expect_ids: ["mysql:drop"]  # unquoted: -e only receives "DROP"
 - test: "mysql -e  DROP TABLE orders"
   description: "mysql DROP TABLE with extra space still matches"
-  expect_ids: ["database:drop_table", "mysql:drop"]
+  expect_ids: ["mysql:drop"]
 - test: "mysql -e SELECT * FROM users"
   description: "mysql SELECT should not trigger drop check"
   expect_ids: []
@@ -16,8 +16,8 @@
   expect_ids: ["database:drop_database", "mysql:drop"]
 
 - test: "mysql --execute 'DROP TABLE users'"
-  description: "BUG: --execute long form not matched"
-  expect_ids: ["database:drop_table"]
+  description: "--execute long form"
+  expect_ids: ["database:drop_table", "mysql:drop"]
 
 # ====== EDGE CASE / STRESS TESTS ======
 
@@ -28,3 +28,69 @@
 - test: "mysql -h localhost -e 'DROP DATABASE test'"
   description: "EDGE: -h flag before -e"
   expect_ids: ["database:drop_database", "mysql:drop"]
+
+# -- mysql:reset_master --
+- test: 'RESET MASTER'
+  description: "reset master deletes binlogs"
+  expect_ids: ["mysql:reset_master"]
+- test: 'RESET BINARY LOGS AND GTIDS'
+  description: "8.4 spelling"
+  expect_ids: ["mysql:reset_master"]
+- test: 'RESET QUERY CACHE'
+  description: "negative: query cache"
+  expect_ids: []
+
+# -- round 4: Dana r3 F7 --
+- test: 'PURGE BINARY LOGS BEFORE NOW()'
+  description: "purge binary logs"
+  expect_ids: ["mysql:purge_binary_logs"]
+- test: 'mysql -e "PURGE MASTER LOGS TO ''mysql-bin.010''"'
+  description: "purge master logs through mysql -e"
+  expect_ids: ["mysql:purge_binary_logs"]
+- test: 'SHOW BINARY LOGS'
+  description: "negative: show binary logs"
+  expect_ids: []
+- test: 'SET GLOBAL read_only = OFF'
+  description: "read_only off"
+  expect_ids: ["mysql:read_only_off"]
+- test: 'SET @@global.super_read_only = 0'
+  description: "super_read_only off"
+  expect_ids: ["mysql:read_only_off"]
+- test: 'SET GLOBAL read_only = ON'
+  description: "negative: read_only on"
+  expect_ids: []
+- test: 'mysqladmin -u root -p shutdown'
+  description: "mysqladmin shutdown stops the server"
+  expect_ids: ["mysql:mysqladmin_shutdown"]
+- test: 'mysqladmin status'
+  description: "negative: mysqladmin status"
+  expect_ids: []
+
+# -- mysql:drop through --init-command (round 7, Dana r6 N7c) --
+- test: 'mysql --init-command="DROP TABLE users" prod'
+  description: "--init-command= runs a DROP before the session"
+  expect_ids: ["mysql:drop"]
+- test: "mysql --init-command 'DROP DATABASE prod'"
+  description: "--init-command with a separate value"
+  expect_ids: ["mysql:drop"]
+- test: 'mysql --init-command="SET NAMES utf8mb4" prod'
+  description: "negative: a harmless init command"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG) ----
+# -- mysql:safe_updates_off --
+- test: "mysql -e \"SET SQL_SAFE_UPDATES = 0\""
+  description: "turning safe updates off"
+  expect_ids: ["mysql:safe_updates_off"]
+- test: "mysql -e \"SET sql_safe_updates=OFF\""
+  description: "lowercase, OFF"
+  expect_ids: ["mysql:safe_updates_off"]
+- test: "mysql -e \"SET SESSION sql_safe_updates = 0\""
+  description: "SESSION scope"
+  expect_ids: ["mysql:safe_updates_off"]
+- test: "mysql -e \"SET @@session.sql_safe_updates = FALSE\""
+  description: "@@session form"
+  expect_ids: ["mysql:safe_updates_off"]
+- test: "mysql -e \"SET SQL_SAFE_UPDATES = 1\""
+  description: "turning it on"
+  expect_ids: []

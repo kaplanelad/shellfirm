@@ -27,4 +27,3 @@ impl<'a> Widget for Badge<'a> {
         buf.set_string(area.x, area.y, text, style);
     }
 }
-

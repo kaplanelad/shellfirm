@@ -1,0 +1,156 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for nushell
+# nushell cannot cancel a command from a hook. A risky line made of external
+# programs is challenged, and on deny PATH is cleared for that line so they
+# cannot start. Built-ins (rm, mv, cp, save, ...), custom commands and
+# programs run by path cannot be stopped: for those shellfirm only warns.
+# SHELLFIRM_HOOK_PID lets `shellfirm doctor` tell whether this shell loaded the hook.
+$env.SHELLFIRM_HOOK_PID = ($nu.pid | into string)
+$env.config = ($env.config? | default {} | upsert hooks {|c| $c.hooks? | default {} })
+$env.config.hooks = ($env.config.hooks | upsert pre_execution {|h| $h.pre_execution? | default [] })
+$env.config.hooks = ($env.config.hooks | upsert pre_prompt {|h| $h.pre_prompt? | default [] })
+$env.config.hooks.pre_execution = ($env.config.hooks.pre_execution | append {||
+    let cmd = (commandline)
+    if ($cmd | str trim | is-empty) { return }
+    if (which shellfirm | is-empty) {
+        if ($env.__SHELLFIRM_WARNED? | is-empty) {
+            $env.__SHELLFIRM_WARNED = true
+            print -e "shellfirm: binary not found in PATH; commands are NOT being checked"
+        }
+        return
+    }
+    if ($cmd | str length) > 30000 {
+        # Too long to pass as one argument: checked through stdin, no prompt.
+        let big = (try { $cmd | ^shellfirm check --stdin --exit-code | complete | get exit_code } catch { 1 })
+        if $big == 0 { return }
+        $env.__SHELLFIRM_SAVED_PATH = $env.PATH
+        $env.PATH = []
+        print -e "shellfirm: WARNING: this line is too long to confirm and it is risky (or could not be checked). External programs on it will not start; nushell built-ins like rm may still run."
+        return
+    }
+    # Defining a custom command or an alias runs nothing (calling it is checked).
+    let ast = (try { ast --json $cmd | get block | from json | get pipelines } catch { [] })
+    if ($cmd | str trim) =~ '^(export\s+)?(def|alias)\s' and ($ast | length) == 1 and ($ast.0.elements | length) == 1 { return }
+    # Aliases are replaced by what they stand for, and the source of small
+    # custom commands is checked with the call, and so are the custom
+    # commands and aliases that source calls, each once, however deep,
+    # within a budget (32 commands, 32 KB). Past it the rest is not read: a
+    # marker says so (shell:function_depth_limit).
+    mut check = $cmd
+    mut extra = []
+    mut queue = [$cmd]
+    mut seen = []
+    mut level = 0
+    mut nfn = 0
+    mut bytes = 0
+    mut over = false
+    while ($queue | is-not-empty) and not $over {
+        $level += 1
+        mut next = []
+        for text in $queue {
+            if $over { break }
+            let words = ($text | split row -r '[;|\n{}()]|&&|\|\|' | each {|s| $s | str trim | split row -r '\s+' | first } | where {|w| $w != "" } | uniq)
+            for w in ($words | first 16) {
+                if $w in $seen { continue }
+                # `which` is cheap; the scope tables are only read for an
+                # alias or a custom command.
+                let t = (try { which $w | get type? | append "" | first } catch { "" })
+                if $t not-in [alias custom] { continue }
+                $seen = ($seen | append $w)
+                let al = if $t == alias { try { scope aliases | where name == $w } catch { [] } } else { [] }
+                if ($al | is-not-empty) {
+                    if $level == 1 {
+                        let re = ('(^|[;|\n{(]\s*|&&\s*|\|\|\s*)' + ($w | str replace -ra '([.^$*+?()\[\]{}|\\])' '\$1') + '(\s|$)')
+                        $check = ($check | str replace -ra $re ('${1}' + ($al.0.expansion | str replace -a '$' '$$') + '${2}'))
+                    } else {
+                        $extra = ($extra | append $al.0.expansion)
+                    }
+                    $next = ($next | append $al.0.expansion)
+                } else if $t == custom {
+                    let src = (try { view source $w } catch { "" })
+                    if ($src | str length) <= 2000 {
+                        $nfn += 1
+                        $bytes += ($src | str length)
+                        if $nfn > 32 or $bytes > 32000 {
+                            $extra = ($extra | append $"shellfirm-function-depth-limit ($w) # calls more functions than the hook reads ahead")
+                            $over = true
+                            break
+                        }
+                        $extra = ($extra | append $src)
+                        $next = ($next | append $src)
+                    }
+                }
+            }
+        }
+        $queue = $next
+    }
+    # `let c = "kubectl"; ^$c ...`: the program named by a variable set to a
+    # literal on the same line.
+    mut named = $check
+    for l in ($cmd | parse -r r#'(?:^|[;\n|])\s*(?:let|mut)\s+(?P<n>[A-Za-z_][A-Za-z0-9_-]*)\s*=\s*["']?(?P<v>[^"'\s;|()]+)["']?\s*(?:$|[;\n|])'#) {
+        $named = ($named | str replace -a ('^$' + $l.n) ('^' + $l.v))
+    }
+    # `^$env.K ...` / `$env.K ...`: the program named by an environment
+    # variable, set on this line or earlier in the session.
+    if ($named | str contains '$env.') {
+        mut envs = {}
+        for l in ($cmd | parse -r r#'\$env\.(?P<n>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*["']?(?P<v>[^"'\s;|()]+)["']?'#) {
+            $envs = ($envs | upsert $l.n $l.v)
+        }
+        for l in ($named | parse -r r#'(?:^|[;\n|({]\s*)\^?\$env\.(?P<n>[A-Za-z_][A-Za-z0-9_]*)'# | uniq) {
+            let v = if ($l.n in $envs) { $envs | get $l.n } else { $env | get -i $l.n }
+            if ($v | describe) == "string" and ($v | str trim | is-not-empty) {
+                $named = ($named | str replace -ra ('\^?\$env\.' + $l.n + '(?![A-Za-z0-9_])') ('^' + $v))
+            }
+        }
+    }
+    if $named != $check { $extra = ($extra | append $named) }
+    let full = ([$check] | append $extra | str join "\n")
+    # Dry run first (no prompt, and no external context probes such as the
+    # blast radius: the real check below runs them once). A match skipped
+    # for its severity can still be raised by context: check it for real.
+    let dry = (try { do { ^shellfirm pre-command --test --no-context $"--command=($full)" } | complete } catch { {exit_code: 1, stdout: ""} })
+    if $dry.exit_code == 0 and not ($dry.stdout | str contains "skipped (below") { return }
+    # Can shellfirm actually stop this line? Only external programs found
+    # through PATH can be stopped (by clearing PATH).
+    let heads = ($check | split row -r '[;|\n{}()]|&&|\|\|' | each {|s| $s | str trim | split row -r '\s+' | first } | where {|w| $w != "" })
+    let unstoppable = ($check =~ '\$env\.PATH|with-env|load-env|overlay' or ($heads | any {|w|
+        if ($w | str starts-with "^") {
+            ($w | str contains "/")
+        } else if ($w | str contains "/") {
+            true
+        } else {
+            let t = (which $w | get type? | append "external" | first)
+            $w in [rm mv cp save] or $t in [custom alias]
+        }
+    }))
+    if $unstoppable {
+        let ids = ($dry.stdout | lines | where {|l| $l starts-with "  - " } | each {|l| $l | str substring 4.. | split row " " | first } | str join ", ")
+        $env.__SHELLFIRM_SAVED_PATH = $env.PATH
+        $env.PATH = []
+        print -e $"shellfirm: WARNING: this line is risky \(($ids)\), but shellfirm cannot stop nushell built-ins like rm, custom commands or programs run by path: they may still run. External programs on this line will not start."
+        return
+    }
+    # The banner and challenge use the terminal; `complete` waits for the exit code.
+    let rc = (^shellfirm pre-command --direct-tty $"--command=($full)" e> /dev/tty | complete | get exit_code)
+    # 3: allowed after a passed challenge (SHELLFIRM_SIGNAL_PROMPTED=1 set
+    # in the environment by the user).
+    if $rc in [0 3] { return }
+    if $rc == 127 {
+        print -e "shellfirm: warning: shellfirm is installed but could not run (exit 127); this command was NOT checked. Run `shellfirm doctor`."
+        return
+    }
+    $env.__SHELLFIRM_SAVED_PATH = $env.PATH
+    $env.PATH = []
+    print -e "shellfirm: external programs on this line will not start (nushell may report them as not found)."
+})
+$env.config.hooks.pre_prompt = ($env.config.hooks.pre_prompt | append {||
+    if ($env.__SHELLFIRM_SAVED_PATH? != null) {
+        $env.PATH = $env.__SHELLFIRM_SAVED_PATH
+        hide-env __SHELLFIRM_SAVED_PATH
+        $env.LAST_EXIT_CODE = 1
+    }
+})

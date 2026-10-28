@@ -77,3 +77,126 @@
 - test: "redis-cli -p 6380 FLUSHDB"
   description: "match redis-cli with -p flag before FLUSHDB"
   expect_ids: ["redis:flushdb"]
+
+# -- redis:shutdown --
+- test: 'redis-cli SHUTDOWN NOSAVE'
+  description: "shutdown nosave"
+  expect_ids: ["redis:shutdown"]
+- test: 'redis-cli -h prod shutdown'
+  description: "shutdown"
+  expect_ids: ["redis:shutdown"]
+- test: 'echo FLUSHALL | redis-cli'
+  description: "piped command"
+  expect_ids: ["redis:interactive_flushall"]
+
+# -- round 3: more redis coverage (Dana F11) --
+- test: 'FLUSHALL ASYNC'
+  description: "async flushall"
+  expect_ids: ["redis:interactive_flushall"]
+- test: 'flushall sync'
+  description: "sync flushall"
+  expect_ids: ["redis:interactive_flushall"]
+- test: 'FLUSHDB ASYNC'
+  description: "async flushdb"
+  expect_ids: ["redis:interactive_flushdb"]
+- test: 'redis-cli FLUSHALL ASYNC'
+  description: "shell async flushall"
+  expect_ids: ["redis:flushall"]
+- test: 'EVAL "return redis.call(''FLUSHALL'')" 0'
+  description: "lua flushall"
+  expect_ids: ["redis:eval_flush"]
+- test: 'EVAL "return redis.call(''GET'', KEYS[1])" 1 k'
+  description: "negative: harmless lua"
+  expect_ids: []
+- test: 'SCRIPT FLUSH'
+  description: "script flush"
+  expect_ids: ["redis:script_flush"]
+- test: 'FUNCTION FLUSH'
+  description: "function flush"
+  expect_ids: ["redis:function_flush"]
+- test: 'CONFIG SET appendonly no'
+  description: "config set"
+  expect_ids: ["redis:config_set"]
+- test: 'CONFIG GET maxmemory'
+  description: "negative: config get"
+  expect_ids: []
+- test: 'DEBUG SEGFAULT'
+  description: "debug segfault"
+  expect_ids: ["redis:debug"]
+- test: 'CLUSTER RESET HARD'
+  description: "cluster reset"
+  expect_ids: ["redis:cluster_reset"]
+- test: 'redis-cli CONFIG SET save '''''
+  description: "shell config set"
+  expect_ids: ["redis:cli_admin"]
+- test: 'SHUTDOWN NOW'
+  description: "shutdown now"
+  expect_ids: ["redis:interactive_shutdown"]
+
+# -- round 4: Dana r3 F7 --
+- test: 'REPLICAOF 10.0.0.5 6379'
+  description: "replicaof wipes the dataset"
+  expect_ids: ["redis:replicaof"]
+- test: 'redis-cli -h prod SLAVEOF 10.0.0.5 6379'
+  description: "slaveof through redis-cli"
+  expect_ids: ["redis:replicaof"]
+- test: 'REPLICAOF NO ONE'
+  description: "negative: promote to primary"
+  expect_ids: []
+- test: 'SWAPDB 0 1'
+  description: "swapdb"
+  expect_ids: ["redis:swapdb"]
+- test: 'redis-cli swapdb 0 1'
+  description: "swapdb through redis-cli"
+  expect_ids: ["redis:swapdb"]
+- test: 'SELECT 1'
+  description: "negative: select db"
+  expect_ids: []
+- test: 'ACL DELUSER app'
+  description: "acl deluser"
+  expect_ids: ["redis:acl_deluser"]
+- test: 'ACL LIST'
+  description: "negative: acl list"
+  expect_ids: []
+- test: 'redis-cli FUNCTION FLUSH'
+  description: "function flush through redis-cli"
+  expect_ids: ["redis:cli_function_flush"]
+- test: 'redis-cli FUNCTION LIST'
+  description: "negative: function list"
+  expect_ids: []
+- test: "redis-cli KEYS '*' | xargs redis-cli DEL"
+  description: "every key piped into DEL"
+  expect_ids: ["redis:keys_xargs_del"]
+- test: "redis-cli --scan | xargs redis-cli UNLINK"
+  description: "every scanned key piped into UNLINK"
+  expect_ids: ["redis:keys_xargs_del"]
+- test: "redis-cli --scan --pattern 'session:*' | xargs redis-cli DEL"
+  description: "a scoped pattern is redis:pattern_xargs_del (not the all-keys check)"
+  expect_ids: ["redis:pattern_xargs_del"]
+
+# ---- round 9 (R9-CATALOG) ----
+# -- redis:pattern_xargs_del --
+- test: "redis-cli --scan --pattern 'sess:*' | xargs redis-cli del"
+  description: "--scan with a pattern piped into DEL"
+  expect_ids: ["redis:pattern_xargs_del"]
+- test: "redis-cli --scan --pattern sess:* | xargs -L 100 redis-cli unlink"
+  description: "unquoted pattern, UNLINK"
+  expect_ids: ["redis:pattern_xargs_del"]
+- test: "redis-cli -n 2 --scan --pattern=cache:* | xargs redis-cli DEL"
+  description: "--pattern="
+  expect_ids: ["redis:pattern_xargs_del"]
+- test: "redis-cli KEYS 'sess:*' | xargs redis-cli DEL"
+  description: "KEYS with a pattern"
+  expect_ids: ["redis:pattern_xargs_del"]
+- test: "redis-cli --scan --pattern '*' | xargs redis-cli del"
+  description: "all keys stays keys_xargs_del"
+  expect_ids: ["redis:keys_xargs_del"]
+- test: "redis-cli --scan --pattern 'sess:*' | head"
+  description: "only listing the keys"
+  expect_ids: []
+- test: "redis-cli --scan --pattern 'user:1' | xargs redis-cli del"
+  description: "no glob: one key"
+  expect_ids: []
+- test: "myredis-cli --scan --pattern 'sess:*' | xargs redis-cli del"
+  description: "another tool"
+  expect_ids: []

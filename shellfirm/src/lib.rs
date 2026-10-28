@@ -1,4 +1,5 @@
 pub mod agent;
+mod agent_patterns;
 pub mod audit;
 pub mod blast_radius;
 pub mod checks;
@@ -11,7 +12,9 @@ pub mod error;
 pub mod llm;
 #[cfg(feature = "mcp")]
 pub mod mcp;
+pub mod parser;
 pub mod policy;
+mod prefilter;
 pub mod prompt;
 #[cfg(feature = "tui")]
 pub mod tui;

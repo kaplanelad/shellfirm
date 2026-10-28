@@ -172,11 +172,11 @@
   description: "match command with type option"
   expect_ids: ["fs:delete_find_files"]
 - test: "find / -name '*.txt' -delete"
-  description: "match command with name pattern"
-  expect_ids: ["fs:delete_find_files"]
+  description: "a name filter on the filesystem root is still critical"
+  expect_ids: ["fs:delete_find_files_critical_root"]
 - test: "find . -mtime +7 -delete"
-  description: "match command with time option"
-  expect_ids: ["fs:delete_find_files"]
+  description: "a time filter scopes the delete (Medium)"
+  expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find /home -delete"
   description: "match command with home directory"
   expect_ids: ["fs:delete_find_files"]
@@ -187,14 +187,14 @@
   description: "match command with usr directory"
   expect_ids: ["fs:delete_find_files"]
 - test: "find . -type f -name '*.log' -delete"
-  description: "match command with multiple conditions"
-  expect_ids: ["fs:delete_find_files"]
+  description: "a name filter scopes the delete (Medium)"
+  expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find / -type d -empty -delete"
-  description: "match command with empty directory condition"
-  expect_ids: ["fs:delete_find_files"]
+  description: "a filter on the filesystem root is still critical"
+  expect_ids: ["fs:delete_find_files_critical_root"]
 - test: "find . -type f -size +100M -delete"
-  description: "match command with size condition"
-  expect_ids: ["fs:delete_find_files"]
+  description: "a size filter scopes the delete (Medium)"
+  expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find . -name 'my-delete-script' -print"
   description: "negative: -delete in filename should not match"
   expect_ids: []
@@ -625,13 +625,13 @@
   expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -F /dev/sda1"
   description: "match command with force flag"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs -t ext4 -F /dev/sda"
   description: "match command with force flag"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -L mylabel /dev/sda1"
   description: "match command with label"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 /dev/sda2"
   description: "match command with different partition"
   expect_ids: ["fs:mkfs_format"]
@@ -649,22 +649,22 @@
   expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.exfat /dev/sda1"
   description: "match command with exFAT filesystem"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -c /dev/sda1"
   description: "match command with check option"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -n /dev/sda1"
-  description: "match command with dry run option"
+  description: "negative: -n is a dry run (nothing is written)"
   expect_ids: []
 - test: "mkfs.ext4 -q /dev/sda1"
   description: "match command with quiet option"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -F -L mylabel -c /dev/sda1"
   description: "match command with multiple options"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs -t ext4 -F -L mylabel -c /dev/sda"
   description: "match command with multiple options"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 /dev/sda3"
   description: "match command with third partition"
   expect_ids: ["fs:mkfs_format"]
@@ -676,13 +676,13 @@
   expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -b 4096 /dev/sda1"
   description: "match command with block size"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -i 4096 /dev/sda1"
   description: "match command with inode size"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 - test: "mkfs.ext4 -m 5 /dev/sda1"
   description: "match command with reserved blocks percentage"
-  expect_ids: []
+  expect_ids: ["fs:mkfs_format"]
 
 # -- fs:mount_operations --
 - test: "mount /dev/sda1 /mnt"
@@ -933,6 +933,36 @@
 - test: "chmod file.txt"
   description: "change file permissions"
   expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod +x deploy.sh"
+  description: "negative: making one script executable is routine"
+  expect_ids: []
+- test: "chmod u+x ./run"
+  description: "negative: making one file executable for yourself"
+  expect_ids: []
+- test: "chmod 644 notes.txt"
+  description: "negative: the usual mode on one file"
+  expect_ids: []
+- test: "chmod +x ~/bin/tool"
+  description: "negative: one file in your home directory"
+  expect_ids: []
+- test: "chmod +x /usr/local/bin/tool"
+  description: "a file in a system directory is still reported"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod 644 ~/.ssh/config"
+  description: "a file in a dot directory is still reported"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod 777 notes.txt"
+  description: "a file writable by everybody is still reported"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod +x a.sh b.sh"
+  description: "several files are still reported"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R 755 ."
+  description: "the usual mode on the project tree is Low, not Critical"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R 777 ."
+  description: "everything writable by everybody on the project stays critical"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 - test: "chmod   -R   /"
   description: "match command with extra spaces"
   expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
@@ -976,118 +1006,117 @@
 # -- fs:recursively_delete --
 - test: "rm -rf /"
   description: "delete root path"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -r /"
   description: "delete root path"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf *"
   description: "delete all files in current folder"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -fr ."
   description: "delete parent folder"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf .."
   description: "delete parent folder"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf /ffff"
   description: "regex matches; PathExists filter is bypassed in this test (all paths exist)"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
 - test: "rmm -rf /"
   description: "folder not found"
   expect_ids: []
 - test: "rm -Rf /"
   description: "Handle capital R"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -FR /"
   description: "fs-strict:any_deletion still matches (flag group is optional)"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm   -rf   /"
   description: "match command with extra spaces"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm   -r   /"
   description: "match command with extra spaces"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "sudo rm -rf /"
   description: "match command with sudo"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "sudo rm -r /"
   description: "match command with sudo"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf --force /"
   description: "match command with long force flag"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -r --force /"
   description: "match command with long force flag"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rfv /"
   description: "-rfv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf --verbose /"
   description: "match command with long verbose flag"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf --preserve-root /"
   description: "match command with preserve-root flag"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -r -f /"
   description: "match separate -r and -f flags"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -f *"
   description: "match force delete all files"
   expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
 - test: "rm -rf / node_modules package-lock.json .next"
   description: "/ first with more args following"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules / package-lock.json .next"
   description: "/ in middle of args"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules package-lock.json / .next"
   description: "/ near-last in args"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules package-lock.json .next /"
   description: "/ last with other args before"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf * node_modules"
   description: "* first with more args following"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules * package-lock.json"
   description: "* in middle of args"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules . package-lock.json"
   description: ". in middle of args"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf node_modules .. package-lock.json"
   description: ".. in middle of args"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf /usr/local"
   description: "full path, / not standalone — should not match recursively_delete"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -rf ./node_modules"
   description: ". followed by /, not standalone — should not match recursively_delete"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 
 # -- fs:sfdisk_disk_modify --
 - test: "sfdisk /dev/sda"
   description: "match interactive partition editor"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -d /dev/sda > backup.txt"
   description: "match dumping partition table (also matches flush_file_content via >)"
-  expect_ids:
-    ["fs:fdisk_disk_modify", "fs:flush_file_content", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:flush_file_content", "fs:sfdisk_disk_modify"]
 - test: "sfdisk /dev/sda < backup.txt"
   description: "match restoring partition table"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -l /dev/sda"
   description: "match listing partitions"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -f /dev/sda"
   description: "match forcing write"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -N 1 /dev/sda"
   description: "match modifying specific partition"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk --delete /dev/sda"
   description: "match deleting all partitions"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -l"
   description: "should not match listing all devices without modification"
   expect_ids: []
@@ -1096,43 +1125,43 @@
   expect_ids: []
 - test: "sfdisk   /dev/sda"
   description: "match command with extra spaces"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk   -l   /dev/sda"
   description: "match command with extra spaces"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sudo sfdisk /dev/sda"
   description: "match command with sudo"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sudo sfdisk -l /dev/sda"
   description: "match command with sudo"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -g /dev/sda"
   description: "match command with gpt option"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -s /dev/sda"
   description: "match command with size option"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -v /dev/sda"
   description: "match command with version option"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk /dev/sdb"
   description: "match command with second disk"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk /dev/mmcblk0"
   description: "match command with SD card"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk /dev/sda1"
   description: "match command with partition"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk --delete --force /dev/sda"
   description: "match command with multiple options"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -N 1 -f /dev/sda"
   description: "match command with multiple options"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 - test: "sfdisk -d -f /dev/sda"
   description: "match command with multiple options"
-  expect_ids: ["fs:fdisk_disk_modify", "fs:sfdisk_disk_modify"]
+  expect_ids: ["fs:sfdisk_disk_modify"]
 
 # -- fs-strict:any_deletion --
 - test: "rm Cargo.toml"
@@ -1143,13 +1172,13 @@
   expect_ids: ["fs-strict:any_deletion"]
 - test: "rm -rf src"
   description: "match command by finding folder with flags"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -r src"
   description: "match command by finding folder with flags"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -fr src"
   description: "match command by finding folder with flags"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -f src"
   description: "match command by finding folder with flags"
   expect_ids: ["fs-strict:any_deletion"]
@@ -1161,13 +1190,13 @@
   expect_ids: []
 - test: "rm -R src"
   description: "with capital r"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -Rf src"
   description: "with capital r"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -fR src"
   description: "with capital r"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 
 # -- fs-strict:change_permissions --
 - test: "chmod -R"
@@ -1194,31 +1223,31 @@
 # -- fs:recursively_delete — combined/long-form flag coverage --
 - test: "rm -Rfv /"
   description: "-Rfv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -frv /"
   description: "-frv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -rvf /"
   description: "-rvf now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -vrf /"
   description: "-vrf now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -vRf /"
   description: "-vRf now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -rv /"
   description: "-rv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -Rv /"
   description: "-Rv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -fv /"
   description: "-fv now matches combined flag pattern"
@@ -1226,7 +1255,7 @@
 
 - test: "rm -vr /"
   description: "-vr now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -vf /"
   description: "-vf now matches combined flag pattern"
@@ -1234,35 +1263,35 @@
 
 - test: "rm --recursive /"
   description: "--recursive now matches long flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm --recursive -f /"
   description: "--recursive -f now matches long flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm --recursive --force /"
   description: "--recursive --force now matches long flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -f --recursive /"
   description: "-f matches first slot, --recursive caught by extra-args group"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm -r -f -v /"
   description: "three separate flags, only 2 slots in regex"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "rm / -rf"
   description: "BUG: target before flags, regex requires flags before target"
-  expect_ids: ["fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion"]
 
 - test: "sudo rm -rfv /"
   description: "sudo with -rfv now matches combined flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 - test: "sudo rm --recursive /"
   description: "sudo with --recursive now matches long flag pattern"
-  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 # -- fs:recursively_chmod — combined flags and ordering --
 - test: "chmod -Rv /"
@@ -1421,10 +1450,10 @@
 # -- fs:recursively_delete edge cases --
 - test: "rm --force --recursive /"
   description: "EDGE: all long-form flags should still match"
-  expect_ids: ["fs:recursively_delete", "fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 - test: "rm -rf ./*"
   description: "match rm -rf ./* as dangerous recursive delete"
-  expect_ids: ["fs:recursively_delete", "fs-strict:any_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
 
 # -- fs:rsync_delete edge cases --
 - test: "rsync -avz --delete-after /src/ /dest/"
@@ -1441,8 +1470,809 @@
 - test: "chown -R user:group .."
   description: "EDGE: parent dir .. should match"
   expect_ids: ["fs:recursively_chown"]
+- test: "sudo chown -R nobody /home/dev"
+  description: "a home directory by its absolute path (rosa-r5:N1)"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R nobody /home/dev/*"
+  description: "everything in a home directory by its absolute path"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R nobody /home/dev/.ssh"
+  description: "the SSH directory by its absolute path"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R nobody /Users/dev"
+  description: "a macOS home directory by its absolute path"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R dev:dev /home/dev/r"
+  description: "negative: a project directory inside the home directory"
+  expect_ids: []
+- test: "chown -R dev ./src"
+  description: "negative: a project sub-directory"
+  expect_ids: []
+- test: "sudo chown -R $USER ~"
+  description: "negative: taking ownership of your own home directory (rosa-r7:N4)"
+  expect_ids: []
+- test: "sudo chown -R $(whoami) $HOME"
+  description: "negative: $(whoami) is your own user, the home directory itself"
+  expect_ids: []
+- test: "sudo chown -R \"$USER\":staff ~/"
+  description: "negative: quoted $USER with a group, home directory with a trailing slash"
+  expect_ids: []
+- test: "sudo chown -R $(id -u) ~"
+  description: "negative: $(id -u) is your own user"
+  expect_ids: []
+- test: "sudo chown -R $LOGNAME:$LOGNAME $HOME"
+  description: "negative: $LOGNAME is your own user"
+  expect_ids: []
+- test: "sudo chown -R $USER ~/.ssh"
+  description: "your home's dot directories stay critical"
+  expect_ids: ["fs:recursively_chown"]
+- test: "sudo chown -R nobody ~"
+  description: "another owner for the home directory stays critical"
+  expect_ids: ["fs:recursively_chown"]
+- test: "sudo chown -R $USER /"
+  description: "the filesystem root stays critical even for your own user"
+  expect_ids: ["fs:recursively_chown"]
+
+# -- fs:chmod_credentials --
+- test: "chmod -R 777 ~/.ssh"
+  description: "opening the SSH directory to everybody"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_credentials"]
+- test: "chmod -R 000 /home/dev/.ssh"
+  description: "locking the SSH directory by its absolute path"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_credentials"]
+- test: "chmod -R a+r ~/.gnupg"
+  description: "symbolic mode that gives everybody read access"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_credentials"]
+- test: "chmod 666 ~/.ssh/id_rsa"
+  description: "a private key writable by everybody"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_credentials"]
+- test: "chmod -R 700 ~/.ssh"
+  description: "negative: the correct fix"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R go-rwx ~/.ssh"
+  description: "negative: removing group and other permissions"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod 644 ~/.ssh/id_ed25519.pub"
+  description: "negative: a public key readable by everybody is normal"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R 000 /home/dev"
+  description: "a home directory by its absolute path"
+  expect_ids: ["fs-strict:change_permissions", "fs:recursively_chmod"]
 
 # -- fs-strict:any_deletion edge cases --
 - test: "rm --recursive --force file.txt"
   description: "EDGE: long-form --recursive --force flags"
+  expect_ids: ["fs-strict:recursive_deletion"]
+
+# -- fs:delete_find_files_critical_root / filtered --
+- test: 'find ~ -name ''*.bak'' -delete'
+  description: "filtered delete under home is critical"
+  expect_ids: ["fs:delete_find_files_critical_root"]
+- test: 'find /etc -name ''*.conf'' -delete'
+  description: "filtered delete under a system dir"
+  expect_ids: ["fs:delete_find_files_critical_root"]
+- test: 'find . -name ''*.o'' -delete'
+  description: "filtered delete in a project dir is Medium"
+  expect_ids: ["fs:delete_find_files_filtered"]
+- test: 'find build -type f -name ''*.tmp'' -delete'
+  description: "filtered delete in a sub dir"
+  expect_ids: ["fs:delete_find_files_filtered"]
+- test: 'find ~ -delete'
+  description: "unfiltered delete of home"
+  expect_ids: ["fs:delete_find_files"]
+- test: 'find . -type f -delete'
+  description: "-type alone does not scope the delete"
+  expect_ids: ["fs:delete_find_files"]
+
+# -- fs:recursive_delete_unknown_target --
+- test: 'rm -rf $DIR/*'
+  description: "variable-rooted glob"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'rm -rf ${DIR}/'
+  description: "braced variable"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'rm -rf "$STEAMROOT/"*'
+  description: "steam bug shape"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'rm -rf /$d'
+  description: "variable under root"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'echo / | xargs rm -rf'
+  description: "xargs input is unknown"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'ls / | xargs -I{} rm -rf {}'
+  description: "xargs -I placeholder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'cat files.txt | xargs -n1 rm -rf'
+  description: "xargs -n1"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'find . -name x -exec rm -rf {} +'
+  description: "filtered find -exec rm -rf is judged like the filtered -delete form (rosa-r5:N4)"
+  expect_ids: ["fs:delete_find_files_filtered"]
+- test: 'find . -type d -name node_modules -prune -exec rm -rf {} +'
+  description: "the -prune form too"
+  expect_ids: ["fs:delete_find_files_filtered"]
+- test: 'mv ~/.ssh /tmp/'
+  description: "moving the SSH directory away (rosa-r5:N5)"
+  expect_ids: ["fs:move_credentials"]
+- test: 'zip -rm /tmp/x.zip ~/.aws'
+  description: "zip -m deletes the credentials it archives"
+  expect_ids: ["exfil:archive_secret_dir", "fs:move_credentials", "fs:zip_move"]
+- test: 'mv /tmp/key ~/.ssh/id_rsa'
+  description: "negative: moving a file into the SSH directory is not moving it away"
+  expect_ids: []
+- test: 'shellfirm-delete-git-dir projects/webapp/.git'
+  description: "the git directory of a repository (marker)"
+  expect_ids: ["fs:delete_git_dir"]
+- test: ': > app.log'
+  description: "negative: truncating a log file on purpose"
+  expect_ids: []
+- test: 'a=rm; $a -rf $X'
+  description: "assignment propagation keeps unknown targets"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
+- test: 'rm -rf $HOME/build'
+  description: "negative: a sub path of a variable is not flagged as unknown"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+
+# -- fs:delete_unknown_target --
+- test: 'find . -type f -print0 | xargs -0 rm -f'
+  description: "xargs rm -f"
+  expect_ids: ["fs-strict:any_deletion", "fs:delete_unknown_target"]
+- test: 'git ls-files | xargs rm'
+  description: "xargs rm"
+  expect_ids: ["fs-strict:any_deletion", "fs:delete_unknown_target"]
+- test: 'find . -name ''*.js'' -exec rm {} \;'
+  description: "filtered find -exec rm"
+  expect_ids: ["fs-strict:any_deletion", "fs:delete_unknown_target"]
+
+# -- find -exec without filter acts on the start point --
+- test: 'find / -exec rm -rf {} +'
+  description: "find / -exec rm -rf"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'find . -exec rm -rf {} \;'
+  description: "find . -exec rm -rf"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'find . -execdir rm -rf {} +'
+  description: "find -execdir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'find ~ -type f -exec rm -f {} +'
+  description: "-type alone does not scope"
+  expect_ids: ["fs-strict:any_deletion", "fs:recursively_delete"]
+
+# -- fs:recursive_delete_home_glob --
+- test: 'rm -rf ~/projects/webapp/*'
+  description: "everything inside a home sub dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_home_glob"]
+- test: 'rm -rf $HOME/data/*'
+  description: "HOME variable form"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_home_glob"]
+- test: 'rm -rf ~/projects/webapp'
+  description: "negative: the directory itself is Medium"
+  expect_ids: ["fs-strict:recursive_deletion"]
+
+# -- fs:recursive_delete_data_dir --
+- test: 'rm -rf /var/lib/postgresql/data'
+  description: "postgres data dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_data_dir"]
+- test: 'rm -rf /var/lib/docker'
+  description: "docker data dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_data_dir"]
+- test: 'sudo rm -rf /var/lib/mysql/'
+  description: "mysql data dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_data_dir"]
+- test: 'rm -rf /var/lib/apt/lists/*'
+  description: "negative: apt lists cleanup"
+  expect_ids: []
+
+# -- fs:recursive_delete_top_level_dir --
+- test: 'rm -rf /data'
+  description: "top-level dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
+- test: 'docker exec c sh -c ''rm -rf /data'''
+  description: "inside a container"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
+- test: 'rm -rf /tmp/build'
+  description: "negative: a named /tmp entry is throwaway (no catch-all)"
+  expect_ids: []
+- test: 'rm -rf /tmp/*'
+  description: "a glob over all of /tmp still prompts"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: 'rm -rf .cache'
+  description: "negative: a .cache directory is regenerable"
+  expect_ids: []
+- test: 'rm -rf .cache src'
+  description: "not every operand is a cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+
+# -- absolute home directories are critical --
+- test: 'rm -rf /home/dev'
+  description: "a user's home dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'rm -rf /Users/alice/'
+  description: "macOS home dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'rm -rf /home/dev/project'
+  description: "negative: a project inside home"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+
+# -- fs:overwrite_system_file --
+- test: ': > /etc/passwd'
+  description: "truncate passwd"
+  expect_ids: ["fs:flush_file_content", "fs:overwrite_system_file"]
+- test: 'echo x >> /etc/hosts'
+  description: "append to hosts"
+  expect_ids: ["fs:overwrite_system_file"]
+- test: 'echo ''alias x=y'' > ~/.bashrc'
+  description: "overwrite bashrc"
+  expect_ids: ["fs:flush_file_content", "fs:overwrite_system_file"]
+- test: 'echo 127.0.0.1 x | sudo tee -a /etc/hosts'
+  description: "tee to system file"
+  expect_ids: ["fs:overwrite_system_file"]
+- test: 'echo hi > notes.txt'
+  description: "negative: normal file is Medium"
+  expect_ids: ["fs:flush_file_content"]
+
+# -- fs:flush_file_content fd forms --
+- test: 'ls 1> out.txt'
+  description: "explicit stdout fd"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'make 2> build.log'
+  description: "stderr fd"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'make &> build.log'
+  description: "both fds"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'echo ''{}'' > package.json'
+  description: "echo json"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'make 2>&1'
+  description: "negative: fd duplication"
+  expect_ids: []
+
+# -- fs:delete_system_file --
+- test: 'unlink /etc/passwd'
+  description: "unlink passwd"
+  expect_ids: ["fs:delete_system_file"]
+- test: 'rm /etc/shadow'
+  description: "rm shadow"
+  expect_ids: ["fs-strict:any_deletion", "fs:delete_system_file"]
+- test: 'sudo rm -f /usr/bin/sudo'
+  description: "rm a system binary"
+  expect_ids: ["fs-strict:any_deletion", "fs:delete_system_file"]
+
+# -- fs:clobber_with_dev_null --
+- test: 'cp /dev/null ~/.bashrc'
+  description: "cp /dev/null"
+  expect_ids: ["fs:clobber_with_dev_null"]
+- test: 'ln -sf /dev/null ~/.zshrc'
+  description: "symlink to /dev/null"
+  expect_ids: ["fs:clobber_with_dev_null"]
+- test: 'cp /dev/null file.txt'
+  description: "cp /dev/null over a file"
+  expect_ids: ["fs:clobber_with_dev_null"]
+- test: 'ln -s /dev/null x'
+  description: "negative: ln without -f does not overwrite"
+  expect_ids: []
+
+# -- fs:chmod_critical_location --
+- test: 'chmod 000 ~'
+  description: "lock home"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_critical_location"]
+- test: 'chmod 777 /'
+  description: "root"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_critical_location"]
+- test: 'chmod 700 /etc'
+  description: "system dir"
+  expect_ids: ["fs-strict:change_permissions", "fs:chmod_critical_location"]
+- test: 'chmod 600 ~/.ssh/id_rsa'
+  description: "negative: a file"
+  expect_ids: ["fs-strict:change_permissions"]
+
+# -- fs:watch_repeated_delete --
+- test: 'watch -n1 rm -rf /tmp/x'
+  description: "watch rm (a named /tmp entry is throwaway: no catch-all)"
+  expect_ids: ["fs:watch_repeated_delete"]
+- test: 'watch ''rm -f /tmp/x.log'''
+  description: "quoted watch payload"
+  expect_ids: ["fs-strict:any_deletion", "fs:watch_repeated_delete"]
+- test: 'watch -n1 ls'
+  description: "negative: watch ls"
+  expect_ids: []
+
+# -- fs:interpreter_inline_delete --
+- test: 'python3 -c ''import shutil; shutil.rmtree("/home")'''
+  description: "python rmtree on /home"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete", "fs:interpreter_inline_delete"]
+- test: 'python -c ''import os; os.remove("a.txt")'''
+  description: "python os.remove"
+  expect_ids: ["fs-strict:any_deletion", "fs:interpreter_inline_delete"]
+- test: 'node -e ''require("fs").rmSync("dist", {recursive: true})'''
+  description: "node rmSync"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:interpreter_inline_delete"]
+- test: 'ruby -e ''FileUtils.rm_rf("tmp")'''
+  description: "ruby rm_rf"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:interpreter_inline_delete"]
+- test: 'perl -e ''system("rm -rf /")'''
+  description: "perl system rm -rf /"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'python3 -c ''print(1)'''
+  description: "negative: harmless inline code"
+  expect_ids: []
+- test: "python3 - <<'EOF'\nimport shutil\nshutil.rmtree('/')\nEOF"
+  description: "a python script read from a heredoc is scanned like -c"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete", "fs:interpreter_inline_delete"]
+
+# ====== R3: severity calibration ======
+# -- fs:delete_credentials --
+- test: "rm -rf ~/.ssh"
+  description: "deleting SSH keys is Critical"
+  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm ~/.ssh/id_ed25519"
+  description: "deleting one key is Critical too"
+  expect_ids: ["fs:delete_credentials", "fs-strict:any_deletion"]
+- test: "rm -rf /home/dev/.gnupg"
+  description: "absolute home spelling"
+  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf $HOME/.kube"
+  description: "kube credentials"
+  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~/.config/gcloud"
+  description: "gcloud credentials"
+  expect_ids: ["fs:delete_credentials", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~/.sshfoo"
+  description: "negative: not the .ssh directory"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+# -- fs:recursively_delete_outside --
+- test: "rm -rf ../webapp"
+  description: "a directory outside the current one is High"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf ../../other/dir"
+  description: "two levels up"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~/projects"
+  description: "direct child of home is High"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf /Users/me/Documents"
+  description: "macOS home child"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~/projects/webapp/node_modules"
+  description: "deeper below home stays the strict catch-all"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ./build"
+  description: "negative: inside the current directory"
+  expect_ids: ["fs-strict:recursive_deletion"]
+# -- fs:delete_repository / fs:sensitive_path (marker segments) --
+- test: "shellfirm-delete-repository ../webapp"
+  description: "marker emitted for rm -r of a repository root"
+  expect_ids: ["fs:delete_repository"]
+- test: "shellfirm-sensitive-path ~/.ssh"
+  description: "marker emitted for a context.sensitive_paths hit"
+  expect_ids: ["fs:sensitive_path"]
+- test: "echo shellfirm-sensitive-path ~/.ssh"
+  description: "negative: the marker text inside data"
+  expect_ids: []
+# -- Dockerfile cache cleanups are not flagged --
+- test: "rm -rf /var/lib/apt/lists/*"
+  description: "Dockerfile apt cleanup"
+  expect_ids: []
+- test: "apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*"
+  description: "Dockerfile RUN line"
+  expect_ids: []
+- test: "rm -rf /var/cache/apk/* /root/.cache"
+  description: "several cache dirs"
+  expect_ids: []
+- test: "rm -rf /var/lib/apt/lists/* /srv/data"
+  description: "a non-cache operand is still flagged"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: 'rm -rf /tmp/work/build'
+  description: "a nested /tmp path still prompts (not a throwaway top-level entry)"
+  expect_ids: ["fs-strict:recursive_deletion"]
+# -- fs:wipefs / fs:umount_lazy (R4) --
+- test: 'wipefs -a /dev/sda'
+  description: "wipe all signatures"
+  expect_ids: ["fs:wipefs"]
+- test: 'wipefs /dev/sda'
+  description: "negative: listing signatures only"
+  expect_ids: []
+- test: 'umount -l /mnt/data'
+  description: "lazy unmount"
+  expect_ids: ["fs:umount_lazy"]
+- test: 'umount /mnt/data'
+  description: "negative: plain unmount"
+  expect_ids: []
+# -- round 5: find -delete on a named directory (Rosa R4 F3) --
+- test: "find build -delete"
+  description: "emptying a named directory is Medium, like rm -rf build"
+  expect_ids: ["fs:delete_find_files_dir"]
+- test: "find build -mindepth 1 -delete"
+  description: "-mindepth is not a filter; a named directory is Medium"
+  expect_ids: ["fs:delete_find_files_dir"]
+- test: "find dist -type f -delete"
+  description: "-type f on a named directory is Medium"
+  expect_ids: ["fs:delete_find_files_dir"]
+- test: "find /tmp/x -mindepth 1 -delete"
+  description: "a temp directory is not critical"
+  expect_ids: ["fs:delete_find_files_dir"]
+- test: "find $DIR -delete"
+  description: "an unknown starting point stays Critical"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find .git -delete"
+  description: ".git stays Critical"
+  expect_ids: ["fs:delete_find_files"]
+- test: "find . -name x -o -delete"
+  description: "a filter in another -o branch does not narrow the delete"
+  expect_ids: ["fs:delete_find_files", "fs:delete_find_files_filtered"]
+# -- round 5: .git contents (Rosa R4 F9) --
+- test: "rm -rf .git/*"
+  description: "deleting everything in .git destroys the history like rm -rf .git"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf .git/objects"
+  description: "deleting the object store destroys the history"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "cd .git && rm -rf *"
+  description: "cd into .git then delete everything"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf .git/hooks/pre-commit.sample"
+  description: "one hook sample is not the history"
+  expect_ids: ["fs-strict:recursive_deletion"]
+# -- round 5: substitutions as delete targets (Maya R4 F2, Rosa R4 F2) --
+- test: "rm -rf `pwd`"
+  description: "backtick pwd is the current directory"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf \"$(pwd)\""
+  description: "$(pwd) is the current directory"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~+"
+  description: "~+ is $PWD"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf `echo ~`"
+  description: "the echoed home directory"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf $(git rev-parse --show-toplevel)"
+  description: "the repository root"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf $(cat dirs.txt)"
+  description: "the output of another command is an unknown target"
+  expect_ids: ["fs:recursive_delete_unknown_target", "fs-strict:recursive_deletion"]
+- test: "cd \"$(git rev-parse --show-toplevel)\" && rm -rf *"
+  description: "cd to the repository root then delete everything"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "tmp=$(mktemp -d); trap 'rm -rf \"$tmp\"' EXIT"
+  description: "a variable assigned from mktemp is a fresh temp directory"
+  expect_ids: []
+# -- round 5: zsh spellings (Maya R4 F3-F6) --
+- test: "=rm -rf ~"
+  description: "zsh =rm is /bin/rm"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "{rm -rf /;}"
+  description: "zsh brace group glued to the command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~(N)"
+  description: "zsh glob qualifier is dropped"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf *(N)"
+  description: "zsh glob qualifier on *"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "repeat 2 rm -rf /"
+  description: "zsh repeat precommand"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "rm -rf /{usr,tmp}"
+  description: "brace list into a system directory"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
+- test: "rm -rf /{tmp..tmp}"
+  description: "a word range is not a sequence"
+  expect_ids: ["fs:recursive_delete_top_level_dir", "fs-strict:recursive_deletion"]
+- test: "rm -rf ~/{a..c}"
+  description: "letter sequence of home folders"
+  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+# -- round 5: interpreter code only (Rosa R4 F5) --
+- test: "python3 -m pytest tests/test_rmtree.py"
+  description: "a test file name is not code"
+  expect_ids: []
+- test: "python3 -m pytest -k 'not rm_rf'"
+  description: "a test filter is not code"
+  expect_ids: []
+- test: "node --test --test-name-pattern=rmSync"
+  description: "a node test filter is not code"
+  expect_ids: []
+- test: "node -e 'require(\"fs\").rmSync(\"x\", {recursive: true})'"
+  description: "node -e code deletes"
+  expect_ids: ["fs:interpreter_inline_delete", "fs-strict:recursive_deletion"]
+# -- round 5: shell startup files (Rosa R4 F5) --
+- test: "echo 'export PATH=$HOME/.local/bin:$PATH' >> ~/.bashrc"
+  description: "appending to a startup file is Low"
+  expect_ids: ["fs:append_shell_startup_file"]
+- test: "cat x | tee -a ~/.zshrc"
+  description: "tee -a appends"
+  expect_ids: ["fs:append_shell_startup_file"]
+- test: "cat x | tee ~/.zshrc"
+  description: "tee without -a replaces the file"
+  expect_ids: ["fs:overwrite_system_file"]
+# -- round 5: moving system files (Omar R4 N3) --
+- test: "sudo mv /etc/passwd /tmp/"
+  description: "moving /etc/passwd away"
+  expect_ids: ["fs:move_system_file"]
+- test: "mv /usr/bin /tmp/x"
+  description: "moving /usr/bin away"
+  expect_ids: ["fs:move_system_file"]
+- test: "mv ~ /tmp/oldhome"
+  description: "moving the home directory away"
+  expect_ids: ["fs:move_system_file"]
+- test: "sudo mv ./mytool /usr/local/bin/"
+  description: "installing into /usr/local/bin is fine"
+  expect_ids: []
+- test: "mv notes.txt /etc"
+  description: "a system directory as the destination is not a move of it"
+  expect_ids: []
+# -- round 5: zip -m (Rosa R4 catalogue) --
+- test: "zip -rm /tmp/x.zip ~/projects"
+  description: "zip -m deletes the inputs"
+  expect_ids: ["fs:zip_move"]
+- test: "zip -r /tmp/x.zip ~/projects"
+  description: "zip without -m keeps the inputs"
+  expect_ids: []
+# -- round 5: chown targets (Sam R4 N4) --
+- test: "chown -R dev ./src"
+  description: "a project subdirectory is fine"
+  expect_ids: []
+- test: "sudo chown -R $USER ./node_modules"
+  description: "fixing node_modules ownership is fine"
+  expect_ids: []
+- test: "chown -R dev ~"
+  description: "the home directory"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R dev $HOME"
+  description: "$HOME"
+  expect_ids: ["fs:recursively_chown"]
+- test: "chown -R dev ~/.ssh"
+  description: "the SSH keys"
+  expect_ids: ["fs:recursively_chown"]
+# -- round 5: wipefs combined flags (Omar R4 N2) --
+- test: "wipefs -af /dev/sdb"
+  description: "combined -af"
+  expect_ids: ["fs:wipefs"]
+- test: "wipefs -fa /dev/sdb"
+  description: "combined -fa"
+  expect_ids: ["fs:wipefs"]
+- test: "echo b > /proc/sysrq-trigger"
+  description: "sysrq is not a file flush"
+  expect_ids: ["base:sysrq_trigger"]
+# -- round 7 (omar-r6:R6-2, R6-3, rosa-r6:R6-2, R6-7, maya-r6:N6) --
+- test: "zfs destroy -r tank/data"
+  description: "a ZFS dataset"
+  expect_ids: ["fs:zfs_destroy"]
+- test: "sudo zpool destroy tank"
+  description: "a ZFS pool"
+  expect_ids: ["fs:zfs_destroy"]
+- test: "zfs list"
+  description: "negative: listing"
+  expect_ids: []
+- test: "sudo chown -R dev /var/lib/postgresql"
+  description: "a data directory changes owner"
+  expect_ids: ["fs:recursive_owner_change_system_dir"]
+- test: "sudo chmod -R 000 /var/lib/postgresql"
+  description: "a data directory locked"
+  expect_ids: ["fs:recursive_owner_change_system_dir", "fs-strict:change_permissions"]
+- test: "cp -r /tmp/evil/. ~/"
+  description: "a directory's contents copied over the home directory"
+  expect_ids: ["fs:copy_over_home"]
+- test: "cp -r src ~/backup"
+  description: "negative: a copy into a new directory"
+  expect_ids: []
+- test: "chmod -R u+rwX ."
+  description: "repairing your own access is not critical"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "chmod -R go-w ~"
+  description: "taking write access away from group/others only tightens permissions"
+  expect_ids: []
+- test: "chmod -R a+w ."
+  description: "write access for everyone stays critical"
+  expect_ids: ["fs:recursively_chmod", "fs-strict:change_permissions"]
+- test: "chmod -R u+rwX ~ /etc"
+  description: "a system directory among the targets stays critical"
+  expect_ids: ["fs:recursively_chmod", "fs-strict:change_permissions"]
+- test: "sudo chown -R $USER ."
+  description: "negative: taking ownership of your own project"
+  expect_ids: []
+- test: "sudo chown -R root ."
+  description: "giving the project to root stays critical"
+  expect_ids: ["fs:recursively_chown"]
+- test: "truncate -s 0 app.log"
+  description: "negative: emptying a log file"
+  expect_ids: []
+# -- fs:zfs_rollback_recursive --
+- test: "zfs rollback -r tank/data@snap"
+  description: "destroys later snapshots"
+  expect_ids: ["fs:zfs_rollback_recursive"]
+- test: "zfs rollback -R tank/data@snap"
+  description: "also destroys clones"
+  expect_ids: ["fs:zfs_rollback_recursive"]
+- test: "zfs rollback tank/data@snap"
+  description: "negative: rollback to the latest snapshot only"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- fs-strict:any_deletion --
+- test: "rm -f ~/.zcompdump*"
+  description: "zsh's completion cache is rebuilt by compinit"
+  expect_ids: []
+- test: "rm -f $HOME/.zcompdump-host-5.9"
+  description: "a per-host completion dump"
+  expect_ids: []
+- test: "rm ~/.zcompdump ~/.zcompdump.zwc"
+  description: "the dump and its compiled copy"
+  expect_ids: []
+- test: "rm -f ~/.zcompdump* ~/.zshrc"
+  description: "another file next to it is still reported"
   expect_ids: ["fs-strict:any_deletion"]
+# -- fs-strict:recursive_deletion --
+- test: "rm -rf ~/.zsh*"
+  description: "zsh directories stay risky"
+  expect_ids: ["fs-strict:recursive_deletion"]
+# -- fs-strict:change_permissions --
+- test: "compaudit | xargs chmod g-w,o-w"
+  description: "the oh-my-zsh compaudit fix only removes write access"
+  expect_ids: []
+- test: "chmod go-w ~/.oh-my-zsh"
+  description: "removing group/other write"
+  expect_ids: []
+- test: "chmod -R go-w /"
+  description: "recursive on the root stays critical"
+  expect_ids: ["fs:recursively_chmod"]
+- test: "chmod o+w file"
+  description: "adding write access is still reported"
+  expect_ids: ["fs-strict:change_permissions"]
+
+# -- fs:move_work_away (marker segment) --
+- test: "shellfirm-move-work-away docs"
+  description: "marker emitted for mv of a folder with uncommitted work to /tmp"
+  expect_ids: ["fs:move_work_away"]
+
+# -- zsh completion cache: rm -rf ~/.zcompdump* is not a home folder delete --
+- test: "rm -rf ~/.zcompdump"
+  description: "negative: compinit rebuilds its cache"
+  expect_ids: []
+- test: "rm -rf ~/.zcompdump*"
+  description: "negative: the cache glob"
+  expect_ids: []
+
+# -- disks under every block-device name, with any mkfs option --
+- test: "mkfs -t xfs /dev/xvdf"
+  description: "AWS EBS device name"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/vdb"
+  description: "KVM / OpenStack / DigitalOcean device name"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 -F /dev/sdb"
+  description: "an option other than -t before the device"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 -L data /dev/nvme1n1"
+  description: "an option with a value before the device"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.xfs /dev/mapper/vg-data"
+  description: "device-mapper / LVM name"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0abc"
+  description: "stable by-id name"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 /dev/vg0/data"
+  description: "LVM volume group / logical volume path"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mke2fs -t ext4 /dev/md0"
+  description: "mke2fs on a RAID device"
+  expect_ids: ["fs:mkfs_format"]
+- test: "mkfs.ext4 image.img"
+  description: "negative: formatting an image file"
+  expect_ids: []
+- test: "mkfs.ext4 --help"
+  description: "negative: no device"
+  expect_ids: []
+- test: "dd if=/dev/zero of=/dev/xvdf bs=1M"
+  description: "dd over an EBS device"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=img of=/dev/vda"
+  description: "dd over a virtio disk"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=img of=/dev/mapper/vg-data status=progress"
+  description: "dd over a device-mapper volume"
+  expect_ids: ["fs:dd_block_device"]
+- test: "dd if=/dev/zero of=/dev/null bs=1M count=100"
+  description: "negative: benchmark into /dev/null"
+  expect_ids: []
+- test: "dd if=/dev/sda of=/dev/stdout bs=512 count=1"
+  description: "negative: reading a sector to stdout"
+  expect_ids: []
+- test: "dd if=file of=/dev/fd/1"
+  description: "negative: a file descriptor is not a disk"
+  expect_ids: []
+- test: "fdisk /dev/xvdf"
+  description: "partitioning an EBS device"
+  expect_ids: ["fs:fdisk_disk_modify"]
+- test: "parted /dev/xvdf mklabel gpt"
+  description: "a new label on an EBS device"
+  expect_ids: ["fs:parted_disk_modify"]
+- test: "sgdisk --zap-all /dev/nvme1n1"
+  description: "destroys the GPT and MBR"
+  expect_ids: ["fs:sgdisk_zap"]
+- test: "sgdisk -Z /dev/sdb"
+  description: "short form of --zap-all"
+  expect_ids: ["fs:sgdisk_zap"]
+- test: "sgdisk -o /dev/sdb"
+  description: "a new empty partition table"
+  expect_ids: ["fs:sgdisk_zap"]
+- test: "sgdisk --print /dev/sdb"
+  description: "negative: printing the table"
+  expect_ids: []
+- test: "blkdiscard /dev/nvme1n1"
+  description: "discards every block"
+  expect_ids: ["fs:blkdiscard"]
+- test: "blkdiscard -f /dev/xvdf"
+  description: "discards every block, forced"
+  expect_ids: ["fs:blkdiscard"]
+- test: "mdadm --zero-superblock /dev/sdb"
+  description: "erases the RAID superblock"
+  expect_ids: ["fs:mdadm_zero_superblock"]
+- test: "mdadm --examine /dev/sdb"
+  description: "negative: reading the superblock"
+  expect_ids: []
+- test: "wipefs -a /dev/xvdf"
+  description: "wipefs on a cloud device name"
+  expect_ids: ["fs:wipefs"]
+
+# -- runners: the command after the runner is checked --
+- test: "doppler run -- rm -rf /"
+  description: "doppler run -- cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "op run --env-file=.env -- rm -rf /"
+  description: "1Password op run -- cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "dotenv -e .env -- rm -rf /"
+  description: "dotenv-cli -- cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "bundle exec rm -rf /"
+  description: "bundle exec cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "railway run rm -rf /"
+  description: "railway run cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "xyz -- rm -rf /"
+  description: "an unknown runner with -- before a risky command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "nix develop -c rm -rf /"
+  description: "nix develop -c cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "nix-shell --run \"rm -rf /\""
+  description: "nix-shell --run 'cmd'"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "chronic rm -rf /"
+  description: "chronic cmd"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "doppler run -- npm start"
+  description: "negative: a harmless command behind a runner"
+  expect_ids: []
+- test: "git checkout -- rm"
+  description: "git's -- is followed by paths: only the git check, no rm"
+  expect_ids: ["git:checkout_discard_path"]
+- test: "setpriv --reuid=postgres rm -rf /"
+  description: "setpriv runs the command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "chpst -u postgres rm -rf /"
+  description: "chpst runs the command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "machinectl shell root@ /usr/bin/rm -rf /"
+  description: "machinectl shell runs the command"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "sudo -R /mnt rm -rf /etc"
+  description: "sudo -R takes the chroot directory as its value"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+
+# -- an alias in a shell startup file that makes a command run a destructive one --
+- test: "echo alias ls=rm >> ~/.bashrc"
+  description: "named for what it is, not as a delete of unknown files"
+  expect_ids: ["fs:startup_alias_replaces_command", "fs:append_shell_startup_file"]
+- test: "echo alias ll=ls >> ~/.bashrc"
+  description: "a harmless alias is only the append"
+  expect_ids: ["fs:append_shell_startup_file"]
+- test: "echo alias g=git >> ~/.zshrc"
+  description: "an alias for a non-destructive program is only the append"
+  expect_ids: ["fs:append_shell_startup_file"]

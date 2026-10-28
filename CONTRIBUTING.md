@@ -1,60 +1,87 @@
-# Contributing code to Shellfirm
+# Contributing to shellfirm
 
-Shellfirm is open source and we love to receive contributions from our community — you! There are many ways to contribute, from writing more sensitive patterns, improving the documentation, submitting bug reports and feature requests or writing code.
+Thanks for helping! You can contribute new checks, fixes, documentation, bug
+reports and feature requests. Please follow the
+[code of conduct](CODE_OF_CONDUCT.md). To report a bypass or another security
+problem, do **not** open a public issue; see [SECURITY.md](SECURITY.md).
 
+## Workflow
 
-## How to contribute
+1. Fork the repository and create a branch from `main`.
+2. Make your change, with tests.
+3. Run the checks below.
+4. Add a line under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) for any
+   user-visible change (new check, new flag, changed behaviour, bug fix).
+5. Open a pull request against `main`. The PR template has a short checklist.
 
-The preferred and easiest way to contribute changes to the project is to fork it on GitHub, and then create a pull request to ask us to pull your changes into our repo. We use GitHub's pull request workflow to review the contribution, and either ask you to make any refinements needed or merge it and make them ourselves.
+Adding a built-in check? Follow [docs/add-new-patterns.md](docs/add-new-patterns.md).
+To add checks only for yourself or your team, no code change is needed: see
+[custom checks](docs/config.md#custom-checks) and
+[team policies](docs/team-policies.md).
 
-Your PR must also:
+## Requirements
 
- - be based on the `main` branch
- - adhere to the [code style](#code-style)
- - pass the [test suites](#tests)
- - check [documentation](#documentation)
- - add new [patterns](./docs/add-new-patterns.md)
+- Rust stable. The minimum supported version (MSRV) is the `rust-version` in
+  [`shellfirm/Cargo.toml`](shellfirm/Cargo.toml).
+- Optional: [cargo-insta](https://insta.rs/docs/cli/) to review snapshot
+  changes: `cargo install cargo-insta`.
 
+## Checks to run before a PR
 
-## Tests
+All commands run from the repository root. `make help` lists every target.
 
-In `shellfirm` we have few test suite flows that need to pass before merging to master.
-- [unitest](#unitest)
-- [clippy](#clippy)
-- [rustfmt](#rustfmt)
+| Command            | What it runs                                                       |
+|--------------------|--------------------------------------------------------------------|
+| `make test`        | `cargo test --locked --all-features`                               |
+| `make clippy`      | clippy with the exact CI flags (see below)                         |
+| `make validate-doc`| `cargo doc` with `RUSTDOCFLAGS="-D warnings"` (same as CI)         |
+| `make fmt`         | `cargo fmt --all -- --check`                                       |
+| `make ci`          | `test` + `clippy` + `validate-doc` + `fmt`: the Linux part of CI (CI also runs the macOS/Windows matrix, the MSRV build and `cargo hack` feature checks) |
 
-### unitest
-
-run the following command:
-```bash
-cargo xtask test
-```
-
-To capture the snapshots test we using [insta](https://github.com/mitsuhiko/insta) rust project. you can see the snapshot changes / new snapshot by running the command:
-```bash
-cargo insta test --review
-```
-
-### clippy
-```bash
-cargo xtask clippy
-```
-
-### rustfmt
-```bash
-cargo xtask fmt
-```
-
-## Code style
-
-We use the standard Rust code style, and enforce it with `rustfmt`/`cargo fmt`.
-A few code style options are set in the [`.rustfmt.toml`](./.rustfmt.toml) file, and some of them are not stable yet and require a nightly version of rustfmt.
-
-
-## documentation
-
-Generate and open [shellfirm](https://github.com/kaplanelad/shellfirm) to make sure that your documentation os current
+The CI clippy line is:
 
 ```bash
-cargo xtask docs-preview
+cargo clippy --locked --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
 ```
+
+Only the check tests (fast, while working on checks):
+
+```bash
+cargo test -p shellfirm --test checks
+```
+
+### Snapshots
+
+Some tests use [insta](https://insta.rs) snapshots (`*.snap` files). When a
+snapshot changes on purpose (for example after adding a default group):
+
+```bash
+cargo insta test --review          # with cargo-insta installed
+INSTA_UPDATE=always cargo test     # without it; then review the .snap diff with git diff
+```
+
+### Formatting
+
+Use standard `rustfmt` settings (there is no custom `rustfmt.toml`). The tree
+is rustfmt-clean: run `cargo fmt --all` before you commit (`make fmt` checks
+it). The CI rustfmt job fails on unformatted code.
+
+## End-to-end testing
+
+Never try risky commands on your own machine. To see how the shell hooks
+behave, use a disposable container or virtual machine with the hook loaded
+(`eval "$(shellfirm init bash)"`), and nothing you would miss in it.
+
+For a quick dry run of a check without any prompt (nothing is run):
+
+```bash
+cargo run -- check -c "git push -f origin main"
+```
+
+## Documentation
+
+- User docs live in [`docs/`](docs) and [README.md](README.md).
+- The [check catalogue](docs/checks/README.md) is generated; regenerate it
+  with `make catalogue` after changing `shellfirm/checks/*.yaml` (a test fails
+  if it is out of date).
+- Preview the API docs with `make show-doc`.

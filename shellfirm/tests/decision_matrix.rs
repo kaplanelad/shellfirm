@@ -88,9 +88,11 @@ impl ScenarioContext {
         if self.ssh == Some(true) {
             env_vars.insert("SSH_CONNECTION".into(), "10.0.0.1 22".into());
         }
-        if self.root == Some(true) {
-            env_vars.insert("EUID".into(), "0".into());
-        }
+        let euid = if self.root == Some(true) {
+            Some(0)
+        } else {
+            None
+        };
         if let Some(ref env_map) = self.env {
             for (k, v) in env_map {
                 env_vars.insert(k.clone(), v.clone());
@@ -109,6 +111,7 @@ impl ScenarioContext {
             env_vars,
             cwd: PathBuf::from("/mock/workspace"),
             command_outputs,
+            euid,
             ..Default::default()
         }
     }
@@ -232,7 +235,8 @@ fn test_decision_matrix() {
         }
 
         // Detect context
-        let runtime_context = context::detect(&env, &settings.context);
+        let runtime_context =
+            context::detect_for_command(&env, &settings.context, &scenario.command);
 
         // Build policy
         let project_policy = scenario.policy.as_ref().map(scenario_to_project_policy);

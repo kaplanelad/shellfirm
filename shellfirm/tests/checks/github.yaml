@@ -159,3 +159,57 @@
 - test: "gh variable set MY_VAR"
   description: "negative: variable set should not match"
   expect_ids: []
+# -- round 7 (omar-r6:R6-5) --
+- test: "gh api -X DELETE repos/acme/webapp"
+  description: "deleting the repository through the API"
+  expect_ids: ["github:api_delete_repo"]
+- test: "gh api repos/acme/webapp"
+  description: "negative: reading the repository"
+  expect_ids: []
+- test: "gh api -X DELETE repos/acme/webapp/labels/bug"
+  description: "negative: deleting a label"
+  expect_ids: []
+- test: "gh pr merge 12 --admin --squash"
+  description: "merging past branch protection"
+  expect_ids: ["github:pr_merge_admin"]
+- test: "gh pr merge 12 --squash"
+  description: "negative: a normal merge"
+  expect_ids: []
+# -- github:api_delete_ref --
+- test: "gh api --method DELETE repos/acme/webapp/git/refs/heads/main"
+  description: "deletes a branch through the API"
+  expect_ids: ["github:api_delete_ref"]
+- test: "gh api repos/acme/webapp/git/refs/heads/main -X DELETE"
+  description: "the method after the path"
+  expect_ids: ["github:api_delete_ref"]
+- test: "gh api -X DELETE /repos/acme/webapp/git/refs/tags/v1.0"
+  description: "deletes a tag"
+  expect_ids: ["github:api_delete_ref"]
+- test: "gh api repos/acme/webapp/git/refs/heads/main"
+  description: "negative: reading a ref"
+  expect_ids: []
+# -- github:api_branch_protection --
+- test: "gh api -X DELETE repos/acme/webapp/branches/main/protection"
+  description: "removes branch protection"
+  expect_ids: ["github:api_branch_protection"]
+- test: "gh api -X PATCH repos/acme/webapp/branches/main/protection -f enforce_admins=false"
+  description: "weakens branch protection"
+  expect_ids: ["github:api_branch_protection"]
+- test: "gh api repos/acme/webapp/branches/main/protection/required_pull_request_reviews --method DELETE"
+  description: "removes required reviews, method after the path"
+  expect_ids: ["github:api_branch_protection"]
+- test: "gh api repos/acme/webapp/branches/main/protection"
+  description: "negative: reading the protection rules"
+  expect_ids: []
+- test: "gh repo delete acme/webapp --yes"
+  description: "gh repo delete with a name"
+  expect_ids: ["github:repo_delete"]
+
+# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# -- github:repo_delete --
+- test: "hugh repo delete x"
+  description: "another tool whose name ends in gh"
+  expect_ids: []
+- test: "sudo gh repo delete x"
+  description: "sudo is removed by the parser"
+  expect_ids: ["github:repo_delete"]

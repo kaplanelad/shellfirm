@@ -24,6 +24,11 @@ pub enum Error {
     #[error("{0}")]
     Config(String),
 
+    /// A bad command-line value (`config impact-budget abc`): a usage error,
+    /// exit 2 like clap's own.
+    #[error("{0}")]
+    Usage(String),
+
     #[cfg(feature = "mcp")]
     #[error("{0}")]
     Mcp(String),

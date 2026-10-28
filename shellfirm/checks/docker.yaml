@@ -1,69 +1,92 @@
 - from: docker
-  test: docker\s+system\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
-  description: "This will remove all unused Docker data including stopped containers, networks, dangling images, and build cache."
+  test: (?:^|\s)docker\s+system\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
+  description: "This removes all unused Docker data: stopped containers, networks, unused images and build cache."
   id: docker:system_prune_all
   severity: High
   alternative: "docker system prune"
   alternative_info: "Without -a, only dangling images are removed (not all unused images)."
 - from: docker
-  test: docker\s+rm\s+(-f|--force)\s+(?:\$\(|`)docker\s+ps
-  description: "Force removing all running or stopped containers."
+  test: (?:^|\s)docker\s+(?:container\s+)?(?:rm|remove)\s+(-f|--force)\s+(?:\$\(|`)docker\s+(?:container\s+)?(?:ps|ls)
+  description: "This force-removes all containers."
   id: docker:force_remove_all_containers
   severity: High
 - from: docker
-  test: docker\s+rmi\s+(-f|--force)
-  description: "Force removing Docker images can break dependent containers."
+  test: (?:^|\s)docker\s+(?:rmi|image\s+(?:rm|remove))\s+(?:-\S+\s+)*?(-f|--force)(?:\s|$)
+  description: "Force-removing images can break containers that depend on them."
   id: docker:force_remove_images
   severity: High
 - from: docker
-  test: docker\s+volume\s+rm
+  test: (?:^|\s)docker\s+volume\s+(?:rm|remove)(?:\s|$)
   description: "Removing Docker volumes permanently deletes the data they contain."
   id: docker:remove_volume
   severity: High
 - from: docker
-  test: docker\s+volume\s+prune
-  description: "This will remove all unused Docker volumes and their data."
+  test: (?:^|\s)docker\s+volume\s+prune
+  description: "This removes unused volumes and their data (every one, unless --filter keeps some)."
   id: docker:volume_prune
   severity: High
 - from: docker
-  test: docker\s+network\s+rm
+  test: (?:^|\s)docker\s+network\s+(?:rm|remove)(?:\s|$)
   description: "Removing a Docker network can disconnect containers using it."
   id: docker:remove_network
   severity: Medium
 - from: docker
-  test: docker[\s-]compose\s+.*down\s+.*(-v|--volumes)
-  description: "This will stop containers AND delete all associated volumes and data."
+  test: (?:^|\s)docker[\s-]compose\s+.*down\s+.*(-v|--volumes)
+  description: "This stops the containers and deletes their volumes and data."
   id: docker:compose_down_volumes
   severity: High
   alternative: "docker-compose down"
   alternative_info: "Without -v, volumes are preserved so data is not lost."
 - from: docker
-  test: docker\s+stop\s+\$\(docker\s+ps
-  description: "Stopping all running Docker containers."
+  test: (?:^|\s)docker\s+stop\s+\$\(docker\s+ps
+  description: "This stops all running containers."
   id: docker:stop_all_containers
   severity: Medium
 - from: docker
-  test: docker\s+image\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
-  description: "Removes ALL images, not just dangling ones."
+  test: (?:^|\s)docker\s+image\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
+  description: "This removes all unused images, not just dangling ones."
   id: docker:image_prune_all
   severity: High
   alternative: "docker image prune"
   alternative_info: "Without -a, only dangling images are removed."
 - from: docker
-  test: docker\s+container\s+prune
-  description: "Removes all stopped containers."
+  test: (?:^|\s)docker\s+container\s+prune
+  description: "This removes stopped containers (every one, unless --filter keeps some)."
   id: docker:container_prune
   severity: Medium
 - from: docker
-  test: docker\s+buildx\s+prune\s+.*--all
-  description: "Clears the entire Docker build cache."
+  test: (?:^|\s)docker\s+buildx\s+prune\s+.*--all
+  description: "This clears the entire build cache."
   id: docker:buildx_prune_all
   severity: High
 - from: docker
-  test: docker\s+run\s+(.+\s+)?--privileged(\s|$|=true)
+  test: (?:^|\s)docker\s+run\s+(.+\s+)?--privileged(\s|$|=true)
   description: "Running a container with --privileged gives it full access to the host system."
   id: docker:run_privileged
   severity: High
   filters:
     - type: NotContains
       value: "--privileged=false"
+- from: docker
+  test: (?:^|\s)docker\s+network\s+prune\b
+  description: "This removes all unused Docker networks."
+  id: docker:network_prune
+  severity: Medium
+- from: docker
+  test: (?:^|\s)docker\s+kill\s+(?:-\S+\s+)*(?:\$\(|`)docker\s+(?:container\s+)?ps
+  description: "This kills all running containers."
+  id: docker:kill_all_containers
+  severity: Medium
+- from: docker
+  # `docker run -v /:/host …` gives the container the whole host filesystem.
+  test: (?:^|\s)(?:docker|podman|nerdctl)\s+(?:\S+\s+)*?(?:run|create)\s+(?:\S+\s+)*?(?:-v\s*|--volume[=\s]|--mount[=\s]\S*?(?:source|src)=)/(?::|,|\s|$)
+  description: "This mounts the host's root filesystem into the container: anything in it can read or change every host file."
+  id: docker:run_mount_host_root
+  severity: High
+- from: docker
+  # The Docker / containerd socket is root on the host; /etc, /root, /proc,
+  # /sys, /dev and /boot are its configuration, credentials and devices.
+  test: (?:^|\s)(?:docker|podman|nerdctl)\s+(?:\S+\s+)*?(?:run|create)\s+(?:\S+\s+)*?(?:-v\s*|--volume[=\s]|--mount[=\s]\S*?(?:source|src)=)(?:/var/run/docker\.sock|/run/docker\.sock|/run/containerd/containerd\.sock|/var/run/containerd/containerd\.sock|/etc|/root|/proc|/sys|/dev|/boot|/var/lib/docker)(?::|,|\s|$)
+  description: "This mounts the container engine socket or a host system directory into the container: it can take over the host."
+  id: docker:run_mount_host_sensitive
+  severity: High

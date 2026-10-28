@@ -69,6 +69,21 @@ pub trait Tab {
 
     fn handle_key(&mut self, key: KeyEvent, draft: &mut DraftSettings) -> TabOutcome;
 
+    /// `true` when this tab wants `key` delivered to it **before** the
+    /// App's global hotkeys (`q`, `s`, `r`, `p`, `?`). Tabs return `true`
+    /// for character keys while a text field or a picker filter has focus,
+    /// so typing `staging` or `force_push` never opens a modal.
+    fn claims_key(&self, _key: &KeyEvent) -> bool {
+        false
+    }
+
+    /// `true` while the tab is in an edit state (a drilled-in section, an
+    /// open text field, a picker). The App closes that state with `Esc`
+    /// when the user leaves the tab, so no hidden edit state stays open.
+    fn is_editing(&self) -> bool {
+        false
+    }
+
     /// Description of the currently focused field. Used by the App to
     /// render the bottom strip on a freshly-opened tab.
     fn current_focus(&self) -> FieldFocus;
