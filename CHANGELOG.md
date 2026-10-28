@@ -2,8 +2,8 @@
 
 ## 0.4.0
 
-The 0.4.0 release (the crate version is set when it is published). It is a
-large release: project and org policies are enforced, the AI-agent hooks cover
+The 0.4.0 release. It is a large release: project and org policies are
+enforced, the AI-agent hooks cover
 more tools and fail closed, the parser follows far more shell forms, and every
 command reports problems instead of hiding them. Read
 [Upgrading from 0.3.10](#upgrading-from-0310) first.
