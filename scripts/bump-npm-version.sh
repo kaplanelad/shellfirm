@@ -20,6 +20,7 @@ PACKAGES=(
   "npm/shellfirm"
   "npm/cli-darwin-arm64"
   "npm/cli-darwin-x64"
+  "npm/cli-linux-arm64"
   "npm/cli-linux-x64"
   "npm/cli-win32-x64"
 )

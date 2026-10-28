@@ -97,3 +97,12 @@ all = ["cli", "llm", "mcp", "ai", "wrap", "tui"]
 [[bin]]
 name = "shellfirm"
 required-features = ["cli"]
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target-arch }-{ os-name }{ archive-suffix }"
+bin-dir = "{ name }-v{ version }-{ target-arch }-{ os-name }/{ bin }{ binary-ext }"
+pkg-fmt = "txz"
+disabled-strategies = ["quick-install"]
+
+[package.metadata.binstall.overrides.'cfg(target_os = "windows")']
+pkg-fmt = "zip"

@@ -13,6 +13,7 @@
   "optionalDependencies": {
     "@shellfirm/cli-darwin-arm64": "0.3.10",
     "@shellfirm/cli-darwin-x64": "0.3.10",
+    "@shellfirm/cli-linux-arm64": "0.3.10",
     "@shellfirm/cli-linux-x64": "0.3.10",
     "@shellfirm/cli-win32-x64": "0.3.10"
   }
