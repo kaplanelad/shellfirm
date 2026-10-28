@@ -39,7 +39,7 @@ blocked outright. Prefer no math? See [Accessibility](#accessibility).
 
 ## Features
 
-- **472 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
+- **496 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
 - **Shell hooks for 8 shells** — Bash, Zsh, Fish, Elvish and Xonsh are tested end to end; Nushell is tested with a limitation (see [Shell support](#shell-support)); the PowerShell and Oils hooks are shipped but **not yet tested** end to end. `shellfirm status` shows which shells have the hook installed.
 - **Context-aware escalation** — harder challenges when connected via SSH, running as root, on protected git branches, or in production Kubernetes clusters
 - **Safer alternatives** — many checks suggest a safer command (e.g. `--force-with-lease`)
@@ -291,6 +291,17 @@ risky commands have no rule yet:
   into a shell or interpreter is not always followed.
 - Sending secrets (keys, tokens, credential files) to another host with
   `curl`, `aws` or `gh` is not detected in general.
+- Reading a private key or credentials file is flagged (Medium), also with
+  Claude Code's `Read` tool, but reading a `.env` file and listing `~/.ssh`
+  are not. Add a [custom check](docs/config.md#custom-checks) if you want to
+  be asked before an agent reads them, for example
+  `test: '^(?:cat|less|head|tail|bat)\s+(?:\S+\s+)*?\S*\.env(?:\.(?:local|development|production|test))?(?:\s|$)'`.
+- A command that uses a token without printing it (`GH_TOKEN=$(gh auth token)
+  gh api …`, `gh auth token | docker login --password-stdin`) is still asked
+  like printing one; approve it. Checks cannot yet be limited to AI agents:
+  `config ignore` turns a check off for the shell and the agents together.
+- A destructive call made through an API with `curl` (a GraphQL mutation that
+  deletes a volume, a `DELETE` request to a cloud API) is not recognised.
 - Lock-out commands beyond locking the root account (locking or removing
   other users, firewall rules that drop the SSH port) are not checked.
 - `git -c` with a program value (`core.pager`, `core.editor`) is Medium, and

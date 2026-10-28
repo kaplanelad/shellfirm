@@ -159,8 +159,66 @@ Other changes you may notice (not breaking; no action needed):
   - `--config-dir DIR` for `status`, `config` and `audit` (as for `check`).
   - `check --strict`, `--fail-on`, `--list` (with policy checks),
     `--no-context`, and `--hook claude-code | cursor`.
-- **Checks**: 472 built-in checks in 23 default groups (see the
+- **Checks**: 496 built-in checks in 23 default groups (see the
   [check catalogue](docs/checks/README.md)). New among them:
+  - Windows: `rd` / `rmdir` / `del /s` (also `/s/q`) and PowerShell
+    `Remove-Item -Recurse` (and its aliases, `-Path:`, `-Recurse:$true`,
+    `${env:…}`) on a drive root, the user profiles, a profile's top folders
+    or the Windows directory, also piped (`Get-ChildItem C:\ -Recurse |
+    Remove-Item`) (Critical); `format D:` / `format /q D:`, `Format-Volume`,
+    `Clear-Disk` (Critical); deleting shadow copies or backups (`vssadmin
+    delete shadows`, Critical); turning Windows Defender off (High);
+    PowerShell download-and-run (`irm … | iex`, `(New-Object
+    Net.WebClient).DownloadString(…)`, piped into `powershell -`) and
+    `-EncodedCommand` (any `-e…` abbreviation, `/enc`, the `:` form), the
+    Windows LOLBin downloaders `certutil` / `bitsadmin` / `mshta` /
+    `regsvr32`, clearing the event logs (`wevtutil cl`, `Clear-EventLog`),
+    and turning the Windows firewall off (`netsh advfirewall set … off`,
+    `Set-NetFirewallProfile -Enabled False`) (High / Critical); disabling
+    macOS protections (`csrutil disable`, `spctl --master-disable`) and a
+    catch-all `iptables -A INPUT -j DROP` that locks out SSH (High); more
+    backup-destruction forms (WMI/CIM `Win32_Shadowcopy` delete, `vssadmin
+    resize shadowstorage`, `bcdedit … recoveryenabled No`, and macOS
+    `tmutil delete` / `deletelocalsnapshots`) (Critical). `cmd /c "…"` (also
+    `/c"…"`) and `powershell.exe -Command` /
+    `powershell "…"` payloads are checked, and lines with Windows paths
+    (`C:\Users\dev`) are also read with `/` separators, so the backslashes
+    are not lost.
+  - macOS and disks: `diskutil eraseDisk` / `zeroDisk` / `apfs deleteVolume`,
+    `/dev/disk*` device names in every disk check, output written straight
+    onto a disk device (also with `tee` / `cp`), `nvme format`, and the
+    Windows `diskpart /s` / `Remove-Partition` (Critical; `diskutil
+    secureErase freespace` is not flagged). Cloud teardown: `aws s3api
+    delete-bucket` / `delete-objects`, `cdk destroy`, Serverless / SAM /
+    Amplify / SST removal, `podman system reset` and `podman volume prune`
+    (High). `bash.exe -c …` and `wsl …` payloads are analyzed like the
+    native command.
+  - Secrets (Medium, so an AI agent is asked first): reading a private key or
+    a credentials file (`cat`, `grep`, `rg`, `jq`, `openssl`, `pbcopy <`,
+    `Get-Content`, cmd `type`, copying it somewhere; `~/.ssh/id_*` and other
+    key names (including any non-public file under `~/.ssh`, e.g.
+    `~/.ssh/work`), `~/.aws/credentials` and the SSO cache, `.netrc`,
+    `.git-credentials`, `~/.kube/config` (and `config-*`), `.pgpass`,
+    `.my.cnf`, `~/.vault-token`, `~/.oci`, the `gh` and AI-CLI token files,
+    SSH host keys (`/etc/ssh/ssh_host_*_key`), `/etc/kubernetes/admin.conf`,
+    the in-cluster service-account token, `/proc/*/environ`, wallets,
+    `/etc/shadow`, …, with editors (`vim`) counted too; public keys,
+    `~/.ssh/config` and `.env` files, and commands that print nothing
+    (`sed -i`, `grep -q` / `-l`, `openssl … -noout`) are not flagged),
+    printing a live token or secret (`gh auth token`, `gh auth status
+    --show-token`, `gcloud auth print-access-token`, `aws configure get
+    aws_secret_access_key`, `aws secretsmanager get-secret-value`, `aws sts
+    assume-role`, `aws iam create-access-key`, `aws ecr get-login-password`,
+    `kubectl config view --raw`, `kubectl get secret -o yaml`, `az account
+    get-access-token`, `heroku config`, `terraform output -raw`, `pulumi …
+    --show-secrets`, `npm config get …_authToken`, `op read` / `op item get`, …), and
+    searching the home
+    directory or the whole machine for keys and wallets (`find ~ -name
+    'id_rsa*'`, `locate id_rsa`, `trufflehog filesystem ~`). Each suggests
+    what to run instead.
+  - Claude Code's `Read` tool is checked too: `shellfirm connect claude-code`
+    adds a `Read` hook, and reading a private key or a credentials file with
+    it asks first, like `cat`.
   - Infrastructure: HashiCorp and backup tools, Kubernetes node and
     control-plane operations (`kubectl debug node/…`, `kubectl taint …
     :NoExecute`), `istioctl uninstall --purge`, `cilium uninstall`, `argocd

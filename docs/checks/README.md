@@ -3,18 +3,18 @@
 
 # Built-in checks
 
-472 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
+496 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
 
 | Group | Checks | Enabled by default |
 |---|---:|---|
-| [aws](#aws) | 26 | yes |
+| [aws](#aws) | 29 | yes |
 | [azure](#azure) | 11 | yes |
-| [base](#base) | 25 | yes |
+| [base](#base) | 30 | yes |
 | [database](#database) | 78 | yes |
-| [docker](#docker) | 16 | yes |
-| [exfil](#exfil) | 8 | yes |
+| [docker](#docker) | 17 | yes |
+| [exfil](#exfil) | 11 | yes |
 | [flyio](#flyio) | 4 | yes |
-| [fs](#fs) | 61 | yes |
+| [fs](#fs) | 68 | yes |
 | [gcp](#gcp) | 17 | yes |
 | [git](#git) | 38 | yes |
 | [github](#github) | 11 | yes |
@@ -23,11 +23,11 @@
 | [mongodb](#mongodb) | 16 | yes |
 | [mysql](#mysql) | 7 | yes |
 | [netlify](#netlify) | 3 | yes |
-| [network](#network) | 16 | yes |
+| [network](#network) | 18 | yes |
 | [npm](#npm) | 4 | yes |
 | [psql](#psql) | 11 | yes |
 | [redis](#redis) | 19 | yes |
-| [shell](#shell) | 11 | yes |
+| [shell](#shell) | 14 | yes |
 | [terraform](#terraform) | 27 | yes |
 | [vercel](#vercel) | 4 | yes |
 
@@ -61,6 +61,9 @@
 | `aws:docdb_delete` | HIGH | This deletes a DocumentDB / Neptune database cluster or instance. |  |
 | `aws:rds_disable_backups` | HIGH | Setting the backup retention period to 0 disables automated backups and deletes the existing ones. |  |
 | `aws:scale_to_zero` | HIGH | This scales the Auto Scaling group or ECS service to zero: every instance or task of it stops. | `aws ecs describe-services --cluster <cluster> --services <service>` |
+| `aws:s3api_delete_bucket` | HIGH | This deletes the S3 bucket or deletes objects from it in bulk. |  |
+| `aws:cdk_destroy` | HIGH | This destroys the CDK stacks and every AWS resource they created. |  |
+| `aws:iac_destroy` | HIGH | This tears down the deployed stack and every resource it created (Serverless, SAM, Amplify or SST). |  |
 
 ## azure
 
@@ -107,6 +110,11 @@
 | `base:lock_root_account` | HIGH | This locks the root account's password: without another administrator login you can lock yourself out. |  |
 | `base:remount_root_readonly` | HIGH | This remounts the root filesystem read-only: services that write to disk start failing. |  |
 | `base:journal_vacuum` | MEDIUM | This permanently deletes archived system journal logs. |  |
+| `base:delete_shadow_copies` | CRITICAL | This deletes the Windows shadow copies or backups (System Restore, previous versions of files) or turns off Windows recovery: nothing is left to restore from. |  |
+| `base:delete_backups_macos` | CRITICAL | This deletes Time Machine backups or local APFS snapshots: there is nothing left to restore the files from. |  |
+| `base:clear_event_logs` | HIGH | This clears the Windows event logs, erasing the record of what happened on the machine. |  |
+| `base:disable_antivirus` | HIGH | This turns off Windows Defender protection, excludes a path from scanning, removes its definitions, or stops its service. |  |
+| `base:disable_macos_security` | HIGH | This disables a core macOS protection — System Integrity Protection (csrutil) or Gatekeeper (spctl) — letting unsigned or tampered code run. |  |
 
 ## database
 
@@ -211,6 +219,7 @@
 | `docker:kill_all_containers` | MEDIUM | This kills all running containers. |  |
 | `docker:run_mount_host_root` | HIGH | This mounts the host's root filesystem into the container: anything in it can read or change every host file. |  |
 | `docker:run_mount_host_sensitive` | HIGH | This mounts the container engine socket or a host system directory into the container: it can take over the host. |  |
+| `docker:podman_system_reset` | HIGH | This deletes every Podman container, pod, image, volume and network on the machine. |  |
 
 ## exfil
 
@@ -224,6 +233,9 @@
 | `exfil:archive_secret_dir` | MEDIUM | This packs your SSH keys or cloud credentials into an archive, which is easy to copy or upload somewhere else. |  |
 | `exfil:secret_to_socket` | HIGH | This sends a private key or credentials file over the network. |  |
 | `exfil:archive_secret_and_send` | HIGH | This packs your SSH keys or cloud credentials and sends the archive to another machine. |  |
+| `exfil:read_secret_file` | MEDIUM | This reads a private key or a credentials file. Shown on screen it can leak (screen sharing, terminal logs); run by an AI agent, the secret goes into the conversation and on to the model provider. | `read only what you need, not the secret itself` |
+| `exfil:print_token` | MEDIUM | This prints a live access token or a secret. Shown on screen it can leak; run by an AI agent, it goes into the conversation and on to the model provider. | `check that you are authenticated without printing the secret` |
+| `exfil:search_secret_files` | MEDIUM | This searches your home directory or the whole machine for private keys, credentials or wallet files. | `find . -name '<pattern>'` |
 
 ## flyio
 
@@ -240,6 +252,13 @@
 |---|---|---|---|
 | `fs:recursively_delete` | CRITICAL | This deletes a critical location: the filesystem root, your home directory, a system directory, the repository, or everything in the current directory. | `trash <path>` |
 | `fs:delete_credentials` | CRITICAL | This deletes SSH keys, GPG keys or cloud / cluster credentials from your home directory. | `trash <path>` |
+| `fs:diskutil_erase` | CRITICAL | This erases a disk or volume with diskutil: all data on it is lost. |  |
+| `fs:write_to_block_device` | CRITICAL | This writes straight onto a disk device, overwriting the partition table and file systems on it. |  |
+| `fs:nvme_format` | CRITICAL | This erases or sanitizes an NVMe device at the controller level: all data on it is lost. |  |
+| `fs:windows_recursive_delete` | CRITICAL | This deletes a whole Windows drive, the user profiles or the Windows directory, with every file and folder in it. |  |
+| `fs:windows_remove_item_recursive` | CRITICAL | This deletes a whole Windows drive, your user profile or the Windows directory, with every file and folder in it. |  |
+| `fs:windows_pipeline_delete` | CRITICAL | This lists a whole Windows drive or your user profile and pipes every item into a delete. |  |
+| `fs:windows_format_drive` | CRITICAL | This formats a Windows drive or wipes a disk, erasing all data on it. |  |
 | `fs:recursively_delete_outside` | HIGH | This recursively deletes a top-level folder of your home directory (for example `~/projects` or `~/data`), or a directory outside the current one reached with `../`. | `trash <path>` |
 | `fs:delete_repository` | HIGH | This recursively deletes a whole git repository, including any work that was never pushed. | `trash <path>` |
 | `fs:delete_git_dir` | CRITICAL | This deletes the .git directory of a repository: its whole history, branches, stashes and every commit that was never pushed. | `trash <path>` |
@@ -363,7 +382,7 @@
 | `git:filter_repo` | HIGH | This rewrites the whole repository history (and removes the origin remote). |  |
 | `git:force_push_protected` | HIGH | This force-pushes (with lease) to a protected branch and rewrites its shared history. |  |
 | `git:force_push_unknown_target` | HIGH | This force-pushes (with lease) to a branch that is only known when the line runs; this repository has a protected branch, so it may rewrite that branch's shared history. |  |
-| `git:config_exec_program` | MEDIUM | This makes git run a program of your choice on later git commands (pager, editor or a shell alias), a common persistence trick, in every repository with --global. |  |
+| `git:config_exec_program` | MEDIUM | This makes git run a program of your choice on later git commands (pager, editor, diff driver, credential helper or a shell alias), a common persistence trick, in every repository with --global. |  |
 
 ## github
 
@@ -508,9 +527,11 @@
 | `network:flush_nftables` | CRITICAL | Flushing all nftables rules removes all firewall protection. |  |
 | `network:flush_routes` | CRITICAL | Flushing the routing table causes immediate loss of network connectivity. |  |
 | `network:iptables_default_drop` | HIGH | This sets the default firewall policy to DROP, which can cut off all traffic, including your SSH session. |  |
+| `network:iptables_drop_all_input` | HIGH | This appends a catch-all DROP/REJECT rule to INPUT, dropping all incoming traffic including your SSH session. |  |
 | `network:reverse_shell` | HIGH | This opens a reverse shell: it hands an interactive shell on this machine to whoever listens at the remote address. |  |
 | `network:flush_addresses` | HIGH | This removes the IP addresses of a network interface: the machine (and your SSH session) loses connectivity on it. |  |
 | `network:ufw_default_deny` | HIGH | This makes the firewall refuse all incoming connections by default, including SSH unless a rule allows it. | `ufw allow OpenSSH` |
+| `network:disable_firewall_windows` | CRITICAL | This turns the Windows firewall off, leaving every port open. |  |
 
 ## npm
 
@@ -576,6 +597,9 @@
 | `shell:shell_c_remote_script` | HIGH | This downloads a script and runs it as shell code without inspection (`sh -c "$(curl …)"` is the same as `curl … \| sh`). | `curl -o script.sh <url> && cat script.sh` |
 | `shell:unknown_shell_payload` | HIGH | This runs shell code that shellfirm cannot see before it runs (input lines executed as commands, as in `xargs -I{} sh -c '{}'`), so it cannot be checked. |  |
 | `shell:function_depth_limit` | MEDIUM | This calls a shell function too large or too deeply nested for the shell hook to read ahead, so part of what it runs was not checked. |  |
+| `shell:powershell_download_exec` | HIGH | This downloads a PowerShell script and runs it (Invoke-Expression) without inspection. | `Invoke-WebRequest <url> -OutFile script.ps1; Get-Content script.ps1` |
+| `shell:lolbin_download_exec` | HIGH | This uses a Windows built-in tool (certutil, bitsadmin, mshta or regsvr32) to download and run code from a URL, bypassing normal download controls. | `Invoke-WebRequest <url> -OutFile file; Get-FileHash file` |
+| `shell:powershell_encoded_command` | HIGH | This runs a PowerShell command hidden in base64 (-EncodedCommand), so you cannot see what it does. |  |
 
 ## terraform
 

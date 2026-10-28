@@ -1471,7 +1471,7 @@
   description: "EDGE: parent dir .. should match"
   expect_ids: ["fs:recursively_chown"]
 - test: "sudo chown -R nobody /home/dev"
-  description: "a home directory by its absolute path (rosa-r5:N1)"
+  description: "a home directory by its absolute path"
   expect_ids: ["fs:recursively_chown"]
 - test: "chown -R nobody /home/dev/*"
   description: "everything in a home directory by its absolute path"
@@ -1489,7 +1489,7 @@
   description: "negative: a project sub-directory"
   expect_ids: []
 - test: "sudo chown -R $USER ~"
-  description: "negative: taking ownership of your own home directory (rosa-r7:N4)"
+  description: "negative: taking ownership of your own home directory"
   expect_ids: []
 - test: "sudo chown -R $(whoami) $HOME"
   description: "negative: $(whoami) is your own user, the home directory itself"
@@ -1587,13 +1587,13 @@
   description: "xargs -n1"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_unknown_target"]
 - test: 'find . -name x -exec rm -rf {} +'
-  description: "filtered find -exec rm -rf is judged like the filtered -delete form (rosa-r5:N4)"
+  description: "filtered find -exec rm -rf is judged like the filtered -delete form"
   expect_ids: ["fs:delete_find_files_filtered"]
 - test: 'find . -type d -name node_modules -prune -exec rm -rf {} +'
   description: "the -prune form too"
   expect_ids: ["fs:delete_find_files_filtered"]
 - test: 'mv ~/.ssh /tmp/'
-  description: "moving the SSH directory away (rosa-r5:N5)"
+  description: "moving the SSH directory away"
   expect_ids: ["fs:move_credentials"]
 - test: 'zip -rm /tmp/x.zip ~/.aws'
   description: "zip -m deletes the credentials it archives"
@@ -2037,7 +2037,7 @@
 - test: "echo b > /proc/sysrq-trigger"
   description: "sysrq is not a file flush"
   expect_ids: ["base:sysrq_trigger"]
-# -- round 7 (omar-r6:R6-2, R6-3, rosa-r6:R6-2, R6-7, maya-r6:N6) --
+# -- round 7 --
 - test: "zfs destroy -r tank/data"
   description: "a ZFS dataset"
   expect_ids: ["fs:zfs_destroy"]
@@ -2276,3 +2276,266 @@
 - test: "echo alias g=git >> ~/.zshrc"
   description: "an alias for a non-destructive program is only the append"
   expect_ids: ["fs:append_shell_startup_file"]
+# -- Windows drive / profile deletes (issue #189) --
+- test: 'rmdir /s /q d:\'
+  description: "cmd: a whole drive (agent incident; rmdir is also fs-strict)"
+  expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
+- test: 'cmd /c "rmdir /s /q D:\"'
+  description: "cmd /c wrapper around a drive delete"
+  expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
+- test: 'cmd.exe /c rd /s /q D:\'
+  description: "cmd.exe /c rd on a drive"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rd /q C:\ /s'
+  description: "target before /s"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'RD /S /Q E:/'
+  description: "upper case, forward slash"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rmdir /s /q C:\Users\dev'
+  description: "one user profile"
+  expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
+- test: 'rd /s /q "C:\Users"'
+  description: "every user profile, quoted"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rd /s /q %USERPROFILE%'
+  description: "%USERPROFILE%"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'del /s /q /f C:\*'
+  description: "del /s of a drive root"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rd /s /q C:\Windows\System32'
+  description: "the Windows system directory"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rd /s /q .\dist'
+  description: "negative: a project build folder"
+  expect_ids: []
+- test: 'rd /s /q C:\Users\dev\project\dist'
+  description: "negative: a folder inside a profile"
+  expect_ids: []
+- test: 'rmdir /q D:\'
+  description: "without /s (fails on a non-empty drive): only the fs-strict rmdir check"
+  expect_ids: ["fs-strict:folder_deletion"]
+- test: 'del /q C:\temp\build.log'
+  description: "negative: one file"
+  expect_ids: []
+- test: 'Remove-Item -Recurse -Force D:\'
+  description: "PowerShell: a whole drive"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: 'Remove-Item -Path $env:USERPROFILE -Recurse -Force'
+  description: "PowerShell: the user profile, -Recurse after the path"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: 'ri -r -fo C:\Users\dev'
+  description: "PowerShell aliases"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: 'Remove-Item -Recurse -Force ~'
+  description: "PowerShell: ~"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: 'Remove-Item -Recurse -Force .\dist'
+  description: "negative: a project build folder"
+  expect_ids: []
+- test: 'Remove-Item -Force C:\temp\build.log'
+  description: "negative: one file, no -Recurse"
+  expect_ids: []
+- test: 'Remove-Item -Recurse -Force "$env:TEMP\build"'
+  description: "negative: a temp folder"
+  expect_ids: []
+- test: 'format D: /q'
+  description: "format a drive"
+  expect_ids: ["fs:windows_format_drive"]
+- test: 'Format-Volume -DriveLetter D'
+  description: "PowerShell Format-Volume"
+  expect_ids: ["fs:windows_format_drive"]
+- test: 'Clear-Disk -Number 1 -RemoveData'
+  description: "PowerShell Clear-Disk"
+  expect_ids: ["fs:windows_format_drive"]
+- test: 'git format-patch -1'
+  description: "negative: git format-patch"
+  expect_ids: []
+# -- issue #189, round 1 --
+- test: "rd /s/q C:\\"
+  description: "issue #189 round 1: rd /s/q C:\\"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "rd /S/Q D:\\"
+  description: "issue #189 round 1: rd /S/Q D:\\"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "rmdir /s/q C:\\"
+  description: "issue #189 round 1: rmdir /s/q C:\\ (rmdir is also fs-strict)"
+  expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
+- test: "format /q D:"
+  description: "issue #189 round 1: format /q D:"
+  expect_ids: ["fs:windows_format_drive"]
+- test: "format /Q C:"
+  description: "issue #189 round 1: format /Q C:"
+  expect_ids: ["fs:windows_format_drive"]
+- test: "powershell.exe -Command \"Remove-Item -Recurse -Force C:\\\""
+  description: "issue #189 round 1: powershell.exe -Command \"Remove-Item -Recurse -Force C:\\\""
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "pwsh.exe -c \"Remove-Item -Recurse -Force D:\\\""
+  description: "issue #189 round 1: pwsh.exe -c \"Remove-Item -Recurse -Force D:\\\""
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "powershell -NoProfile \"Remove-Item -Recurse -Force C:\\Users\\dev\""
+  description: "issue #189 round 1: powershell -NoProfile \"Remove-Item -Recurse -Force C:\\Users\\"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "powershell -ExecutionPolicy Bypass \"rd /s /q C:\\\""
+  description: "issue #189 round 1: powershell -ExecutionPolicy Bypass \"rd /s /q C:\\\""
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "cmd /c\"rd /s /q D:\\\""
+  description: "issue #189 round 1: cmd /c\"rd /s /q D:\\\""
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "Remove-Item -Path:C:\\Users\\dev -Recurse -Force"
+  description: "issue #189 round 1: Remove-Item -Path:C:\\Users\\dev -Recurse -Force"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "Remove-Item -Recurse:$true -Force C:\\"
+  description: "issue #189 round 1: Remove-Item -Recurse:$true -Force C:\\"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "Remove-Item -Recurse -Force ${env:USERPROFILE}"
+  description: "issue #189 round 1: Remove-Item -Recurse -Force ${env:USERPROFILE}"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "Remove-Item -Recurse -Force ~\\*"
+  description: "issue #189 round 1: Remove-Item -Recurse -Force ~\\*"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "Remove-Item -Recurse -Force $HOME\\*"
+  description: "issue #189 round 1: Remove-Item -Recurse -Force $HOME\\*"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "rd /s /q %APPDATA%"
+  description: "issue #189 round 1: rd /s /q %APPDATA%"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "Remove-Item -Recurse -Force $env:LOCALAPPDATA"
+  description: "issue #189 round 1: Remove-Item -Recurse -Force $env:LOCALAPPDATA"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "rd /s /q C:\\Users\\dev\\Documents"
+  description: "issue #189 round 1: rd /s /q C:\\Users\\dev\\Documents"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: "Remove-Item -Recurse -Force C:\\Users\\dev\\.ssh"
+  description: "issue #189 round 1: Remove-Item -Recurse -Force C:\\Users\\dev\\.ssh"
+  expect_ids: ["fs:windows_remove_item_recursive"]
+- test: "Get-ChildItem C:\\ -Recurse | Remove-Item -Force"
+  description: "issue #189 round 1: Get-ChildItem C:\\ -Recurse | Remove-Item -Force"
+  expect_ids: ["fs:windows_pipeline_delete"]
+- test: "gci C:\\Users\\dev | ri -Recurse -Force"
+  description: "issue #189 round 1: gci C:\\Users\\dev | ri -Recurse -Force"
+  expect_ids: ["fs:windows_pipeline_delete"]
+- test: "ls ~ | rm -Recurse -Force"
+  description: "issue #189 round 1: ls ~ | rm -Recurse -Force"
+  expect_ids: ["fs:windows_pipeline_delete"]
+- test: "dd if=/dev/zero of=/dev/disk2"
+  description: "issue #189 round 1: dd if=/dev/zero of=/dev/disk2"
+  expect_ids: ["fs:dd_block_device"]
+- test: "cat /dev/urandom > /dev/sda"
+  description: "issue #189 round 1: cat /dev/urandom > /dev/sda"
+  expect_ids: ["fs:write_to_block_device"]
+- test: "diskutil eraseDisk JHFS+ X disk2"
+  description: "issue #189 round 1: diskutil eraseDisk JHFS+ X disk2"
+  expect_ids: ["fs:diskutil_erase"]
+- test: "grep 'rm -rf /' notes.md"
+  description: "negative (issue #189 round 1): grep 'rm -rf /' notes.md"
+  expect_ids: []
+- test: "rd /s /q .\\dist"
+  description: "negative (issue #189 round 1): rd /s /q .\\dist"
+  expect_ids: []
+- test: "rd /s /q C:\\Users\\dev\\project\\dist"
+  description: "negative (issue #189 round 1): rd /s /q C:\\Users\\dev\\project\\dist"
+  expect_ids: []
+- test: "Remove-Item -Recurse -Force .\\dist"
+  description: "negative (issue #189 round 1): Remove-Item -Recurse -Force .\\dist"
+  expect_ids: []
+- test: "Remove-Item -Recurse:$false C:\\x"
+  description: "negative (issue #189 round 1): Remove-Item -Recurse:$false C:\\x"
+  expect_ids: []
+- test: "Get-ChildItem .\\dist | Remove-Item -Recurse"
+  description: "negative (issue #189 round 1): Get-ChildItem .\\dist | Remove-Item -Recurse"
+  expect_ids: []
+- test: "ls ~ | rm -rf foo"
+  description: "not a pipeline delete (rm ignores its input): only the fs-strict rm -rf of foo"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "format-patch"
+  description: "negative (issue #189 round 1): format-patch"
+  expect_ids: []
+- test: "git format-patch -1"
+  description: "negative (issue #189 round 1): git format-patch -1"
+  expect_ids: []
+- test: "dd if=/dev/zero of=./disk.img bs=1M count=10"
+  description: "negative (issue #189 round 1): dd if=/dev/zero of=./disk.img bs=1M count=10"
+  expect_ids: []
+- test: "diskutil list"
+  description: "negative (issue #189 round 1): diskutil list"
+  expect_ids: []
+# -- issue #189, round 2 (Windows spellings, pipeline scope) --
+- test: 'rd/s/q C:\'
+  description: "switch glued to the command name"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'del/f/s/q C:\*'
+  description: "glued del switches"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'rmdir/s/q %USERPROFILE%'
+  description: "glued rmdir switches, %USERPROFILE%"
+  expect_ids: ["fs:windows_recursive_delete"]
+- test: 'gci ~ | ri -r -fo -ea 0'
+  description: "pipeline delete with a trailing -ea argument"
+  expect_ids: ["fs:windows_pipeline_delete"]
+- test: 'Get-ChildItem C:\ -Recurse | Remove-Item -ErrorAction SilentlyContinue'
+  description: "pipeline delete, -ErrorAction value kept"
+  expect_ids: ["fs:windows_pipeline_delete"]
+- test: 'gci .\dist | ri; cd ~'
+  description: "negative: a project listing piped to delete, then an unrelated cd ~ (regression guard)"
+  expect_ids: []
+- test: 'Get-ChildItem .\logs | Remove-Item; cd C:\'
+  description: "negative: project cleanup, later cd to a drive (regression guard)"
+  expect_ids: []
+- test: 'Get-Help Format-Volume'
+  description: "negative: reading help, not formatting"
+  expect_ids: []
+- test: 'Get-Command Clear-Disk'
+  description: "negative: looking a cmdlet up"
+  expect_ids: []
+# -- issue #189, round 3: device / disk destruction breadth --
+- test: "diskutil apfs deleteVolume disk2s1"
+  description: "round 3: delete an APFS volume"
+  expect_ids: ["fs:diskutil_erase"]
+- test: "diskutil secureErase freespace 0 /Volumes/Data"
+  description: "negative round 3: erasing only free space"
+  expect_ids: []
+- test: "nvme format /dev/nvme0n1"
+  description: "round 3: nvme controller format"
+  expect_ids: ["fs:nvme_format"]
+- test: "tee /dev/sda < image.img"
+  description: "round 3: tee onto a block device"
+  expect_ids: ["fs:write_to_block_device"]
+- test: "cp image.img /dev/sdb"
+  description: "round 3: cp onto a block device"
+  expect_ids: ["fs:write_to_block_device"]
+- test: "Remove-Partition -DiskNumber 0 -PartitionNumber 2"
+  description: "round 3: Remove-Partition"
+  expect_ids: ["fs:windows_format_drive"]
+- test: "diskpart /s wipe.txt"
+  description: "round 3: diskpart script"
+  expect_ids: ["fs:windows_format_drive"]
+- test: "nvme list"
+  description: "negative round 3: listing nvme devices"
+  expect_ids: []
+- test: "wsl rm -rf /"
+  description: "round 3: rm -rf / run through wsl"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "bash.exe -c 'rm -rf /'"
+  description: "round 3: bash.exe payload is recursed"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+# -- issue #189, round 3: macOS/Linux critical delete targets (deep subpaths) --
+- test: "rm -rf /Users/dev"
+  description: "round 3: a full macOS user home"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /System/Volumes/Data"
+  description: "round 3: the macOS user-data volume"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /Library"
+  description: "round 3: macOS Library"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /Applications"
+  description: "round 3: macOS Applications"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /System"
+  description: "round 3: macOS System"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /lib64"
+  description: "round 3: Linux lib64"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]

@@ -1,5 +1,5 @@
 - from: docker
-  test: (?:^|\s)docker\s+system\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
+  test: (?:^|\s)(?:docker|podman)\s+system\s+prune\s+.*(?:-[a-zA-Z]*a|--all)
   description: "This removes all unused Docker data: stopped containers, networks, unused images and build cache."
   id: docker:system_prune_all
   severity: High
@@ -21,7 +21,7 @@
   id: docker:remove_volume
   severity: High
 - from: docker
-  test: (?:^|\s)docker\s+volume\s+prune
+  test: (?:^|\s)(?:docker|podman)\s+volume\s+prune
   description: "This removes unused volumes and their data (every one, unless --filter keeps some)."
   id: docker:volume_prune
   severity: High
@@ -89,4 +89,10 @@
   test: (?:^|\s)(?:docker|podman|nerdctl)\s+(?:\S+\s+)*?(?:run|create)\s+(?:\S+\s+)*?(?:-v\s*|--volume[=\s]|--mount[=\s]\S*?(?:source|src)=)(?:/var/run/docker\.sock|/run/docker\.sock|/run/containerd/containerd\.sock|/var/run/containerd/containerd\.sock|/etc|/root|/proc|/sys|/dev|/boot|/var/lib/docker)(?::|,|\s|$)
   description: "This mounts the container engine socket or a host system directory into the container: it can take over the host."
   id: docker:run_mount_host_sensitive
+  severity: High
+- from: docker
+  # Podman: removes every container, pod, image, volume and network.
+  test: '^podman\s+(?:\S+\s+)*?system\s+reset(?:\s|$)'
+  description: "This deletes every Podman container, pod, image, volume and network on the machine."
+  id: docker:podman_system_reset
   severity: High

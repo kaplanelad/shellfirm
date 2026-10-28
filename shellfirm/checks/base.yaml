@@ -141,3 +141,39 @@
   description: "This permanently deletes archived system journal logs."
   id: base:journal_vacuum
   severity: Medium
+- from: base
+  # Windows: deleting the shadow copies and backup catalog (System Restore,
+  # previous versions), the first step of most ransomware. Covers vssadmin
+  # delete/resize, the WMI/CIM `Win32_Shadowcopy` delete, `wbadmin delete`
+  # and `bcdedit` turning recovery off.
+  test: '(?i)(?:(?:^|\s)(?:vssadmin(?:\.exe)?\s+(?:\S+\s+)*?(?:delete\s+shadows|resize\s+shadowstorage)|wmic(?:\.exe)?\s+(?:\S+\s+)*?shadowcopy\s+(?:\S+\s+)*?delete|wbadmin(?:\.exe)?\s+(?:\S+\s+)*?delete\s+(?:catalog|systemstatebackup|backup)|bcdedit(?:\.exe)?\s+(?:\S+\s+)*?(?:recoveryenabled\s+no|bootstatuspolicy\s+ignoreallfailures))|(?:^|\s)Win32_Shadowcopy\b[^;\n]*(?:\|[^;\n]*)?(?:\.Delete\b|Remove-CimInstance|Remove-WmiObject)|(?:^|\s)(?:Remove-CimInstance|Remove-WmiObject)[^;\n]*Win32_Shadowcopy\b)'
+  description: "This deletes the Windows shadow copies or backups (System Restore, previous versions of files) or turns off Windows recovery: nothing is left to restore from."
+  id: base:delete_shadow_copies
+  severity: Critical
+- from: base
+  # macOS: deleting Time Machine backups or local APFS snapshots, the
+  # equivalent of wiping the Windows shadow copies.
+  test: '(?:^|\s)tmutil\s+(?:\S+\s+)*?(?:delete|deletelocalsnapshots)\b'
+  description: "This deletes Time Machine backups or local APFS snapshots: there is nothing left to restore the files from."
+  id: base:delete_backups_macos
+  severity: Critical
+- from: base
+  # Clearing the Windows event logs to destroy the record of what happened.
+  test: '(?i)(?:^|\s)(?:wevtutil(?:\.exe)?\s+(?:\S+\s+)*?(?:cl|clear-log)\b|Clear-EventLog\b|Remove-EventLog\b)'
+  description: "This clears the Windows event logs, erasing the record of what happened on the machine."
+  id: base:clear_event_logs
+  severity: High
+- from: base
+  # Windows Defender switched off, told to skip a path, or its definitions /
+  # service removed; also the `DisableAntiSpyware` policy key.
+  test: '(?i)(?:^|\s)(?:Set-MpPreference\s+(?:\S+\s+)*?(?:(?:-Disable(?:RealtimeMonitoring|BehaviorMonitoring|IOAVProtection|ScriptScanning|IntrusionPreventionSystem|BlockAtFirstSeen)|-drtm)[:\s]+(?:\$true|0*1)|-MAPSReporting[:\s]+(?:Disabled|0))(?:\s|$)|Add-MpPreference\s+(?:\S+\s+)*?-Exclusion(?:Path|Process|Extension)\b|(?:(?:sc(?:\.exe)?\s+(?:stop|delete|config)|net(?:\.exe)?\s+stop)\s+|Stop-Service\s+(?:(?:-Name|-DisplayName)[:\s]+)?["'']?)(?:WinDefend|WdNisSvc|WdFilter|WdBoot|Sense|SecurityHealthService)\b|taskkill(?:\.exe)?\s+(?:\S+\s+)*?/IM[:\s]+(?:MsMpEng|NisSrv|SecurityHealthService)\.exe\b|MpCmdRun(?:\.exe)?\s+(?:\S+\s+)*?-RemoveDefinitions\b|reg(?:\.exe)?\s+add\b[^\n]*\bDisableAntiSpyware\b)'
+  description: "This turns off Windows Defender protection, excludes a path from scanning, removes its definitions, or stops its service."
+  id: base:disable_antivirus
+  severity: High
+- from: base
+  # macOS: disabling System Integrity Protection (csrutil) or Gatekeeper
+  # (spctl) — the guardrails that stop unsigned or tampered code from running.
+  test: '(?:^|\s)(?:csrutil\s+(?:\S+\s+)*?disable|spctl\s+--(?:master|global)-disable)(?:\s|$)'
+  description: "This disables a core macOS protection — System Integrity Protection (csrutil) or Gatekeeper (spctl) — letting unsigned or tampered code run."
+  id: base:disable_macos_security
+  severity: High

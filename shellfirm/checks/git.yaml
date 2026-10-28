@@ -282,8 +282,8 @@
   # Settings that make git run a program on later commands (`core.pager`,
   # `core.editor`, `sequence.editor`, a `!` alias), also in `--global`
   # config, where they apply to every repository.
-  test: '(?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:core\.pager|core\.editor|core\.askpass|sequence\.editor|diff\.external|alias\.\S+\s+["'']?!)'
-  description: "This makes git run a program of your choice on later git commands (pager, editor or a shell alias), a common persistence trick, in every repository with --global."
+  test: '(?:^|\s)git\s+(?:--shellfirm-one-shot\s+)?config\s+(?:\S+\s+)*?(?:(?:core\.pager|core\.editor|core\.askpass|sequence\.editor|diff\.external)[\s\x{1}]+\S|(?:alias\.\S+|credential\.helper)\s+["'']?!)'
+  description: "This makes git run a program of your choice on later git commands (pager, editor, diff driver, credential helper or a shell alias), a common persistence trick, in every repository with --global."
   id: git:config_exec_program
   severity: Medium
   filters:

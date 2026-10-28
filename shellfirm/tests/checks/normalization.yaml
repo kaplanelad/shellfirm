@@ -292,7 +292,7 @@
   description: "grep of history is not re-execution"
   expect_ids: []
 
-# -- round 6: zsh brace forms (victor-r5:F1, maya-r5:F2) --
+# -- round 6: zsh brace forms --
 - test: "{git push -f}"
   description: "zsh group closed on the last word"
   expect_ids: ["git:force_push"]
@@ -309,7 +309,7 @@
   description: "zsh foreach with a brace body"
   expect_ids: ["git:force_push"]
 - test: "{git,push,-f}"
-  description: "bash brace expansion builds the command (victor-r5:F3)"
+  description: "bash brace expansion builds the command"
   expect_ids: ["git:force_push"]
 - test: "nu -c 'git push -f'"
   description: "nu -c is unwrapped (ken-r5:N3)"
@@ -324,13 +324,13 @@
   description: "ANSI-C hex escape in the command word (ken-r5:N4)"
   expect_ids: ["git:force_push"]
 - test: "sudo $(echo git push -f)"
-  description: "a generated command behind sudo (sam-r5:S5-2)"
+  description: "a generated command behind sudo"
   expect_ids: ["git:force_push"]
 - test: "{ echo ${x}; }"
   description: "negative: a braced variable in a group"
   expect_ids: []
 
-# -- round 7: a parenthesised word before the command (rosa-r6:R6-1, victor-r6:N3) --
+# -- round 7: a parenthesised word before the command --
 - test: "case x in (a) git push -f ;; esac"
   description: "an opening ( before a case pattern"
   expect_ids: ["git:force_push"]
@@ -368,7 +368,7 @@
   description: "negative: a harmless case"
   expect_ids: []
 - test: "time -p git push -f"
-  description: "time -p prefix (rosa-r6:R6-7)"
+  description: "time -p prefix"
   expect_ids: ["git:force_push"]
 - test: "var c = git; (external $c) push --force origin main"
   description: "elvish external with a variable (ken-r6:R6-4)"
@@ -377,5 +377,5 @@
   description: "a here-string on a file descriptor sourced later (ken-r6:R6-9)"
   expect_ids: ["git:force_push"]
 - test: "tmux new -d 'git push -f'"
-  description: "a command run by tmux (rosa-r6:R6-7)"
+  description: "a command run by tmux"
   expect_ids: ["git:force_push"]

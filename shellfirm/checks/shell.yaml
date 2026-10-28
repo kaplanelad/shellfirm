@@ -76,3 +76,33 @@
   description: "This calls a shell function too large or too deeply nested for the shell hook to read ahead, so part of what it runs was not checked."
   id: shell:function_depth_limit
   severity: Medium
+- from: shell
+  # PowerShell download-and-run: `irm URL | iex`, `iex (iwr URL)`,
+  # `IEX(New-Object Net.WebClient).DownloadString(URL)`,
+  # `[Net.WebClient]::new().DownloadString(URL) | iex`, with intermediate
+  # pipe stages, or piped into `powershell -` (the PowerShell `curl … | bash`).
+  test: '(?i)(?:^|\s|\()(?:irm|iwr|Invoke-RestMethod|Invoke-WebRequest|curl|wget)\b[^;\n]*\|\s*(?:(?:iex|Invoke-Expression)\b|(?:pwsh|powershell)(?:\.exe)?\s+-(?:\s|$))|(?:^|\s)(?:iex|Invoke-Expression)\s*\$?\(?\s*\(?\s*(?:irm|iwr|Invoke-RestMethod|Invoke-WebRequest|New-Object\s+(?:System\.)?Net\.WebClient|\[(?:System\.)?Net\.WebClient\])\b|\.Download(?:String|Data)\s*\(|\[scriptblock\]::Create\s*\('
+  description: "This downloads a PowerShell script and runs it (Invoke-Expression) without inspection."
+  id: shell:powershell_download_exec
+  severity: High
+  alternative: "Invoke-WebRequest <url> -OutFile script.ps1; Get-Content script.ps1"
+  alternative_info: "Download it and read it. Run it (`./script.ps1`) in a separate command once you have reviewed it."
+- from: shell
+  # Windows LOLBins that fetch and run remote code: certutil `-urlcache` /
+  # `-verifyctl` downloads, bitsadmin `/transfer`, `mshta http(s)://…` or a
+  # `javascript:` / `vbscript:` payload, and `regsvr32 /i:http(s)://…`.
+  test: '(?i)(?:^|\s)(?:certutil(?:\.exe)?\s+(?:[-/]\S+\s+)*?[-/](?:urlcache|verifyctl)\b|bitsadmin(?:\.exe)?\s+(?:\S+\s+)*?/transfer\b|mshta(?:\.exe)?\s+(?:https?|javascript|vbscript):|regsvr32(?:\.exe)?\s+(?:/\S+\s+)*?/i:https?:)'
+  description: "This uses a Windows built-in tool (certutil, bitsadmin, mshta or regsvr32) to download and run code from a URL, bypassing normal download controls."
+  id: shell:lolbin_download_exec
+  severity: High
+  alternative: "Invoke-WebRequest <url> -OutFile file; Get-FileHash file"
+  alternative_info: "Download it to a file and inspect it before running."
+- from: shell
+  # `powershell -EncodedCommand <base64>`: the command is hidden in base64.
+  # Any unambiguous prefix of `-EncodedCommand` works (`-e`, `-enc`, `-enco`,
+  # `-encodedc`), plus the `-ec` shorthand (Cobalt Strike's default), with a
+  # space, `:` or `=`, and the `/enc` slash form.
+  test: '(?i)(?:^|\s)(?:pwsh|powershell)(?:\.exe)?\s+(?:\S+\s+)*?[-/]e(?:c|n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?[:\s=]+[A-Za-z0-9+/=]{8,}(?:\s|$)'
+  description: "This runs a PowerShell command hidden in base64 (-EncodedCommand), so you cannot see what it does."
+  id: shell:powershell_encoded_command
+  severity: High
