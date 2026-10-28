@@ -1,7 +1,7 @@
 - from: fs
   # Operands are normalized by the parser first (`//` → `/`, `/home/..` → `/`,
   # `~/` → `~`, `${HOME}` → `$HOME`, `./*` → `*`, trailing `/` dropped).
-  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+(?:\S+\s+)*?(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.\.?(?:/\.\.)*(?:/\*)?|\*|\.git(?:/(?:\*|objects|refs|logs|index|HEAD)(?:/\S*)?)?|/(?:home|Users)/[^/\s*]+(?:/\*)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?)(?:\s|$)'
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+(?:\S+\s+)*?(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.\.?(?:/\.\.)*(?:/\*)?|\*|\.git(?:/(?:\*|objects|refs|logs|index|HEAD)(?:/\S*)?)?|/(?:home|Users)/[^/\s*]+(?:/\*)?|/System/Volumes/Data(?:/[^\s]*)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?)(?:\s|$)'
   description: "This deletes a critical location: the filesystem root, your home directory, a system directory, the repository, or everything in the current directory."
   id: fs:recursively_delete
   severity: Critical
@@ -22,6 +22,63 @@
       value: 1
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion, so the keys can be restored."
+- from: fs
+  # macOS: erasing, zeroing or repartitioning a disk or volume.
+  test: '^diskutil\s+(?:\S+\s+)*?(?:eraseDisk|eraseVolume|zeroDisk|randomDisk|secureErase|partitionDisk|reformat|apfs\s+(?:deleteContainer|deleteVolume|eraseVolume|eraseDisk))(?:\s|$)'
+  description: "This erases a disk or volume with diskutil: all data on it is lost."
+  id: fs:diskutil_erase
+  severity: Critical
+  filters:
+    # `diskutil secureErase freespace <mount>` erases only the free space, not
+    # the files on the volume.
+    - type: NotMatches
+      value: '(?:^|\s)secureErase\s+freespace(?:\s|$)'
+- from: fs
+  # Output redirected straight onto a block device (`cat /dev/urandom > /dev/sda`),
+  # or `tee` / `cp` writing onto one.
+  test: '(?:(?:^|\s)\d*>>?\|?\s*|(?:^|\s)tee\s+(?:-\S+\s+)*|(?:^|\s)cp\s+(?:-\S+\s+)*\S+\s+)(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+))(?:\s|$)'
+  description: "This writes straight onto a disk device, overwriting the partition table and file systems on it."
+  id: fs:write_to_block_device
+  severity: Critical
+- from: fs
+  # `nvme format` / `nvme sanitize` erase an NVMe device at the controller.
+  test: '(?:^|\s)nvme\s+(?:format|sanitize)\s+(?:\S+\s+)*?/dev/(?:nvme[0-9]+(?:n[0-9]+)?(?:p[0-9]+)?|ng[0-9]+n[0-9]+)(?:\s|$)'
+  description: "This erases or sanitizes an NVMe device at the controller level: all data on it is lost."
+  id: fs:nvme_format
+  severity: Critical
+- from: fs
+  # Windows `cmd`: `rd` / `rmdir` / `del` / `erase` with `/s` (whole tree; also
+  # glued, `/s/q`) on a drive root, the profiles folder, one profile or one of
+  # its top folders (Documents, Desktop, AppData, .ssh, ...), the Windows
+  # directory, or a `%VAR%` naming one of them. The parser adds a `/`-separated
+  # reading of lines with Windows paths, so `C:\Users\dev` is seen as `C:/Users/dev`.
+  test: '(?i)(?:^|\s)(?:rmdir|rd|del|erase)(?:(?:\s+\S+)*?\s+)?(?:/[a-z])*/s(?:/[a-z])*(?:\s+\S+)*?\s+((?:[a-z]:/?|[a-z]:/Users(?:/[^/\s*]+(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?)?/?|[a-z]:/Windows(?:/System32)?/?|%(?:USERPROFILE|HOMEDRIVE|HOMEPATH|SystemDrive|SystemRoot|windir|APPDATA|LOCALAPPDATA|ProgramData)%(?:%HOMEPATH%)?(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?)(?:\*(?:\.\*)?)?)(?:\s|$)|(?:^|\s)(?:rmdir|rd|del|erase)\s+(?:\S+\s+)*?((?:[a-z]:/?|[a-z]:/Users(?:/[^/\s*]+(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?)?/?|[a-z]:/Windows(?:/System32)?/?|%(?:USERPROFILE|HOMEDRIVE|HOMEPATH|SystemDrive|SystemRoot|windir|APPDATA|LOCALAPPDATA|ProgramData)%(?:%HOMEPATH%)?(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?)(?:\*(?:\.\*)?)?)\s+(?:\S+\s+)*?(?:/[a-z])*/s(?:/[a-z])*(?:\s|$)'
+  description: "This deletes a whole Windows drive, the user profiles or the Windows directory, with every file and folder in it."
+  id: fs:windows_recursive_delete
+  severity: Critical
+- from: fs
+  # PowerShell: `Remove-Item -Recurse` (`-r`, `-rec`, `-Recurse:$true`; `ri`,
+  # `rm`, `rd`, `rmdir`, `del`, `erase` are aliases) on the same targets,
+  # `$env:USERPROFILE` and friends (also `${env:…}`, `-Path:<target>`). `~`
+  # only for `Remove-Item` / `ri` (`rm -r ~` is fs:recursively_delete).
+  test: '(?i)(?:^|\s)(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\s+(?:\S+\s+)*?-r[a-z]*(?::\$true)?(?:\s+\S+)*?\s+(?:-(?:Path|LiteralPath):)?((?:[a-z]:/?|[a-z]:/Users(?:/[^/\s*]+(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?)?/?|[a-z]:/Windows(?:/System32)?/?|\$\{?env:(?:USERPROFILE|HOMEDRIVE|HOMEPATH|SystemDrive|SystemRoot|windir|APPDATA|LOCALAPPDATA|ProgramData)\}?(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?)(?:\*(?:\.\*)?)?)(?:\s|$)|(?:^|\s)(?:Remove-Item|ri|rm|rmdir|rd|del|erase)\s+(?:\S+\s+)*?(?:-(?:Path|LiteralPath):)?((?:[a-z]:/?|[a-z]:/Users(?:/[^/\s*]+(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?)?/?|[a-z]:/Windows(?:/System32)?/?|\$\{?env:(?:USERPROFILE|HOMEDRIVE|HOMEPATH|SystemDrive|SystemRoot|windir|APPDATA|LOCALAPPDATA|ProgramData)\}?(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?)(?:\*(?:\.\*)?)?)\s+(?:\S+\s+)*?-r[a-z]*(?::\$true)?(?:\s|$)|(?:^|\s)(?:Remove-Item|ri)\s+(?:\S+\s+)*?-r[a-z]*(?::\$true)?(?:\s+\S+)*?\s+(?:-(?:Path|LiteralPath):)?((?:~|\$HOME|\$\{HOME\})(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?(?:\*(?:\.\*)?)?)(?:\s|$)|(?:^|\s)(?:Remove-Item|ri)\s+(?:\S+\s+)*?(?:-(?:Path|LiteralPath):)?((?:~|\$HOME|\$\{HOME\})(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?(?:\*(?:\.\*)?)?)\s+(?:\S+\s+)*?-r[a-z]*(?::\$true)?(?:\s|$)'
+  description: "This deletes a whole Windows drive, your user profile or the Windows directory, with every file and folder in it."
+  id: fs:windows_remove_item_recursive
+  severity: Critical
+- from: fs
+  # PowerShell: everything a listing finds, piped into a delete
+  # (`Get-ChildItem C:\ -Recurse | Remove-Item -Force`, `ls ~ | rm -Recurse`).
+  test: '(?i)(?:^|\s)(?:Get-ChildItem|gci|dir|ls)[ \t]+(?:[^\s|;&]+[ \t]+)*?(?:-(?:Path|LiteralPath):)?((?:[a-z]:/?|[a-z]:/Users(?:/[^/\s*]+(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?)?/?|[a-z]:/Windows(?:/System32)?/?|\$\{?env:(?:USERPROFILE|HOMEDRIVE|HOMEPATH|SystemDrive|SystemRoot|windir|APPDATA|LOCALAPPDATA|ProgramData)\}?(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?)(?:\*(?:\.\*)?)?|(?:~|\$HOME|\$\{HOME\})(?:/(?:Documents|Desktop|Downloads|Pictures|Videos|Music|AppData|OneDrive[^/\s]*|\.ssh))?/?(?:\*(?:\.\*)?)?)(?:[ \t]+[^\s|;&]+)*?[ \t]*\|[ \t]*(?:Remove-Item|ri|rm|rmdir|rd|del|erase)(?:[ \t]+-\S+(?:[ \t]+(?:0|[1-9]|SilentlyContinue|Ignore|Continue|Stop|\$true|\$false))?)*[ \t]*(?:$|[|;\n])'
+  description: "This lists a whole Windows drive or your user profile and pipes every item into a delete."
+  id: fs:windows_pipeline_delete
+  severity: Critical
+- from: fs
+  # Windows `format D:` (switches before or after the drive) and the
+  # PowerShell storage cmdlets that erase a volume or a disk.
+  test: '(?i)(?:^|\s)format(?:\.com)?\s+(?:/\S+\s+)*[a-z]:(?:\s|$)|^(?:Format-Volume|Clear-Disk|Initialize-Disk|Remove-Partition|Reset-PhysicalDisk)(?:\s|$)|(?:^|\s)diskpart(?:\.exe)?\s+(?:\S+\s+)*?/s(?:\s|$)'
+  description: "This formats a Windows drive or wipes a disk, erasing all data on it."
+  id: fs:windows_format_drive
+  severity: Critical
 - from: fs
   # A direct child of the home directory (`~/projects`, `~/data`) or a
   # directory outside the current one (`../webapp`).
@@ -189,7 +246,7 @@
   # Any block device: local (`sda`, `nvme0n1`), cloud (`xvdf`, `vdb`), RAID,
   # device-mapper / LVM (`mapper/vg-data`, `vg/lv`) and stable names
   # (`disk/by-id/…`).
-  test: '(?:^|\s)dd\s+(?:\S+\s+)*?of=(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)dd\s+(?:\S+\s+)*?of=(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Writing directly to a block device can overwrite the whole disk."
   id: fs:dd_block_device
   severity: Critical
@@ -200,7 +257,7 @@
 - from: fs
   # Any options before the device (`-F`, `-L data`, `-t xfs`) and any block
   # device name (see fs:dd_block_device).
-  test: '(?:^|\s)(?:mkfs(?:\.\w+)?|mke2fs|mkswap)\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)(?:mkfs(?:\.\w+)?|mke2fs|mkswap)\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Formatting a device erases all data on it."
   id: fs:mkfs_format
   severity: Critical
@@ -209,27 +266,27 @@
     - type: NotMatches
       value: '(?:^|\s)(?:mkfs\.ext[2-4]|mke2fs|mkfs\.xfs)\s+(?:\S+\s+)*?-[nN](?:\s|$)'
 - from: fs
-  test: '(?:^|\s)parted\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)parted\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Modifying disk partitions can erase all data on the disk."
   id: fs:parted_disk_modify
   severity: Critical
 - from: fs
-  test: '(?:^|\s)fdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)fdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Modifying disk partitions can erase all data on the disk."
   id: fs:fdisk_disk_modify
   severity: Critical
 - from: fs
-  test: '(?:^|\s)sfdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)sfdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Modifying disk partitions can erase all data on the disk."
   id: fs:sfdisk_disk_modify
   severity: Critical
 - from: fs
-  test: '(?:^|\s)dd\s+.*(?:conv=notrunc|seek=\d+|skip=\d+).*of=(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)dd\s+.*(?:conv=notrunc|seek=\d+|skip=\d+).*of=(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Writing to a specific disk sector can corrupt data."
   id: fs:dd_advanced_disk_write
   severity: Critical
 - from: fs
-  test: '(?:^|\s)gdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)gdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Modifying GPT disk partitions can erase all data on the disk."
   id: fs:gdisk_disk_modify
   severity: Critical
@@ -243,7 +300,7 @@
   alternative: "sgdisk --print <device>"
   alternative_info: "Print the partition table first and back it up with `sgdisk --backup=<file> <device>`."
 - from: fs
-  test: '(?:^|\s)blkdiscard\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  test: '(?:^|\s)blkdiscard\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "This discards every block of the device (TRIM): the data on it is gone at once and cannot be recovered."
   id: fs:blkdiscard
   severity: Critical

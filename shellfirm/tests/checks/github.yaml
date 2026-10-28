@@ -159,7 +159,7 @@
 - test: "gh variable set MY_VAR"
   description: "negative: variable set should not match"
   expect_ids: []
-# -- round 7 (omar-r6:R6-5) --
+# -- round 7 --
 - test: "gh api -X DELETE repos/acme/webapp"
   description: "deleting the repository through the API"
   expect_ids: ["github:api_delete_repo"]

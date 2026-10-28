@@ -817,6 +817,24 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
                 })?;
             return Ok(base(HookAction::FileWrite { tool, path }));
         }
+        if agent::FILE_READ_TOOLS.contains(&tool.as_str()) {
+            // Checked like the shell read of the same file (`cat <path>`). The
+            // path is resolved the way the write tools are (lexically, and
+            // symlinks followed), so `../`, `//` and a symlink to a key are
+            // seen, not just the literal text.
+            let ti =
+                tool_input.ok_or_else(|| format!("{tool} hook input has no tool_input object"))?;
+            let path = str_field(ti.get("file_path"), "tool_input.file_path")?
+                .filter(|p| !p.trim().is_empty())
+                .ok_or_else(|| format!("{tool} hook input has no tool_input.file_path"))?;
+            let cwd_path = cwd.as_deref().map(Path::new);
+            let operands = agent::resolved_tool_paths(&path, cwd_path)
+                .iter()
+                .map(|p| format!("'{}'", p.replace('\'', r"'\''")))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Ok(base(HookAction::Command(format!("cat {operands}"))));
+        }
         let shell_tool = agent::SHELL_TOOLS.contains(&tool.as_str())
             || OTHER_SHELL_TOOLS.contains(&tool.as_str());
         if !shell_tool {
@@ -2162,11 +2180,33 @@ mod tests {
             php(nb).unwrap().action,
             HookAction::FileWrite { ref path, .. } if path == "/n.ipynb"
         ));
-        for other in [
-            r#"{"tool_name":"Read","tool_input":{"file_path":"/home/u/.config/shellfirm/settings.yaml"}}"#,
-            r#"{"tool_name":"mcp__x__y","tool_input":{}}"#,
-        ] {
-            assert_eq!(php(other).unwrap().action, HookAction::NotApplicable);
+        assert_eq!(
+            php(r#"{"tool_name":"mcp__x__y","tool_input":{}}"#)
+                .unwrap()
+                .action,
+            HookAction::NotApplicable
+        );
+        // `Read` is checked like `cat <path>` (quoted for the shell parser).
+        // Canonicalisation may add more operands, so check containment.
+        match php(r#"{"tool_name":"Read","tool_input":{"file_path":"/home/u/it's.txt"}}"#)
+            .unwrap()
+            .action
+        {
+            HookAction::Command(c) => {
+                assert!(c.starts_with("cat "));
+                assert!(c.contains(r"'/home/u/it'\''s.txt'"), "got: {c}");
+            }
+            other => panic!("expected a command, got {other:?}"),
+        }
+        assert!(php(r#"{"tool_name":"Read","tool_input":{}}"#).is_err());
+        assert!(php(r#"{"tool_name":"Read","tool_input":{"file_path":"  "}}"#).is_err());
+        // `..`, `//` and `.` in a Read path are collapsed before matching.
+        match php(r#"{"tool_name":"Read","tool_input":{"file_path":"/home/u/../u/.ssh/./id_rsa"}}"#)
+            .unwrap()
+            .action
+        {
+            HookAction::Command(c) => assert!(c.contains("'/home/u/.ssh/id_rsa'"), "got: {c}"),
+            other => panic!("expected a command, got {other:?}"),
         }
         // a file tool without a path fails closed
         assert!(php(r#"{"tool_name":"Edit","tool_input":{}}"#).is_err());
@@ -2416,6 +2456,41 @@ mod tests {
         .to_string();
         let a = evaluate_hook(HookKind::ClaudeCode, Ok(HookInput::Raw(nb)), &ctx).assessment;
         assert_eq!(a.decision, Decision::Ask);
+    }
+
+    #[test]
+    fn hook_read_tool_asks_for_private_keys_and_credentials() {
+        let tree = tree_fs::TreeBuilder::default()
+            .add("cfg/settings.yaml", "audit_enabled: false\n")
+            .create()
+            .unwrap();
+        let cfg = tree.root.join("cfg");
+        let ctx = hook_ctx(&test_settings(), &cfg);
+        let read = |path: &str| {
+            let payload =
+                serde_json::json!({"tool_name": "Read", "tool_input": {"file_path": path}})
+                    .to_string();
+            evaluate_hook(HookKind::ClaudeCode, Ok(HookInput::Raw(payload)), &ctx).assessment
+        };
+        for path in ["/home/dev/.ssh/id_ed25519", "/home/dev/.aws/credentials"] {
+            let a = read(path);
+            assert_eq!(a.decision, Decision::Ask, "{path}");
+            assert!(a
+                .matched_rules
+                .iter()
+                .any(|r| r.id == "exfil:read_secret_file"));
+        }
+        for path in [
+            "/home/dev/.ssh/id_ed25519.pub",
+            "/home/dev/projects/webapp/.env",
+            "/home/dev/README.md",
+        ] {
+            assert_eq!(
+                build_hook_output(HookKind::ClaudeCode, &read(path), false),
+                None,
+                "{path}"
+            );
+        }
     }
 
     #[test]

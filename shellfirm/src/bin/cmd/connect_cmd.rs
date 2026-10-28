@@ -521,6 +521,7 @@ const CLAUDE_TOOLS: &[&str] = &[
     "Edit",
     "MultiEdit",
     "NotebookEdit",
+    "Read",
 ];
 
 fn claude_hook_state(value: &Value) -> ClaudeHookState {
@@ -898,6 +899,19 @@ fn install_claude_hooks(
              agent-settings and shell startup files need approval"
         ));
     }
+    let missing_read: Vec<&str> = shellfirm::agent::FILE_READ_TOOLS
+        .iter()
+        .copied()
+        .filter(|t| !state.covered.contains(t))
+        .collect();
+    if !missing_read.is_empty() {
+        let matcher = missing_read.join("|");
+        groups.push(json!({ "matcher": matcher, "hooks": [claude_hook_entry(spec)] }));
+        actions.push(format!(
+            "add hooks.PreToolUse entry (matcher \"{matcher}\") so reading a private key or a \
+             credentials file needs approval"
+        ));
+    }
     if before.config_dirs.len() > 1 && (!missing.is_empty() || !missing_shell.is_empty()) {
         actions.push(format!(
             "note: the existing shellfirm hooks use different --config-dir values ({}); the new \
@@ -1194,7 +1208,7 @@ pub struct IntegrationStatus {
     /// Claude Code shell tools (`Bash`, `PowerShell`, `Monitor`) that no
     /// shellfirm hook covers while a hook is present (re-run `connect`).
     pub shell_tools_missing: Vec<&'static str>,
-    /// Claude Code: Write/Edit/MultiEdit/NotebookEdit are covered too.
+    /// Claude Code: Write/Edit/MultiEdit/NotebookEdit and Read are covered too.
     /// Cursor: a `preToolUse` hook covers `Write`.
     pub file_tools_covered: bool,
     /// At least one hook uses the legacy (<= 0.3.10) command line.
@@ -1311,6 +1325,7 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
                             }
                             st.file_tools_covered = shellfirm::agent::FILE_WRITE_TOOLS
                                 .iter()
+                                .chain(shellfirm::agent::FILE_READ_TOOLS)
                                 .all(|t| s.covered.contains(t));
                             st.legacy_hook = s.legacy > 0;
                             st.fail_closed = s.entries > 0 && s.fail_closed == s.entries;
@@ -1731,7 +1746,8 @@ pub fn command() -> Command {
             prompt, dangerous ones are denied, everything else is left to Claude Code's normal \
             permission rules. A second PreToolUse entry (matcher \
             Write|Edit|MultiEdit|NotebookEdit) asks before the agent edits shellfirm, \
-            project-policy, agent-settings, hook or shell startup files.\n\n\
+            project-policy, agent-settings, hook or shell startup files, and a third (matcher \
+            Read) asks before it reads a private key or a credentials file.\n\n\
             Hooks are written with \"timeout\": 30 and \"onFailure\": \"block\" (Claude Code \
             >= 2.1.295 then blocks the tool call when shellfirm is missing, crashes or times \
             out; use --no-fail-closed for older versions, which also removes \
@@ -2213,7 +2229,8 @@ mod tests {
                 "Write",
                 "Edit",
                 "MultiEdit",
-                "NotebookEdit"
+                "NotebookEdit",
+                "Read"
             ]
         );
         assert!(settings.get("mcpServers").is_none());
@@ -2648,9 +2665,10 @@ mod tests {
         assert!(!out.contains("already installed"), "{out}");
         let v = read_json(&path);
         let groups = v["hooks"]["PreToolUse"].as_array().unwrap();
-        assert_eq!(groups.len(), 3, "{v}");
+        assert_eq!(groups.len(), 4, "{v}");
         assert_eq!(groups[1]["matcher"], "Bash|PowerShell|Monitor");
         assert_eq!(groups[2]["matcher"], "MultiEdit|NotebookEdit");
+        assert_eq!(groups[3]["matcher"], "Read");
         // user flags are kept, fail-closed options added
         assert_eq!(
             groups[0]["hooks"][0]["command"],
@@ -2835,11 +2853,12 @@ mod tests {
             [
                 "Bash",
                 "Write|Edit|MultiEdit|NotebookEdit",
-                "PowerShell|Monitor"
+                "PowerShell|Monitor",
+                "Read"
             ],
             "{v}"
         );
-        assert_eq!(claude_hook_state(&v).entries, 3);
+        assert_eq!(claude_hook_state(&v).entries, 4);
         let st = integration_status(&sb.env.home, &sb.env.cwd);
         let cc = st
             .iter()

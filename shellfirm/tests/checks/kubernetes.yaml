@@ -231,7 +231,7 @@
   description: "negative: apply without --force should not match"
   expect_ids: []
 - test: "kubectl apply --force-conflicts -f deployment.yaml"
-  description: "--force-conflicts is not --force, but takes over fields (omar-r5:R5-5)"
+  description: "--force-conflicts is not --force, but takes over fields"
   expect_ids: ["kubernetes:apply_force_conflicts"]
 - test: "kubectl annotate deploy api team=x --overwrite"
   description: "overwriting annotations"
@@ -297,7 +297,7 @@
 - test: "kubectl patch deploy api -p '{}' --dry-run=client"
   description: "a dry run changes nothing"
   expect_ids: []
-# -- round 7 (omar-r6:R6-2, jules-r6:R6-4) --
+# -- round 7 --
 - test: 'sudo etcdctl del "" --prefix'
   description: "every key of the cluster"
   expect_ids: ["kubernetes:etcd_delete_keys"]

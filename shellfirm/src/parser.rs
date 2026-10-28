@@ -262,6 +262,24 @@ fn parse_top(command: &str) -> Parsed {
     }
     DEPTH.with(|d| d.set(depth + 1));
     let mut parsed = parse_inner(command);
+    if depth == 0 {
+        // `rd /s /q C:\Users\dev` read as a POSIX line loses its backslashes
+        // (`C:Usersdev`): the same line with `/` separators is added, so the
+        // checks see `C:/Users/dev`.
+        if let Some(slashed) = windows_slashed(command) {
+            let windows = parse_inner(&slashed);
+            for seg in windows.segments {
+                if !parsed.segments.contains(&seg) {
+                    parsed.segments.push(seg);
+                }
+            }
+            // The flat form too, for pipelines (`gci C:\Users\dev | ri`).
+            if !windows.flat.is_empty() && windows.flat != parsed.flat {
+                parsed.flat.push_str(" \n ");
+                parsed.flat.push_str(&windows.flat);
+            }
+        }
+    }
     DEPTH.with(|d| d.set(depth));
     if depth == 0 && TOO_COMPLEX.with(std::cell::Cell::get) {
         parsed.segments.insert(
@@ -291,6 +309,56 @@ fn parse_top(command: &str) -> Parsed {
         });
     }
     parsed
+}
+
+/// `command` with every `\` turned into `/` when it has a Windows path: a
+/// drive (`C:\`), a relative `.\` / `..\`, `~\`, `$HOME\`, `%VAR%\` or
+/// `$env:VAR\`, each at the start of a word. `None` otherwise, so POSIX escapes (`\rm`, `a\ b`)
+/// never get a second reading.
+fn windows_slashed(command: &str) -> Option<String> {
+    let b = command.as_bytes();
+    let word_start =
+        |i: usize| i == 0 || matches!(b[i - 1], b' ' | b'\t' | b'"' | b'\'' | b'=' | b'(' | b':');
+    let has_marker = (0..b.len()).any(|i| {
+        if !word_start(i) {
+            return false;
+        }
+        let rest = &b[i..];
+        let drive =
+            rest.len() >= 3 && rest[0].is_ascii_alphabetic() && rest[1] == b':' && rest[2] == b'\\';
+        let relative = rest.starts_with(b".\\")
+            || rest.starts_with(b"..\\")
+            || rest.starts_with(b"~\\")
+            || rest.starts_with(b"$HOME\\");
+        let var = |open: &[u8], close: &[u8]| {
+            rest.strip_prefix(open).is_some_and(|r| {
+                let n = r
+                    .iter()
+                    .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_')
+                    .count();
+                n > 0 && r[n..].starts_with(close)
+            })
+        };
+        drive || relative || var(b"%", b"%\\") || var(b"$env:", b"\\")
+    });
+    // A backslash that escapes a shell operator (`find … -exec rm {} \;`)
+    // stays one.
+    has_marker.then(|| {
+        let mut out = String::with_capacity(command.len());
+        let mut chars = command.chars().peekable();
+        while let Some(c) = chars.next() {
+            let escapes_operator = c == '\\'
+                && chars
+                    .peek()
+                    .is_some_and(|n| matches!(n, ';' | '|' | '&' | '(' | ')' | '<' | '>'));
+            out.push(if c == '\\' && !escapes_operator {
+                '/'
+            } else {
+                c
+            });
+        }
+        out
+    })
 }
 
 /// `$( … )` / `<( … )` / `>( … )` nesting past which a line is not
@@ -4638,6 +4706,16 @@ fn normalize_simple(words: &[Word], heredoc_bodies: &[String], out: &mut Vec<Str
         return;
     }
 
+    // Windows `cmd /c "payload"` / `cmd /k …`: the payload is a command too
+    // (the invocation itself is still normalized below).
+    if matches!(prog.as_str(), "cmd" | "cmd.exe") {
+        if let Some(payload) = cmd_command(&stripped) {
+            if take_work(payload.len()) {
+                out.extend(parse(&payload).segments);
+            }
+        }
+    }
+
     // Shell with `-c "payload"` → recurse into the payload. Also, when a shell
     // reads a heredoc / here-string body, that body is code.
     if SHELLS.contains(&prog.as_str()) {
@@ -5006,7 +5084,9 @@ fn normalize_simple(words: &[Word], heredoc_bodies: &[String], out: &mut Vec<Str
             out.push(masked_join(&stripped));
         }
         p if DATA_COMMANDS.contains(&p) => {
-            out.push(masked_join(&program_and_redirects(&stripped)));
+            let mut kept = program_and_redirects(&stripped);
+            kept.extend(read_file_operands(p, &stripped));
+            out.push(masked_join(&kept));
         }
         // `alias name='value'` is a definition (handled in
         // `process_commands`): the value is analyzed where it is used.
@@ -6659,6 +6739,31 @@ fn strip_prefixes(words: &[Word]) -> Vec<Word> {
                     break;
                 }
             }
+            // `wsl [opts] [cmd…]`, `wsl -e <cmd>`, `wsl bash -c …`: the command
+            // runs inside WSL. Skip `wsl` and its options (some take a value:
+            // `-d <distro>`, `-u <user>`, `--cd <dir>`) so the real command
+            // (`rm -rf /`) is analyzed, not the distro name.
+            "wsl" => {
+                idx += 1;
+                while idx < n && words[idx].raw.starts_with('-') {
+                    let w = words[idx].raw.as_str();
+                    idx += 1;
+                    if matches!(w, "--" | "-e" | "--exec") {
+                        break;
+                    }
+                    if matches!(
+                        w,
+                        "-d" | "--distribution"
+                            | "--distribution-id"
+                            | "-u"
+                            | "--user"
+                            | "--cd"
+                            | "--shell-type"
+                    ) {
+                        idx += 1;
+                    }
+                }
+            }
             // Compound-command keywords: the rest is an ordinary command
             // (`if true; then rm -rf /; fi`, `while …; do rm …; done`).
             "if" | "then" | "else" | "elif" | "do" | "while" | "until" | "!" => {
@@ -6760,6 +6865,18 @@ fn program_name(tok: &str) -> String {
         }
     }
     let base = t.rsplit('/').next().unwrap_or(t);
+    // Windows shells by any spelling: `powershell.exe`, `PWSH.EXE`, `Cmd.exe`.
+    let lower = base.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    if matches!(stem, "pwsh" | "powershell" | "cmd") {
+        return stem.to_string();
+    }
+    // A Windows `.exe` suffix is dropped so `bash.exe -c …` / `GIT.EXE …` are
+    // classified like `bash` / `git` (Windows program names are case-insensitive,
+    // so the stem is lowercased, like the shells above).
+    if !stem.is_empty() && stem.len() < lower.len() {
+        return stem.to_string();
+    }
     base.to_string()
 }
 
@@ -6770,8 +6887,65 @@ fn powershell_command(words: &[Word]) -> Option<String> {
     let pos = words.iter().skip(1).position(|w| {
         let l = w.raw.to_ascii_lowercase();
         l.len() >= 2 && "-command".starts_with(&l)
+    });
+    if let Some(pos) = pos.map(|p| p + 1) {
+        return (pos + 1 < words.len()).then(|| raw_join(&words[pos + 1..]));
+    }
+    // Windows PowerShell (`powershell`, not `pwsh`) runs a bare argument as
+    // the command: `powershell -NoProfile "Remove-Item …"`.
+    if program_name(&words[0].raw) != "powershell" {
+        return None;
+    }
+    let mut i = 1;
+    while let Some(w) = words.get(i) {
+        let l = w.raw.to_ascii_lowercase();
+        if !l.starts_with('-') {
+            return Some(raw_join(&words[i..]));
+        }
+        // `-File` / `-EncodedCommand` run something else; options that take a value skip it.
+        if ["-file", "-encodedcommand", "-ec", "-e", "-enc"].contains(&l.as_str()) {
+            return None;
+        }
+        let takes_value = [
+            "-executionpolicy",
+            "-ep",
+            "-ex",
+            "-windowstyle",
+            "-w",
+            "-version",
+            "-v",
+            "-psconsolefile",
+            "-inputformat",
+            "-outputformat",
+            "-of",
+            "-configurationname",
+            "-workingdirectory",
+            "-wd",
+        ];
+        i += if takes_value.contains(&l.as_str()) {
+            2
+        } else {
+            1
+        };
+    }
+    None
+}
+
+/// The command of `cmd [/q /d …] /c|/k TEXT…` (flags are case-insensitive).
+fn cmd_command(words: &[Word]) -> Option<String> {
+    let pos = words.iter().skip(1).position(|w| {
+        let l = w.raw.to_ascii_lowercase();
+        l.starts_with("/c") || l.starts_with("/k")
     })? + 1;
-    (pos + 1 < words.len()).then(|| raw_join(&words[pos + 1..]))
+    // `/c"rd /s /q D:\"`: the command may start in the same word.
+    let glued = &words[pos].raw[2..];
+    let rest = raw_join(&words[pos + 1..]);
+    let payload = match (glued.is_empty(), rest.is_empty()) {
+        (true, _) => rest,
+        (false, true) => glued.to_string(),
+        (false, false) => format!("{glued} {rest}"),
+    };
+    (!payload.trim().is_empty()).then_some(payload)
 }
 
 /// Find the argument of a `-c` flag (shell command string).
@@ -6815,6 +6989,92 @@ const DATA_COMMANDS: &[&str] = &[
     "echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "ack", "man", "info", "whatis",
     "apropos", "which", "type", "whereis", "help", "tldr",
 ];
+
+/// The files a data command reads: `grep PATTERN FILE…` / `rg` / `ag` /
+/// `ack` (the pattern is dropped, unless `-e` / `-f` gave it) and cmd's
+/// `type FILE`. Only path-like operands (`/`, `~`, `$VAR`, `%VAR%`) are
+/// kept, so `type rm` and search patterns stay data.
+fn read_file_operands(prog: &str, words: &[Word]) -> Vec<Word> {
+    let path_like = |w: &Word| {
+        let r = w.raw.as_str();
+        r.contains('/') || r.starts_with('~') || r.starts_with('$') || r.starts_with('%')
+    };
+    match prog {
+        "grep" | "egrep" | "fgrep" | "rg" | "ag" | "ack" => {
+            // Options whose value is the next word (`-e PATTERN`, `-m 1`, `-A 2`).
+            const TAKES_VALUE: &[&str] = &[
+                "-e",
+                "-f",
+                "-m",
+                "-A",
+                "-B",
+                "-C",
+                "-d",
+                "-D",
+                "-g",
+                "-t",
+                "-T",
+                "-j",
+                "-M",
+                "--regexp",
+                "--file",
+                "--max-count",
+                "--after-context",
+                "--before-context",
+                "--context",
+                "--include",
+                "--exclude",
+                "--exclude-dir",
+                "--glob",
+                "--type",
+            ];
+            // Quiet / list-only / count greps print no file content, so they
+            // are not a read of the file (`grep -q`, `grep -l`, `grep -c`).
+            let silent = words.iter().skip(1).any(|w| {
+                let r = w.raw.as_str();
+                matches!(
+                    r,
+                    "--quiet" | "--silent" | "--files-with-matches" | "--count"
+                ) || (r.starts_with('-')
+                    && !r.starts_with("--")
+                    && r[1..].chars().all(|c| c.is_ascii_alphabetic())
+                    && r[1..].chars().any(|c| matches!(c, 'q' | 'l' | 'c')))
+            });
+            if silent {
+                return Vec::new();
+            }
+            let mut pattern_given = false;
+            let mut operands = Vec::new();
+            let mut i = 1;
+            while let Some(w) = words.get(i) {
+                let r = w.raw.as_str();
+                if TAKES_VALUE.contains(&r) {
+                    pattern_given |= matches!(r, "-e" | "-f" | "--regexp" | "--file");
+                    i += 2;
+                    continue;
+                }
+                pattern_given |= r.starts_with("--regexp=") || r.starts_with("--file=");
+                if !r.starts_with('-') {
+                    operands.push(w);
+                }
+                i += 1;
+            }
+            operands
+                .into_iter()
+                .skip(usize::from(!pattern_given))
+                .filter(|w| path_like(w))
+                .cloned()
+                .collect()
+        }
+        "type" => words
+            .iter()
+            .skip(1)
+            .filter(|w| !w.raw.starts_with('-') && path_like(w))
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
 
 /// Keep only the program name and any redirections (`> file`, `2>&1`, …).
 fn program_and_redirects(words: &[Word]) -> Vec<Word> {
@@ -10427,5 +10687,152 @@ mod tests {
         }
         // `nvm use` / `nvm install` run nothing.
         assert!(!segs("nvm use 18").iter().any(|s| s.starts_with("18")));
+    }
+
+    #[test]
+    fn windows_paths_get_a_slash_reading() {
+        // The POSIX reading drops the backslashes; the `/` reading keeps the path.
+        let s = segs(r"rd /s /q C:\Users\dev");
+        assert!(s.contains(&"rd /s /q C:Usersdev".to_string()), "got: {s:?}");
+        assert!(
+            s.contains(&"rd /s /q C:/Users/dev".to_string()),
+            "got: {s:?}"
+        );
+        assert!(segs(r"Get-Content $HOME\.ssh\id_rsa")
+            .iter()
+            .any(|x| x.ends_with("/.ssh/id_rsa")));
+        assert!(segs(r"rd /s /q .\dist").contains(&"rd /s /q ./dist".to_string()));
+        assert!(segs(r"gc %USERPROFILE%\x")
+            .iter()
+            .any(|x| x.contains("%USERPROFILE%/x")));
+        assert!(segs(r"ri -r $env:TEMP\b")
+            .iter()
+            .any(|x| x.contains("$env:TEMP/b")));
+    }
+
+    #[test]
+    fn posix_escapes_get_no_slash_reading() {
+        for cmd in [
+            r"\rm -rf ~/",
+            r"rm a\ b",
+            r"printf 'a\nb'",
+            r"echo x\y",
+            r"grep -E 'a\.b' f",
+        ] {
+            assert_eq!(windows_slashed(cmd), None, "{cmd}");
+        }
+        // A drive letter must start a word (`http:\\` is not one).
+        assert_eq!(windows_slashed(r"echo ab:\c"), None);
+        assert!(windows_slashed(r#"cmd /c "rd /s /q D:\""#).is_some());
+    }
+
+    #[test]
+    fn windows_shells_by_any_name_run_their_payload() {
+        for cmd in [
+            r#"powershell.exe -Command "Remove-Item x""#,
+            r#"PWSH.EXE -c "Remove-Item x""#,
+            r#"powershell -NoProfile "Remove-Item x""#,
+            r#"powershell -ExecutionPolicy Bypass "Remove-Item x""#,
+        ] {
+            assert!(
+                segs(cmd).contains(&"Remove-Item x".to_string()),
+                "{cmd}: {:?}",
+                segs(cmd)
+            );
+        }
+        // `pwsh SCRIPT` runs a file, `-File` too: no payload.
+        assert!(!segs("pwsh build.ps1").iter().any(|s| s == "build.ps1"));
+        assert!(!segs("powershell -File x.ps1").iter().any(|s| s == "x.ps1"));
+        // `cmd /c"…"`: the payload starts in the `/c` word.
+        assert!(segs(r#"cmd /c"del /q x""#).contains(&"del /q x".to_string()));
+    }
+
+    #[test]
+    fn search_commands_keep_their_files_but_not_the_pattern() {
+        assert_eq!(segs("grep token ~/.npmrc"), ["grep ~/.npmrc"]);
+        assert_eq!(
+            segs("rg -n . ~/.aws/credentials"),
+            ["rg ~/.aws/credentials"]
+        );
+        assert_eq!(segs("grep -e x -e y ~/a ./b"), ["grep ~/a ./b"]);
+        // A pattern that looks like a command or a path stays data.
+        assert_eq!(segs("grep 'rm -rf /' notes.md"), ["grep"]);
+        assert_eq!(segs("grep /etc/shadow audit.log"), ["grep"]);
+        // bash `type NAME` stays a lookup; cmd `type FILE` reads the file.
+        assert_eq!(segs("type rm"), ["type"]);
+        assert_eq!(segs("type %USERPROFILE%/x"), ["type %USERPROFILE%/x"]);
+    }
+
+    #[test]
+    fn grep_value_option_is_not_a_file() {
+        // The value after -e / -m / -A is the pattern or a count, not a file.
+        // The key path is the pattern (dropped); README.md is not path-like.
+        assert_eq!(segs("grep -e ~/.ssh/id_rsa README.md"), ["grep"]);
+        // A real file operand is kept when the pattern came from -e.
+        assert_eq!(
+            segs("grep -e x ~/.aws/credentials"),
+            ["grep ~/.aws/credentials"]
+        );
+        assert_eq!(segs("grep -m 1 token ~/.npmrc"), ["grep ~/.npmrc"]);
+        assert_eq!(segs("grep -A 2 foo build.log"), ["grep"]);
+    }
+
+    #[test]
+    fn a_backslash_escaping_an_operator_survives_a_windows_line() {
+        // The `C:\y` marker triggers the `/` reading, but `\;` (escaped find
+        // terminator) must not become `/;` and read as a path.
+        let s = segs(r"find . -name x -exec rm -f {} \; # C:\y");
+        assert!(s.iter().all(|seg| !seg.contains("/;")), "got: {s:?}");
+    }
+
+    #[test]
+    fn a_drive_after_a_parameter_colon_is_a_windows_path() {
+        assert!(segs(r"Remove-Item -Path:C:\Users\dev -Recurse")
+            .iter()
+            .any(|s| s.contains("-Path:C:/Users/dev")));
+    }
+
+    #[test]
+    fn cmd_c_payload_is_a_command() {
+        // (Normalization drops a trailing `/`: `D:/` is `D:`.)
+        let s = segs(r#"cmd /c "rmdir /s /q D:/""#);
+        assert!(s.contains(&"rmdir /s /q D:".to_string()), "got: {s:?}");
+        assert!(segs("cmd.exe /C del /q x").contains(&"del /q x".to_string()));
+        assert!(segs("cmd /q /k rd /s y").contains(&"rd /s y".to_string()));
+        // No /c or /k: nothing is run from the arguments.
+        assert!(!segs("cmd /?").iter().any(|x| x == "/?"));
+    }
+
+    #[test]
+    fn exe_suffix_is_dropped_so_the_payload_is_read() {
+        // `bash.exe -c PAYLOAD` is recursed like `bash -c PAYLOAD`.
+        assert!(segs(r#"bash.exe -c "rm -rf /""#).contains(&"rm -rf /".to_string()));
+        // `.exe` is case-insensitive and other programs keep their identity.
+        assert_eq!(program_name("GIT.EXE"), "git");
+        assert_eq!(program_name("rm.exe"), "rm");
+    }
+
+    #[test]
+    fn wsl_prefix_runs_the_wrapped_command() {
+        // `wsl <cmd>` and `wsl bash -c …` run the command inside WSL; the
+        // leading `wsl` (and its options, some with a value) is stripped so
+        // the real command is analyzed.
+        assert!(segs("wsl rm -rf /").contains(&"rm -rf /".to_string()));
+        assert!(segs(r#"wsl bash -c "rm -rf /""#).contains(&"rm -rf /".to_string()));
+        assert!(segs("wsl -d Ubuntu rm -rf /").contains(&"rm -rf /".to_string()));
+        assert!(segs("wsl -u root rm -rf /").contains(&"rm -rf /".to_string()));
+        assert!(segs("wsl --cd / rm -rf /").contains(&"rm -rf /".to_string()));
+        assert!(segs("wsl -d Ubuntu -e bash -c 'rm -rf /'").contains(&"rm -rf /".to_string()));
+    }
+
+    #[test]
+    fn a_silent_grep_is_not_a_file_read() {
+        // Quiet / list-only / count greps print no content, so the file operand
+        // is dropped (they are not reads).
+        assert_eq!(segs("grep -q token ~/.npmrc"), ["grep"]);
+        assert_eq!(segs("grep -l key ~/.ssh/id_rsa"), ["grep"]);
+        assert_eq!(segs("grep -c x ~/.aws/credentials"), ["grep"]);
+        // A context grep still prints content, so the file is kept.
+        assert_eq!(segs("grep -C 2 x ~/.npmrc"), ["grep ~/.npmrc"]);
     }
 }

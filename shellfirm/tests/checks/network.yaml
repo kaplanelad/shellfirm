@@ -256,7 +256,7 @@
 - test: "iptables -L -n"
   description: "listing rules is fine"
   expect_ids: []
-# -- round 7 (omar-r6:R6-3, rosa-r6:R6-7) --
+# -- round 7 --
 - test: "sudo ip addr flush dev eth0"
   description: "removing the interface addresses"
   expect_ids: ["network:flush_addresses"]
@@ -283,4 +283,30 @@
   expect_ids: []
 - test: "nc -zv db 5432"
   description: "negative: a port scan of one port"
+  expect_ids: []
+# -- issue #189, round 3: Windows firewall off --
+- test: "netsh advfirewall set allprofiles state off"
+  description: "round 3: turn the Windows firewall off (all profiles)"
+  expect_ids: ["network:disable_firewall_windows"]
+- test: "netsh advfirewall set currentprofile state off"
+  description: "round 3: turn the current-profile firewall off"
+  expect_ids: ["network:disable_firewall_windows"]
+- test: "netsh firewall set opmode disable"
+  description: "round 3: legacy netsh firewall off"
+  expect_ids: ["network:disable_firewall_windows"]
+- test: "Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False"
+  description: "round 3: Set-NetFirewallProfile disabled"
+  expect_ids: ["network:disable_firewall_windows"]
+- test: "netsh advfirewall show allprofiles"
+  description: "negative round 3: showing firewall profiles"
+  expect_ids: []
+# -- issue #189, round 3: a catch-all DROP appended to INPUT (SSH lockout) --
+- test: "iptables -A INPUT -j DROP"
+  description: "round 3: blanket DROP appended to INPUT"
+  expect_ids: ["network:iptables_drop_all_input"]
+- test: "iptables -I INPUT -j REJECT"
+  description: "round 3: blanket REJECT inserted on INPUT"
+  expect_ids: ["network:iptables_drop_all_input"]
+- test: "iptables -A INPUT -s 10.0.0.5 -j DROP"
+  description: "negative round 3: a host-specific DROP is not a blanket lockout"
   expect_ids: []

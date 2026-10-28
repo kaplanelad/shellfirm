@@ -1819,6 +1819,13 @@ pub fn command_target_dirs(
 /// the agent uses to change them.
 pub const FILE_WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookEdit"];
 
+/// Claude Code tools that read a file.
+///
+/// The hook checks a `Read` of a path like `cat <path>`, so reading a
+/// private key or a credentials file asks first whichever way the agent
+/// reads it (`exfil:read_secret_file`).
+pub const FILE_READ_TOOLS: &[&str] = &["Read"];
+
 /// Lexically normalise a path: `\` → `/`, `.`/`..` resolved, relative paths
 /// joined to `cwd`. The filesystem is never touched.
 #[must_use]

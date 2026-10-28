@@ -280,3 +280,44 @@
 - test: "myaws s3 rm s3://bucket --recursive"
   description: "another tool whose name ends in aws"
   expect_ids: []
+# -- issue #189, round 1 --
+- test: "aws s3api delete-bucket --bucket prod"
+  description: "issue #189 round 1: aws s3api delete-bucket --bucket prod"
+  expect_ids: ["aws:s3api_delete_bucket"]
+- test: "cdk destroy --force"
+  description: "issue #189 round 1: cdk destroy --force"
+  expect_ids: ["aws:cdk_destroy"]
+- test: "npx cdk destroy"
+  description: "issue #189 round 1: npx cdk destroy"
+  expect_ids: ["aws:cdk_destroy"]
+- test: "aws configure get region"
+  description: "negative (issue #189 round 1): aws configure get region"
+  expect_ids: []
+- test: "cdk deploy"
+  description: "negative (issue #189 round 1): cdk deploy"
+  expect_ids: []
+- test: "aws s3api list-buckets"
+  description: "negative (issue #189 round 1): aws s3api list-buckets"
+  expect_ids: []
+# -- issue #189, round 3: IaC teardown + bulk object delete --
+- test: "aws s3api delete-objects --bucket b --delete file://d.json"
+  description: "round 3: bulk delete-objects"
+  expect_ids: ["aws:s3api_delete_bucket"]
+- test: "serverless remove --stage prod"
+  description: "round 3: serverless remove"
+  expect_ids: ["aws:iac_destroy"]
+- test: "sls remove"
+  description: "round 3: sls remove alias"
+  expect_ids: ["aws:iac_destroy"]
+- test: "sam delete --stack-name app"
+  description: "round 3: sam delete"
+  expect_ids: ["aws:iac_destroy"]
+- test: "amplify delete"
+  description: "round 3: amplify delete"
+  expect_ids: ["aws:iac_destroy"]
+- test: "npx sst remove --stage prod"
+  description: "round 3: sst remove"
+  expect_ids: ["aws:iac_destroy"]
+- test: "serverless deploy"
+  description: "negative round 3: a deploy is not a teardown"
+  expect_ids: []

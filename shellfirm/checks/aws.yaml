@@ -147,3 +147,22 @@
   severity: High
   alternative: "aws ecs describe-services --cluster <cluster> --services <service>"
   alternative_info: "Check which service and cluster you are about to stop first."
+- from: aws
+  # The s3api form of `aws s3 rb`, and the bulk `delete-objects`.
+  test: '^aws\s+(?:\S+\s+)*?s3api\s+(?:delete-bucket|delete-objects)(?:\s|$)'
+  description: "This deletes the S3 bucket or deletes objects from it in bulk."
+  id: aws:s3api_delete_bucket
+  severity: High
+- from: aws
+  # AWS CDK: deletes the CloudFormation stacks and the resources in them.
+  test: '^(?:npx\s+(?:\S+\s+)*?)?(?:cdk|aws-cdk)\s+(?:\S+\s+)*?destroy(?:\s|$)'
+  description: "This destroys the CDK stacks and every AWS resource they created."
+  id: aws:cdk_destroy
+  severity: High
+- from: aws
+  # Other infrastructure-as-code teardown tools that delete every deployed
+  # resource: Serverless Framework, AWS SAM, Amplify and SST.
+  test: '^(?:npx\s+(?:\S+\s+)*?)?(?:serverless|sls)\s+(?:\S+\s+)*?remove(?:\s|$)|^sam\s+(?:\S+\s+)*?delete(?:\s|$)|^amplify\s+(?:\S+\s+)*?delete(?:\s|$)|^(?:npx\s+(?:\S+\s+)*?)?sst\s+(?:\S+\s+)*?remove(?:\s|$)'
+  description: "This tears down the deployed stack and every resource it created (Serverless, SAM, Amplify or SST)."
+  id: aws:iac_destroy
+  severity: High
