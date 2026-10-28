@@ -2536,6 +2536,22 @@ __shellfirm_eval_depth=0
 # its command position (after reserved words such as `time` / `!` and
 # variable assignments) and collect the body of a small function it calls.
 # Sets __sf_sx; appends to the caller's __sf_fx.
+# The value of alias $1 in the caller's __sf_v; 1 when $1 is not an alias.
+# bash 3.2 (macOS /bin/bash) has no BASH_ALIASES: the names are the ones
+# __shellfirm_segments read (__sf_alnames) and the value comes from
+# `alias NAME`, which prints it quoted for reuse as shell input.
+__shellfirm_alias() {
+    [[ -n $1 ]] || return 1
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        [[ -n ${BASH_ALIASES[$1]+set} ]] || return 1
+        __sf_v=${BASH_ALIASES[$1]}
+        return 0
+    fi
+    [[ ${__sf_alnames-} == *" $1 "* ]] || return 1
+    local __sf_d
+    __sf_d=$(builtin alias -- "$1" 2>/dev/null) || return 1
+    builtin eval "__sf_v=${__sf_d#*=}"
+}
 __shellfirm_segment() {
     local __sf_s=$1 __sf_pre="" __sf_w __sf_v __sf_i __sf_lead __sf_after="" __sf_trail="" __sf_tail=""
     __sf_sx=$1
@@ -2567,8 +2583,7 @@ __shellfirm_segment() {
     if [[ -n ${2:-} ]]; then
         for (( __sf_i = 0; __sf_i < 5; __sf_i++ )); do
             __shellfirm_word "$__sf_s"
-            [[ -n $__sf_w && -n ${BASH_ALIASES[$__sf_w]+set} ]] || break
-            __sf_v=${BASH_ALIASES[$__sf_w]}
+            __shellfirm_alias "$__sf_w" || break
             __sf_trail=$__sf_v __sf_tail=$__sf_after
             __sf_s=$__sf_lead$__sf_v$__sf_after
             # `alias ls='ls -l'`: bash does not expand an alias inside itself.
@@ -2578,8 +2593,8 @@ __shellfirm_segment() {
         # An alias ending in a space also expands the next word (`sudo `).
         if [[ $__sf_trail == *[[:space:]] ]]; then
             __shellfirm_word "$__sf_tail"
-            if [[ -n $__sf_w && -n ${BASH_ALIASES[$__sf_w]+set} ]]; then
-                __sf_s=${__sf_s%"$__sf_tail"}${BASH_ALIASES[$__sf_w]}$__sf_after
+            if __shellfirm_alias "$__sf_w"; then
+                __sf_s=${__sf_s%"$__sf_tail"}$__sf_v$__sf_after
             fi
         fi
     fi
@@ -2621,7 +2636,15 @@ __shellfirm_segments() {
     local __sf_in=$1 __sf_seg __sf_op __sf_n=0 __sf_cap=512 __sf_al="" __sf_sx __sf_b
     local -i __sf_indef=0 __sf_defnext=0
     [[ ${2:-} == 1 ]] && __sf_cap=16
-    builtin shopt -q expand_aliases && (( ${#BASH_ALIASES[@]} )) && __sf_al=1
+    local __sf_alnames=""
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        builtin shopt -q expand_aliases && (( ${#BASH_ALIASES[@]} )) && __sf_al=1
+    elif builtin shopt -q expand_aliases; then
+        # bash 3.2: no BASH_ALIASES (see __shellfirm_alias).
+        __sf_alnames=$(builtin compgen -a 2>/dev/null)
+        [[ -n $__sf_alnames ]] && __sf_al=1
+        __sf_alnames=" ${__sf_alnames//$'\n'/ } "
+    fi
     __sf_ax=""
     # __sf_nd: the line without the bodies of the functions it defines.
     __sf_nd=""
@@ -3517,6 +3540,13 @@ __shellfirm_dbg() {
     __sf_cmd=${__sf_h#*[0-9][[:space:]]}
     __sf_cmd=${__sf_cmd#"${__sf_cmd%%[![:space:]]*}"}
     [[ -z $__sf_cmd ]] && return 0
+    # bash 3.2 (macOS /bin/bash) always runs here (no readline mode): its
+    # aliases and functions are expanded as Enter does in readline mode,
+    # so `alias kd='kubectl delete'; kd ns prod` is checked as what runs.
+    if (( BASH_VERSINFO[0] < 4 )); then
+        __shellfirm_expand "$__sf_cmd"
+        __sf_cmd=${__shellfirm_expanded:-$__sf_cmd}
+    fi
     if ! __shellfirm_check "$__sf_cmd"; then
         __shellfirm_blocked=1
         return 1
@@ -7525,7 +7555,9 @@ PATH=/nonexistent __shellfirm_check 'rm -rf /' && echo FAILOPEN
             return;
         };
         let stdout = String::from_utf8_lossy(&out.stdout);
-        for expected in [
+        // Completeness detection is part of the readline mode (bash 4+).
+        let readline = bash_version().is_some_and(|v| v.0 >= 4);
+        let completeness = [
             "COMP:echo hi",
             "INC:for f in x; do",
             "COMP:for f in x; do\necho $f\ndone",
@@ -7534,10 +7566,14 @@ PATH=/nonexistent __shellfirm_check 'rm -rf /' && echo FAILOPEN
             "INC:git push \\",
             "COMP:echo a # \\",
             "COMP:echo a )",
+        ];
+        let always = [
             "EXP:kubectl delete ns prod",
             "EXP:git push -f origin",
             "FAILOPEN",
-        ] {
+        ];
+        let readline_only: &[&str] = if readline { &completeness } else { &[] };
+        for expected in readline_only.iter().chain(always.iter()) {
             assert!(
                 stdout.contains(expected),
                 "missing {expected:?} in output:\n{stdout}\nstderr:\n{}",
@@ -7890,6 +7926,21 @@ _shellfirm_expand '  g push'; print -r -- "EXP6:$_shellfirm_expanded"
         }
     }
 
+    /// `bash`'s (major, minor) version; None when bash is not installed.
+    /// Before bash 4 (macOS /bin/bash is 3.2) the hook has no readline
+    /// mode (`bind -x`): it uses the DEBUG-trap fallback, so the readline
+    /// helpers (`__shellfirm_accept`, `__shellfirm_incomplete`) are not
+    /// defined.
+    fn bash_version() -> Option<(u32, u32)> {
+        let out = std::process::Command::new("bash")
+            .args(["-c", "echo ${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]}"])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut it = text.split_whitespace().map(|n| n.parse().unwrap_or(0));
+        Some((it.next()?, it.next()?))
+    }
+
     /// Runs `script` in an interactive bash with the hook loaded; None when
     /// bash is not installed.
     fn run_bash(script: &str) -> Option<(String, String)> {
@@ -7987,6 +8038,11 @@ __shellfirm_block_msg=""; __shellfirm_expand 'fc -l'; echo "LIST:[$__shellfirm_b
     /// the next line is checked on its own, with `!` references expanded.
     #[test]
     fn bash_hook_drops_lines_bash_rejected() {
+        // `__shellfirm_accept` is the readline mode's Enter (bash 4+).
+        if bash_version().is_some_and(|v| v.0 < 4) {
+            eprintln!("bash older than 4: no readline mode; skipping");
+            return;
+        }
         let Some(out) = run_bash(
             r#"
 set -H
@@ -8021,6 +8077,9 @@ READLINE_LINE='kubectl delete ns x; done'; __shellfirm_accept
 alias kd='kubectl delete'
 alias -s d='rm -rf'
 print -s 'kubectl delete ns z1'
+# In `zsh -c` the newest history entry stands for the line being run, and
+# `r` / `fc` skip it (as they skip the typed line in an interactive shell).
+print -s ': the line being run'
 for c in 'true && kd ns b' 'time kd ns c' '(kd ns d)' '{{ kd ns e }}' 'x=1 kd ns f' 'build.d' \
          'r z1=z2 kubectl; true' 'true; r z1=z3 kubectl' 'builtin fc -e - z1=z4 kubectl'; do
   _shellfirm_block_msg=""; _shellfirm_expand "$c"; print -r -- "EXP:${{_shellfirm_expanded//$'\n'/ | }}"
@@ -8293,7 +8352,12 @@ __shellfirm_from_file other ./nvm.sh || echo OTHER:no
             );
         }
         let pcdef = lines_with(&out, "PCDEF:").join("\n");
-        assert!(!pcdef.contains("| kubectl delete ns q9"), "{pcdef}");
+        // Before bash 4.4 the hook cannot evaluate what the assignment adds
+        // (`__shellfirm_pc_added`) and reads it as text: an unused default
+        // is checked too (fail safe).
+        if bash_version().is_some_and(|v| v >= (4, 4)) {
+            assert!(!pcdef.contains("| kubectl delete ns q9"), "{pcdef}");
+        }
         let trap = lines_with(&out, "TRAP:").join("\n");
         assert!(trap.contains("| g"), "{trap}");
     }

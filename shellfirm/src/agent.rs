@@ -5009,8 +5009,10 @@ mod tests {
             .create()
             .unwrap();
         let root = tree.root.clone();
-        // Walked directories are `/`-separated on every platform.
+        // A directory reached by `cd` is `/`-separated on every platform;
+        // the line's own directory is reported as given.
         let root_s = shell_path(&root);
+        let start = root.display().to_string();
         let dirs_of = |cmd: &str| -> Vec<Option<String>> {
             walk_segments(cmd, Some(&root), None)
                 .into_iter()
@@ -5022,9 +5024,9 @@ mod tests {
         let dirs = dirs_of("(cd a && true)\n(cd b && make)");
         assert!(dirs.contains(&Some(format!("{root_s}/b"))), "{dirs:?}");
         let dirs = dirs_of("(cd a && true); make");
-        assert!(dirs.contains(&Some(root_s.clone())), "{dirs:?}");
+        assert!(dirs.contains(&Some(start.clone())), "{dirs:?}");
         let dirs = dirs_of("bash -c 'cd a && true'; make");
-        assert!(dirs.contains(&Some(root_s.clone())), "{dirs:?}");
+        assert!(dirs.contains(&Some(start.clone())), "{dirs:?}");
         // A protected file after a subshell is found in the right place.
         let tree2 = tree_fs::TreeBuilder::default()
             .add("a/x", "x")

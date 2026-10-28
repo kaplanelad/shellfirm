@@ -659,6 +659,22 @@ __shellfirm_eval_depth=0
 # its command position (after reserved words such as `time` / `!` and
 # variable assignments) and collect the body of a small function it calls.
 # Sets __sf_sx; appends to the caller's __sf_fx.
+# The value of alias $1 in the caller's __sf_v; 1 when $1 is not an alias.
+# bash 3.2 (macOS /bin/bash) has no BASH_ALIASES: the names are the ones
+# __shellfirm_segments read (__sf_alnames) and the value comes from
+# `alias NAME`, which prints it quoted for reuse as shell input.
+__shellfirm_alias() {
+    [[ -n $1 ]] || return 1
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        [[ -n ${BASH_ALIASES[$1]+set} ]] || return 1
+        __sf_v=${BASH_ALIASES[$1]}
+        return 0
+    fi
+    [[ ${__sf_alnames-} == *" $1 "* ]] || return 1
+    local __sf_d
+    __sf_d=$(builtin alias -- "$1" 2>/dev/null) || return 1
+    builtin eval "__sf_v=${__sf_d#*=}"
+}
 __shellfirm_segment() {
     local __sf_s=$1 __sf_pre="" __sf_w __sf_v __sf_i __sf_lead __sf_after="" __sf_trail="" __sf_tail=""
     __sf_sx=$1
@@ -690,8 +706,7 @@ __shellfirm_segment() {
     if [[ -n ${2:-} ]]; then
         for (( __sf_i = 0; __sf_i < 5; __sf_i++ )); do
             __shellfirm_word "$__sf_s"
-            [[ -n $__sf_w && -n ${BASH_ALIASES[$__sf_w]+set} ]] || break
-            __sf_v=${BASH_ALIASES[$__sf_w]}
+            __shellfirm_alias "$__sf_w" || break
             __sf_trail=$__sf_v __sf_tail=$__sf_after
             __sf_s=$__sf_lead$__sf_v$__sf_after
             # `alias ls='ls -l'`: bash does not expand an alias inside itself.
@@ -701,8 +716,8 @@ __shellfirm_segment() {
         # An alias ending in a space also expands the next word (`sudo `).
         if [[ $__sf_trail == *[[:space:]] ]]; then
             __shellfirm_word "$__sf_tail"
-            if [[ -n $__sf_w && -n ${BASH_ALIASES[$__sf_w]+set} ]]; then
-                __sf_s=${__sf_s%"$__sf_tail"}${BASH_ALIASES[$__sf_w]}$__sf_after
+            if __shellfirm_alias "$__sf_w"; then
+                __sf_s=${__sf_s%"$__sf_tail"}$__sf_v$__sf_after
             fi
         fi
     fi
@@ -744,7 +759,15 @@ __shellfirm_segments() {
     local __sf_in=$1 __sf_seg __sf_op __sf_n=0 __sf_cap=512 __sf_al="" __sf_sx __sf_b
     local -i __sf_indef=0 __sf_defnext=0
     [[ ${2:-} == 1 ]] && __sf_cap=16
-    builtin shopt -q expand_aliases && (( ${#BASH_ALIASES[@]} )) && __sf_al=1
+    local __sf_alnames=""
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        builtin shopt -q expand_aliases && (( ${#BASH_ALIASES[@]} )) && __sf_al=1
+    elif builtin shopt -q expand_aliases; then
+        # bash 3.2: no BASH_ALIASES (see __shellfirm_alias).
+        __sf_alnames=$(builtin compgen -a 2>/dev/null)
+        [[ -n $__sf_alnames ]] && __sf_al=1
+        __sf_alnames=" ${__sf_alnames//$'\n'/ } "
+    fi
     __sf_ax=""
     # __sf_nd: the line without the bodies of the functions it defines.
     __sf_nd=""
@@ -1640,6 +1663,13 @@ __shellfirm_dbg() {
     __sf_cmd=${__sf_h#*[0-9][[:space:]]}
     __sf_cmd=${__sf_cmd#"${__sf_cmd%%[![:space:]]*}"}
     [[ -z $__sf_cmd ]] && return 0
+    # bash 3.2 (macOS /bin/bash) always runs here (no readline mode): its
+    # aliases and functions are expanded as Enter does in readline mode,
+    # so `alias kd='kubectl delete'; kd ns prod` is checked as what runs.
+    if (( BASH_VERSINFO[0] < 4 )); then
+        __shellfirm_expand "$__sf_cmd"
+        __sf_cmd=${__shellfirm_expanded:-$__sf_cmd}
+    fi
     if ! __shellfirm_check "$__sf_cmd"; then
         __shellfirm_blocked=1
         return 1
