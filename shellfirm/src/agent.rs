@@ -4653,6 +4653,12 @@ mod tests {
         assert!(format_reason(&a).contains("this command"));
     }
 
+    /// `path` as written in a shell command: `/`-separated (on Windows
+    /// `C:/Users/…`; a `\` in a shell word is an escape).
+    fn shell_path(path: &Path) -> String {
+        path.display().to_string().replace('\\', "/")
+    }
+
     #[test]
     fn target_dirs_follow_cd_and_paths() {
         let tree = tree_fs::TreeBuilder::default()
@@ -4662,8 +4668,9 @@ mod tests {
             .unwrap();
         let root = tree.root.clone();
         let webapp = root.join("projects/webapp");
+        // In the command, `/`-separated: a `\` in a shell word is an escape.
         let dirs = command_target_dirs(
-            &format!("cd {} && rm -rf ./src", webapp.display()),
+            &format!("cd {} && rm -rf ./src", shell_path(&webapp)),
             &root,
             None,
         );
@@ -4695,10 +4702,10 @@ mod tests {
         let env = NoExecEnvironment::new(&crate::env::RealEnvironment);
         let outside = tree.root.clone();
         let inputs = load_agent_inputs(&config, &env, &outside).unwrap();
-        let webapp = tree.root.join("projects/webapp");
+        let webapp = shell_path(&tree.root.join("projects/webapp"));
         for cmd in [
-            format!("cd {} && rm -rf ./src", webapp.display()),
-            format!("rm -rf {}/src", webapp.display()),
+            format!("cd {webapp} && rm -rf ./src"),
+            format!("rm -rf {webapp}/src"),
         ] {
             let primary = assess_command(
                 &cmd,
@@ -5002,7 +5009,8 @@ mod tests {
             .create()
             .unwrap();
         let root = tree.root.clone();
-        let root_s = root.display().to_string();
+        // Walked directories are `/`-separated on every platform.
+        let root_s = shell_path(&root);
         let dirs_of = |cmd: &str| -> Vec<Option<String>> {
             walk_segments(cmd, Some(&root), None)
                 .into_iter()

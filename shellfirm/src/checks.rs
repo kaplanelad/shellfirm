@@ -480,7 +480,14 @@ fn folders_with_uncommitted_work(
         "--untracked-files=normal",
         "--",
     ];
-    args.extend(candidates.iter().map(|(_, r)| r.as_str()));
+    // One pathspec per folder: a folder may be named twice (`rm -rf docs`
+    // is also checked in its absolute spelling).
+    let fixed = args.len();
+    for (_, r) in &candidates {
+        if !args[fixed..].contains(&r.as_str()) {
+            args.push(r);
+        }
+    }
     let status = env.run_command_outcome("git", &args, uncommitted_work_timeout_ms());
     debug!("uncommitted work: git {args:?} -> {status:?}");
     let status = match status {

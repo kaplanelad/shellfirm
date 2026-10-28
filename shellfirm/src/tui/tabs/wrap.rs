@@ -289,7 +289,6 @@ impl WrapTab {
                     _ => {}
                 }
                 self.edit = Some(EditState::OvrChallenge(cursor));
-                TabOutcome::None
             }
             EditState::OvrMinSev(mut cursor) => {
                 let total = SEVERITY_OPTIONAL_OPTIONS.len() + 1;
@@ -329,9 +328,9 @@ impl WrapTab {
                     _ => {}
                 }
                 self.edit = Some(EditState::OvrMinSev(cursor));
-                TabOutcome::None
             }
         }
+        TabOutcome::None
     }
 
     fn render_summary_body(

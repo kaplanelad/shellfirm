@@ -2804,10 +2804,14 @@ deny:
         // No `context:` in the file: no context escalation is credited to it.
         assert_eq!(m.sources_label(), None);
         assert_eq!(m.sources, vec![PathBuf::from("/repo/.shellfirm.yaml")]);
-        assert_eq!(
-            m.label_for("git:force_push").as_deref(),
-            Some("project policy (/repo/.shellfirm.yaml)")
-        );
+        // The label shows the path in the platform's spelling
+        // (`\repo\.shellfirm.yaml` on Windows).
+        let want = if cfg!(windows) {
+            r"project policy (\repo\.shellfirm.yaml)"
+        } else {
+            "project policy (/repo/.shellfirm.yaml)"
+        };
+        assert_eq!(m.label_for("git:force_push").as_deref(), Some(want));
     }
 
     #[cfg(not(windows))]

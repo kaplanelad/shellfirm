@@ -1821,7 +1821,7 @@ fn split_segments(s: &str) -> Vec<&str> {
 }
 
 /// Minimal glob matcher supporting `*` (any run) and `?` (one byte).
-fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
+const fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
     let (mut p, mut t) = (0usize, 0usize);
     let (mut star, mut mark) = (None::<usize>, 0usize);
     while t < text.len() {
@@ -4153,10 +4153,17 @@ pub fn command_target_dirs(command: &str) -> Vec<PathBuf> {
         };
     let rel = |cwd: &Option<PathBuf>, d: &str| -> PathBuf {
         let p = PathBuf::from(d);
-        let joined = if p.is_absolute() || d.starts_with('~') {
+        // Joined with `/` (shell syntax), not the platform separator: on
+        // Windows `Path::join` adds `\`, which `normalize_path` does not
+        // split, so `a/../b` would stay unresolved. `/x` is absolute in the
+        // command even where `Path::is_absolute` wants a drive letter.
+        let joined = if p.is_absolute() || d.starts_with('~') || d.starts_with('/') {
             p
         } else {
-            cwd.as_ref().map_or_else(|| p.clone(), |c| c.join(&p))
+            cwd.as_ref().map_or_else(
+                || p.clone(),
+                |c| PathBuf::from(format!("{}/{d}", c.display())),
+            )
         };
         // Lexically normalized (`a/../b` → `b`), and unknown past a length.
         let n = PathBuf::from(crate::parser::normalize_path(&joined.display().to_string()));
@@ -4321,7 +4328,10 @@ pub fn command_work_dir(
         _ if dir == "~" => home?.to_path_buf(),
         _ => PathBuf::from(&dir),
     };
-    if path.as_os_str().is_empty() || path.to_string_lossy().contains(['$', '`', '~']) {
+    // An unexpanded `~user` is unknown. A `~` later in the path is a
+    // literal character (`backup~1`, Windows short names like `RUNNER~1`).
+    let text = path.to_string_lossy();
+    if text.is_empty() || text.starts_with('~') || text.contains(['$', '`']) {
         return None;
     }
     let abs = if path.is_absolute() {

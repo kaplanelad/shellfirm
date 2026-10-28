@@ -3886,7 +3886,7 @@ fn expand_word_vars_with(
             let indirect = inner
                 .strip_prefix('!')
                 .filter(|n| !n.is_empty() && n.chars().all(is_name_char))
-                .and_then(&lookup)
+                .and_then(lookup)
                 .filter(|target| !target.is_empty() && target.chars().all(is_name_char));
             if let Some(target) = indirect {
                 match lookup(&target) {

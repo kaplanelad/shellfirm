@@ -1284,16 +1284,12 @@ fn decode_input(buf: &[u8]) -> std::result::Result<String, String> {
         if !bytes.len().is_multiple_of(2) {
             return None;
         }
-        let units: Vec<u16> = bytes
-            .chunks_exact(2)
-            .map(|c| {
-                if le {
-                    u16::from_le_bytes([c[0], c[1]])
-                } else {
-                    u16::from_be_bytes([c[0], c[1]])
-                }
-            })
-            .collect();
+        let unit = if le {
+            u16::from_le_bytes
+        } else {
+            u16::from_be_bytes
+        };
+        let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|&c| unit(c)).collect();
         String::from_utf16(&units)
             .ok()
             .filter(|t| !t.contains('\0'))
@@ -1302,16 +1298,16 @@ fn decode_input(buf: &[u8]) -> std::result::Result<String, String> {
         if !bytes.len().is_multiple_of(4) {
             return None;
         }
+        let unit = if le {
+            u32::from_le_bytes
+        } else {
+            u32::from_be_bytes
+        };
         bytes
-            .chunks_exact(4)
-            .map(|c| {
-                let v = if le {
-                    u32::from_le_bytes([c[0], c[1], c[2], c[3]])
-                } else {
-                    u32::from_be_bytes([c[0], c[1], c[2], c[3]])
-                };
-                char::from_u32(v).filter(|ch| *ch != '\0')
-            })
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&c| char::from_u32(unit(c)).filter(|ch| *ch != '\0'))
             .collect()
     };
     let has_nul = |bytes: &[u8]| bytes.contains(&0);

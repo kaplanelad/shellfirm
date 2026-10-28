@@ -13,7 +13,7 @@ on:
       - '**.md'
 
 env:
-  RUST_TOOLCHAIN: stable
+  RUST_TOOLCHAIN: "1.99.1"
   # Keep in sync with `rust-version` in shellfirm/Cargo.toml.
   MSRV: "1.88"
   CARGO_TERM_COLOR: always
@@ -78,8 +78,12 @@ jobs:
       # Verifies each cargo feature compiles standalone (and the
       # no-features and all-features builds), so a hidden cross-feature
       # dependency cannot slip through. Compile-only — no tests.
+      # No `--no-dev-deps`: it edits Cargo.toml, so the lock file no longer
+      # matches and `--locked` fails. Not needed either: `cargo check`
+      # without `--tests` does not build dev-dependencies, and resolver 2
+      # does not let them add features to normal dependencies.
       - name: cargo hack check --each-feature
-        run: cargo hack check --locked --each-feature --no-dev-deps
+        run: cargo hack check --locked --each-feature
 
   fmt:
     name: rustfmt

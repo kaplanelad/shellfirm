@@ -729,7 +729,12 @@ mod tests {
                 &json!({"command": "ls", "cwd": "relative/dir"}),
             ),
             tool(4, "check_command", &json!({"command": "ls", "cwd": 5})),
-            tool(5, "check_command", &json!({"command": "ls", "cwd": "/"})),
+            // An absolute path needs a drive on Windows.
+            tool(
+                5,
+                "check_command",
+                &json!({"command": "ls", "cwd": if cfg!(windows) { "C:\\" } else { "/" }}),
+            ),
         ]
         .join("\n");
         let out = run(input.as_bytes());

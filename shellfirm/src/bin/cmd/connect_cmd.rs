@@ -1917,13 +1917,17 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
         }
         if !actions.is_empty() {
             // Don't leave `{}` stubs behind (a symlinked file is kept).
-            let mode =
-                if opts.uninstall && is_empty_stub(&value, ops) && file.path == file.write_path {
-                    actions.push("delete the file (only shellfirm's entries were in it)".into());
-                    SaveMode::Remove
-                } else {
-                    SaveMode::Write
-                };
+            // Asked of the file itself: its canonical path also differs
+            // when a parent directory is a link (macOS `/var` →
+            // `/private/var`) and always on Windows (`\\?\` prefix).
+            let is_symlink =
+                fs::symlink_metadata(&file.path).is_ok_and(|m| m.file_type().is_symlink());
+            let mode = if opts.uninstall && is_empty_stub(&value, ops) && !is_symlink {
+                actions.push("delete the file (only shellfirm's entries were in it)".into());
+                SaveMode::Remove
+            } else {
+                SaveMode::Write
+            };
             changes.push((file, value, actions, mode));
         }
     }

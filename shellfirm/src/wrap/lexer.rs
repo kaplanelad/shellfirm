@@ -203,7 +203,7 @@ fn js_regex_allowed(code: &str) -> bool {
 }
 
 /// Quote state for a single-quoted string opened at `i`.
-fn single_quote_escapes(dialect: Dialect, chars: &[char], i: usize) -> bool {
+const fn single_quote_escapes(dialect: Dialect, chars: &[char], i: usize) -> bool {
     match dialect {
         Dialect::Postgres => {
             // E'...' / e'...' escape-string syntax.
@@ -974,7 +974,7 @@ fn operand_end(chars: &[char], mut pos: usize, lits: &[Literal]) -> usize {
     pos
 }
 
-fn skip_ws(chars: &[char], mut pos: usize) -> usize {
+const fn skip_ws(chars: &[char], mut pos: usize) -> usize {
     while pos < chars.len() && chars[pos].is_whitespace() {
         pos += 1;
     }

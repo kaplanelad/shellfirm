@@ -850,11 +850,9 @@ fn rc_report_in(shell: Shell, env: &RcEnv) -> RcReport {
     let loaded_from = if installed {
         None
     } else {
-        other_startup_files(shell, env).into_iter().find(|f| {
-            fs::read_to_string(f)
-                .ok()
-                .is_some_and(|c| has_manual_hook(&c, shell))
-        })
+        other_startup_files(shell, env)
+            .into_iter()
+            .find(|f| fs::read_to_string(f).is_ok_and(|c| has_manual_hook(&c, shell)))
     };
     RcReport {
         exists: content.is_some(),

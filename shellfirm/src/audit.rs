@@ -1014,10 +1014,11 @@ pub fn sha256_hex(data: &[u8]) -> String {
         msg.push(0);
     }
     msg.extend_from_slice(&bit_len.to_be_bytes());
-    for chunk in msg.chunks_exact(64) {
+    // `msg.len()` is a multiple of 64 here: no remainder.
+    for chunk in msg.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(*word);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -1912,17 +1913,21 @@ mod tests {
             .add("infra/x", "")
             .create()
             .unwrap();
-        let infra = temp.root.join("infra");
+        // `/`-separated, as written in a shell command (on Windows
+        // `C:/Users/…`; a `\` in a shell word is an escape).
+        let infra = temp
+            .root
+            .join("infra")
+            .display()
+            .to_string()
+            .replace('\\', "/");
         for command in [
-            format!("git -C {} push -f", infra.display()),
-            format!("cd {} && git reset --hard", infra.display()),
-            format!("cd {} && rm -rf x", infra.display()),
+            format!("git -C {infra} push -f"),
+            format!("cd {infra} && git reset --hard"),
+            format!("cd {infra} && rm -rf x"),
         ] {
             let meta = collect_meta_for(Some(&command));
-            assert_eq!(
-                meta.git_repo.as_deref(),
-                Some(infra.display().to_string().as_str())
-            );
+            assert_eq!(meta.git_repo.as_deref(), Some(infra.as_str()), "{command}");
             assert_eq!(meta.git_branch.as_deref(), Some("infra-main"), "{command}");
             assert_eq!(
                 meta.cwd,

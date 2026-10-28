@@ -1021,6 +1021,43 @@ impl Config {
     pub fn lock_settings(&self) -> Result<SettingsLock> {
         self.ensure_config_dir()?;
         let path = self.root_folder.join(".settings.lock");
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt as _;
+            // Opened with no sharing: while one handle is open (also in
+            // another thread or process) a second open fails with a
+            // sharing violation, so the open itself is the exclusive lock.
+            // The system closes the handle when the process dies, so a
+            // crash never leaves a stale lock behind.
+            const ERROR_SHARING_VIOLATION: i32 = 32;
+            const RETRY: std::time::Duration = std::time::Duration::from_millis(10);
+            const GIVE_UP: std::time::Duration = std::time::Duration::from_secs(60);
+            let start = std::time::Instant::now();
+            loop {
+                match fs::OpenOptions::new()
+                    .create(true)
+                    .truncate(false)
+                    .write(true)
+                    .share_mode(0)
+                    .open(&path)
+                {
+                    Ok(file) => return Ok(SettingsLock { _file: file }),
+                    Err(e)
+                        if e.raw_os_error() == Some(ERROR_SHARING_VIOLATION)
+                            && start.elapsed() < GIVE_UP =>
+                    {
+                        std::thread::sleep(RETRY);
+                    }
+                    Err(e) => {
+                        return Err(Error::Config(format!(
+                            "could not lock {}: {e}",
+                            path.display()
+                        )))
+                    }
+                }
+            }
+        }
+        #[cfg(not(windows))]
         let file = fs::OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -1037,7 +1074,7 @@ impl Config {
                 ))),
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             Ok(SettingsLock { _file: file })
         }

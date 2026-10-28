@@ -21,8 +21,10 @@ To add checks only for yourself or your team, no code change is needed: see
 
 ## Requirements
 
-- Rust stable. The minimum supported version (MSRV) is the `rust-version` in
-  [`shellfirm/Cargo.toml`](shellfirm/Cargo.toml).
+- Rust 1.99.1, the toolchain CI pins (`RUST_TOOLCHAIN` in
+  [`.github/workflows/ci.yaml`](.github/workflows/ci.yaml)); clippy lints
+  differ between Rust releases. The minimum supported version (MSRV) is the
+  `rust-version` in [`shellfirm/Cargo.toml`](shellfirm/Cargo.toml).
 - Optional: [cargo-insta](https://insta.rs/docs/cli/) to review snapshot
   changes: `cargo install cargo-insta`.
 
