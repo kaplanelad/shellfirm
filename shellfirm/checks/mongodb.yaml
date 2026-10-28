@@ -1,16 +1,94 @@
 - from: mongodb
-  test: (?i)mongo(?:sh)?.*--eval.*drop
-  description: "Executing drop operations via MongoDB shell."
+  test: (?i)(?:^|\s)mongo(?:sh)?\b.*\s--eval\b.*\.drop(?:Database)?\s*\(
+  description: "This drops a collection or database through the MongoDB shell."
   id: mongodb:drop
   severity: Critical
 # Interactive session patterns (for shellfirm wrap)
 - from: mongodb
-  test: (?i)db\.[\w-]+\.drop\(\)
+  test: (?i)\bdb\.[\w-]+\.drop\(\)
   id: mongodb:interactive_drop_collection
   severity: Critical
   description: "Dropping a MongoDB collection will permanently delete all its data."
+# `db.dropDatabase()`, and the same on another database handle:
+# `db.getSiblingDB("prod").dropDatabase()`, `db.getMongo().getDB("x")...`,
+# `const p = db.getSiblingDB("prod"); p.dropDatabase()`.
 - from: mongodb
-  test: (?i)db\.dropDatabase\(\)
+  test: (?i)(?:\b\w+|\))\.dropDatabase\(\s*\)
   id: mongodb:interactive_drop_database
   severity: Critical
   description: "Dropping a MongoDB database will permanently delete all its data."
+- from: mongodb
+  test: (?i)(?:\bdb(?:\[[^\]]+\]|\.getCollection\([^)]*\))|\.get(?:SiblingDB|DB)\([^)]*\)(?:\[[^\]]+\]|\.getCollection\([^)]*\)|\.[\w-]+))\.drop\(\s*\)
+  id: mongodb:interactive_drop_collection_indirect
+  severity: Critical
+  description: "Dropping a MongoDB collection permanently deletes all of its data."
+# Only outside JS string literals: `find({q: "db.users.deleteMany({})"})` is
+# data.
+- from: mongodb
+  test: '(?i)^(?:[^"''\\]|\\.|"(?:[^"\\]|\\.)*"|''(?:[^''\\]|\\.)*'')*?\.(?:deleteMany|remove)\(\s*\{\s*\}\s*\)'
+  id: mongodb:delete_all_documents
+  severity: High
+  description: "Deleting with an empty filter removes every document in the collection."
+- from: mongodb
+  test: '(?i)^(?:[^"''\\]|\\.|"(?:[^"\\]|\\.)*"|''(?:[^''\\]|\\.)*'')*?\.updateMany\(\s*\{\s*\}'
+  id: mongodb:update_all_documents
+  severity: High
+  description: "updateMany with an empty filter modifies every document in the collection."
+# The command-document forms: `db.runCommand({dropDatabase: 1})`,
+# `db.getSiblingDB("prod").runCommand({drop: "users"})`, `adminCommand`.
+- from: mongodb
+  test: '(?i)\.(?:runCommand|adminCommand)\(\s*\{\s*[''"]?(?:dropDatabase|drop)[''"]?\s*:'
+  id: mongodb:run_command_drop
+  severity: Critical
+  description: "This drops a database or collection through a command document (runCommand/adminCommand)."
+- from: mongodb
+  test: '(?i)\.(?:runCommand|adminCommand)\(\s*\{\s*[''"]?delete[''"]?\s*:.*?\bq[''"]?\s*:\s*\{\s*\}'
+  id: mongodb:run_command_delete_all
+  severity: High
+  description: "A delete command with an empty filter (`q: {}`) removes every document in the collection."
+# `renameCollection(target, true)` and `{renameCollection: ..., dropTarget:
+# true}` drop the target collection if it exists.
+- from: mongodb
+  test: '(?i)(?:\.renameCollection\(\s*[^,()]*,\s*true\s*\)|\.(?:runCommand|adminCommand)\(\s*\{.*\bdropTarget[''"]?\s*:\s*true\b)'
+  id: mongodb:rename_drop_target
+  severity: High
+  description: "renameCollection with dropTarget drops the target collection (and all of its documents) if it exists."
+- from: mongodb
+  test: (?i)\bdb\.(?:dropAllUsers|dropAllRoles)\(
+  id: mongodb:drop_all_users
+  severity: High
+  description: "This removes every user (or role) of the database; applications lose access."
+- from: mongodb
+  test: (?i)\bdb\.(?:dropUser|dropRole)\(
+  id: mongodb:drop_user
+  severity: Medium
+  description: "Dropping a user/role removes access for whatever uses it."
+- from: mongodb
+  test: (?i)\bdb\.(?:shutdownServer\(|adminCommand\(\s*\{\s*['"]?shutdown\b)
+  id: mongodb:shutdown
+  severity: High
+  description: "This shuts down the MongoDB server."
+- from: mongodb
+  test: (?i)\.dropIndex(?:es)?\s*\(
+  id: mongodb:drop_indexes
+  severity: Medium
+  description: "Dropping indexes can severely degrade query performance until they are rebuilt."
+- from: mongodb
+  test: (?i)\.bulkWrite\s*\(.*\bdeleteMany\s*['"]?\s*:\s*\{\s*['"]?filter['"]?\s*:\s*\{\s*\}
+  id: mongodb:bulk_delete_all
+  severity: High
+  description: "A bulkWrite deleteMany with an empty filter removes every document in the collection."
+- from: mongodb
+  test: (?:^|\s)mongorestore\b.*\s--drop\b
+  id: mongodb:mongorestore_drop
+  severity: High
+  description: "mongorestore --drop drops every collection it restores before restoring it (documents added since the dump are lost)."
+  alternative: "mongorestore <dump-dir>"
+  alternative_info: "Without --drop, existing documents are kept and duplicates are reported."
+- from: mongodb
+  test: (?:^|\s)mongoimport\b.*\s--drop\b
+  id: mongodb:mongoimport_drop
+  severity: High
+  description: "mongoimport --drop drops the target collection before importing (its existing documents are lost)."
+  alternative: "mongoimport --mode=upsert <file>"
+  alternative_info: "Without --drop, existing documents are kept; --mode=upsert replaces matching ones."

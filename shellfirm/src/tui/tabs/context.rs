@@ -10,6 +10,7 @@
 use crate::config::Challenge;
 use crate::tui::draft::DraftSettings;
 use crate::tui::tabs::{FieldFocus, Tab, TabOutcome};
+use crate::tui::widgets::{TextInput, TextInputOutcome};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -35,7 +36,7 @@ pub enum EditState {
     /// `adding` is Some when the user is typing a new value.
     ListEditor {
         cursor: usize,
-        adding: Option<String>,
+        adding: Option<TextInput>,
     },
     /// Editing the env-vars map.
     EnvVarsEditor {
@@ -51,8 +52,8 @@ pub enum EditState {
 
 #[derive(Debug)]
 pub enum EnvVarAddState {
-    Key(String),
-    Value { key: String, value: String },
+    Key(TextInput),
+    Value { key: String, value: TextInput },
 }
 
 fn ch_index(c: Challenge) -> usize {
@@ -84,10 +85,12 @@ impl ContextTab {
 
     fn section_blurb(section: usize) -> &'static str {
         match section {
-            SECTION_BRANCHES => "Branches that elevate risk when active. Supports glob (e.g. release/*).",
+            SECTION_BRANCHES => {
+                "Branches that elevate risk when active. Supports glob (e.g. release/*)."
+            }
             SECTION_K8S => "Substring patterns flagging the current k8s context as production.",
             SECTION_ENV_VARS => "Env vars whose values mark the environment as production.",
-            SECTION_PATHS => "Filesystem paths that mark commands as elevated risk.",
+            SECTION_PATHS => "Filesystem paths that mark commands touching them as critical risk.",
             SECTION_ESCALATION => "Stricter challenge type when context bumps the risk level.",
             _ => "",
         }
@@ -95,6 +98,25 @@ impl ContextTab {
 }
 
 impl Tab for ContextTab {
+    fn claims_key(&self, _key: &KeyEvent) -> bool {
+        // While a "New entry" field is open every key belongs to it: letters
+        // never trigger hotkeys, and Tab/arrows never leave the tab.
+        matches!(
+            self.edit,
+            Some(EditState::ListEditor {
+                adding: Some(_),
+                ..
+            }) | Some(EditState::EnvVarsEditor {
+                adding: Some(_),
+                ..
+            })
+        )
+    }
+
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
     fn title(&self) -> &str {
         "Context"
     }
@@ -118,9 +140,13 @@ impl Tab for ContextTab {
             };
             buf.set_string(area.x, y, "▌", Style::default().fg(bar_color));
             let title_style = if is_focused {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD)
             };
             buf.set_string(area.x + 2, y, Self::section_title(section), title_style);
 
@@ -151,7 +177,22 @@ impl Tab for ContextTab {
 
     fn current_focus(&self) -> FieldFocus {
         let title = Self::section_title(self.section);
-        let (name, help) = if self.edit.is_some() {
+        let typing = matches!(
+            self.edit,
+            Some(EditState::ListEditor {
+                adding: Some(_),
+                ..
+            }) | Some(EditState::EnvVarsEditor {
+                adding: Some(_),
+                ..
+            })
+        );
+        let (name, help) = if typing {
+            (
+                format!("Editing: {title}"),
+                "Type the value · ←→ Home End move the caret · Enter add · Esc cancel".to_string(),
+            )
+        } else if self.edit.is_some() {
             match self.section {
                 SECTION_ESCALATION => (
                     format!("Editing: {title}"),
@@ -242,6 +283,27 @@ impl ContextTab {
         }
     }
 
+    /// Outcome for a key consumed by a "New entry" field: `Consumed` while
+    /// the field stays open, a focus change (so the help strip updates)
+    /// once it closed.
+    fn typing_outcome(&self) -> TabOutcome {
+        let typing = matches!(
+            self.edit,
+            Some(EditState::ListEditor {
+                adding: Some(_),
+                ..
+            }) | Some(EditState::EnvVarsEditor {
+                adding: Some(_),
+                ..
+            })
+        );
+        if typing {
+            TabOutcome::Consumed
+        } else {
+            TabOutcome::FieldFocusChanged(self.current_focus())
+        }
+    }
+
     fn list_for(&self, draft: &DraftSettings) -> Vec<String> {
         match self.section {
             SECTION_BRANCHES => draft.current.context.protected_branches.clone(),
@@ -265,40 +327,41 @@ impl ContextTab {
         key: KeyEvent,
         draft: &mut DraftSettings,
         mut cursor: usize,
-        adding: Option<String>,
+        adding: Option<TextInput>,
     ) -> TabOutcome {
         // If currently typing a new entry, the editor consumes keys.
-        if let Some(mut buf) = adding {
-            match key.code {
-                KeyCode::Esc => {
-                    self.edit = Some(EditState::ListEditor { cursor, adding: None });
-                    return TabOutcome::None;
+        if let Some(mut input) = adding {
+            match input.handle(key) {
+                TextInputOutcome::Cancelled => {
+                    self.edit = Some(EditState::ListEditor {
+                        cursor,
+                        adding: None,
+                    });
                 }
-                KeyCode::Enter => {
-                    let trimmed = buf.trim().to_string();
+                TextInputOutcome::Submitted(value) => {
+                    let trimmed = value.trim().to_string();
+                    self.edit = Some(EditState::ListEditor {
+                        cursor,
+                        adding: None,
+                    });
                     if !trimmed.is_empty() {
-                        self.list_for_mut(draft).push(trimmed);
-                        self.edit = Some(EditState::ListEditor { cursor, adding: None });
-                        return TabOutcome::Mutated;
+                        let list = self.list_for_mut(draft);
+                        if !list.iter().any(|v| v == &trimmed) {
+                            list.push(trimmed);
+                            return TabOutcome::Mutated;
+                        }
                     }
-                    self.edit = Some(EditState::ListEditor { cursor, adding: None });
-                    return TabOutcome::None;
                 }
-                KeyCode::Backspace => {
-                    buf.pop();
-                    self.edit = Some(EditState::ListEditor { cursor, adding: Some(buf) });
-                    return TabOutcome::None;
-                }
-                KeyCode::Char(c) => {
-                    buf.push(c);
-                    self.edit = Some(EditState::ListEditor { cursor, adding: Some(buf) });
-                    return TabOutcome::None;
-                }
-                _ => {
-                    self.edit = Some(EditState::ListEditor { cursor, adding: Some(buf) });
-                    return TabOutcome::None;
+                TextInputOutcome::Changed | TextInputOutcome::None => {
+                    self.edit = Some(EditState::ListEditor {
+                        cursor,
+                        adding: Some(input),
+                    });
                 }
             }
+            // The field owns every key (arrows move the caret, they never
+            // switch tabs).
+            return self.typing_outcome();
         }
 
         // Browsing the list (no adding sub-mode)
@@ -309,21 +372,31 @@ impl ContextTab {
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if cursor > 0 { cursor -= 1; }
-                self.edit = Some(EditState::ListEditor { cursor, adding: None });
+                if cursor > 0 {
+                    cursor -= 1;
+                }
+                self.edit = Some(EditState::ListEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if cursor + 1 < len { cursor += 1; }
-                self.edit = Some(EditState::ListEditor { cursor, adding: None });
+                if cursor + 1 < len {
+                    cursor += 1;
+                }
+                self.edit = Some(EditState::ListEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
             KeyCode::Char('+') | KeyCode::Enter => {
                 self.edit = Some(EditState::ListEditor {
                     cursor,
-                    adding: Some(String::new()),
+                    adding: Some(TextInput::default()),
                 });
-                TabOutcome::None
+                TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Char('d') | KeyCode::Backspace | KeyCode::Delete if len > 0 => {
                 let list = self.list_for_mut(draft);
@@ -333,11 +406,17 @@ impl ContextTab {
                 if cursor >= new_len && new_len > 0 {
                     cursor = new_len - 1;
                 }
-                self.edit = Some(EditState::ListEditor { cursor, adding: None });
+                self.edit = Some(EditState::ListEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::Mutated
             }
             _ => {
-                self.edit = Some(EditState::ListEditor { cursor, adding: None });
+                self.edit = Some(EditState::ListEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
         }
@@ -351,72 +430,44 @@ impl ContextTab {
         adding: Option<EnvVarAddState>,
     ) -> TabOutcome {
         if let Some(state) = adding {
-            match (state, key.code) {
-                (_, KeyCode::Esc) => {
-                    self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
-                    return TabOutcome::None;
-                }
-                (EnvVarAddState::Key(mut k), KeyCode::Enter) => {
-                    if k.trim().is_empty() {
-                        self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
-                        return TabOutcome::None;
+            let next = match state {
+                EnvVarAddState::Key(mut input) => match input.handle(key) {
+                    TextInputOutcome::Cancelled => None,
+                    TextInputOutcome::Submitted(k) => {
+                        let k = k.trim().to_string();
+                        if k.is_empty() {
+                            None
+                        } else {
+                            Some(EnvVarAddState::Value {
+                                key: k,
+                                value: TextInput::default(),
+                            })
+                        }
                     }
-                    let key_str = k.trim().to_string();
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(EnvVarAddState::Value {
-                            key: key_str,
-                            value: String::new(),
-                        }),
-                    });
-                    let _ = &mut k;
-                    return TabOutcome::None;
-                }
-                (EnvVarAddState::Value { key, value }, KeyCode::Enter) => {
-                    draft.current.context.production_env_vars.insert(key, value);
-                    self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
-                    return TabOutcome::Mutated;
-                }
-                (EnvVarAddState::Key(mut k), KeyCode::Backspace) => {
-                    k.pop();
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(EnvVarAddState::Key(k)),
-                    });
-                    return TabOutcome::None;
-                }
-                (EnvVarAddState::Value { key, mut value }, KeyCode::Backspace) => {
-                    value.pop();
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(EnvVarAddState::Value { key, value }),
-                    });
-                    return TabOutcome::None;
-                }
-                (EnvVarAddState::Key(mut k), KeyCode::Char(c)) => {
-                    k.push(c);
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(EnvVarAddState::Key(k)),
-                    });
-                    return TabOutcome::None;
-                }
-                (EnvVarAddState::Value { key, mut value }, KeyCode::Char(c)) => {
-                    value.push(c);
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(EnvVarAddState::Value { key, value }),
-                    });
-                    return TabOutcome::None;
-                }
-                (other, _) => {
-                    self.edit = Some(EditState::EnvVarsEditor {
-                        cursor,
-                        adding: Some(other),
-                    });
-                    return TabOutcome::None;
-                }
-            }
+                    TextInputOutcome::Changed | TextInputOutcome::None => {
+                        Some(EnvVarAddState::Key(input))
+                    }
+                },
+                EnvVarAddState::Value { key: k, mut value } => match value.handle(key) {
+                    TextInputOutcome::Cancelled => None,
+                    TextInputOutcome::Submitted(v) => {
+                        draft.current.context.production_env_vars.insert(k, v);
+                        self.edit = Some(EditState::EnvVarsEditor {
+                            cursor,
+                            adding: None,
+                        });
+                        return TabOutcome::Mutated;
+                    }
+                    TextInputOutcome::Changed | TextInputOutcome::None => {
+                        Some(EnvVarAddState::Value { key: k, value })
+                    }
+                },
+            };
+            self.edit = Some(EditState::EnvVarsEditor {
+                cursor,
+                adding: next,
+            });
+            return self.typing_outcome();
         }
 
         let len = draft.current.context.production_env_vars.len();
@@ -426,30 +477,36 @@ impl ContextTab {
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if cursor > 0 { cursor -= 1; }
-                self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
+                if cursor > 0 {
+                    cursor -= 1;
+                }
+                self.edit = Some(EditState::EnvVarsEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if cursor + 1 < len { cursor += 1; }
-                self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
+                if cursor + 1 < len {
+                    cursor += 1;
+                }
+                self.edit = Some(EditState::EnvVarsEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
             KeyCode::Char('+') | KeyCode::Enter => {
                 self.edit = Some(EditState::EnvVarsEditor {
                     cursor,
-                    adding: Some(EnvVarAddState::Key(String::new())),
+                    adding: Some(EnvVarAddState::Key(TextInput::default())),
                 });
-                TabOutcome::None
+                TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Char('d') | KeyCode::Backspace | KeyCode::Delete if len > 0 => {
                 let key_to_remove: Option<String> = {
-                    let mut keys: Vec<&String> = draft
-                        .current
-                        .context
-                        .production_env_vars
-                        .keys()
-                        .collect();
+                    let mut keys: Vec<&String> =
+                        draft.current.context.production_env_vars.keys().collect();
                     keys.sort();
                     let idx = cursor.min(keys.len() - 1);
                     keys.get(idx).map(|k| (*k).clone())
@@ -461,11 +518,17 @@ impl ContextTab {
                 if cursor >= new_len && new_len > 0 {
                     cursor = new_len - 1;
                 }
-                self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
+                self.edit = Some(EditState::EnvVarsEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::Mutated
             }
             _ => {
-                self.edit = Some(EditState::EnvVarsEditor { cursor, adding: None });
+                self.edit = Some(EditState::EnvVarsEditor {
+                    cursor,
+                    adding: None,
+                });
                 TabOutcome::None
             }
         }
@@ -485,7 +548,9 @@ impl ContextTab {
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if field > 0 { field -= 1; }
+                if field > 0 {
+                    field -= 1;
+                }
                 // Move cursor onto the saved value of the new field.
                 col = match field {
                     0 => ch_index(draft.current.context.escalation.elevated),
@@ -495,7 +560,9 @@ impl ContextTab {
                 TabOutcome::None
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if field < 1 { field += 1; }
+                if field < 1 {
+                    field += 1;
+                }
                 col = match field {
                     0 => ch_index(draft.current.context.escalation.elevated),
                     _ => ch_index(draft.current.context.escalation.critical),
@@ -504,12 +571,16 @@ impl ContextTab {
                 TabOutcome::None
             }
             KeyCode::Left | KeyCode::Char('h') => {
-                if col > 0 { col -= 1; }
+                if col > 0 {
+                    col -= 1;
+                }
                 self.edit = Some(EditState::EscalationEditor { field, col });
                 TabOutcome::Consumed
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                if col < 2 { col += 1; }
+                if col < 2 {
+                    col += 1;
+                }
                 self.edit = Some(EditState::EscalationEditor { field, col });
                 TabOutcome::Consumed
             }
@@ -535,7 +606,11 @@ impl ContextTab {
                     }
                 };
                 self.edit = Some(EditState::EscalationEditor { field, col });
-                if mutated { TabOutcome::Mutated } else { TabOutcome::None }
+                if mutated {
+                    TabOutcome::Mutated
+                } else {
+                    TabOutcome::None
+                }
             }
             KeyCode::Enter => {
                 // Enter exits edit mode (Space already wrote).
@@ -570,9 +645,9 @@ impl ContextTab {
 
         match section {
             SECTION_BRANCHES | SECTION_K8S | SECTION_PATHS => {
-                self.render_list_editor(buf, indent, y, draft, section)
+                self.render_list_editor(buf, indent, y, inner_w, draft, section)
             }
-            SECTION_ENV_VARS => self.render_env_vars_editor(buf, indent, y, draft),
+            SECTION_ENV_VARS => self.render_env_vars_editor(buf, indent, y, inner_w, draft),
             SECTION_ESCALATION => self.render_escalation_editor(buf, indent, y, draft),
             _ => y,
         }
@@ -583,6 +658,7 @@ impl ContextTab {
         buf: &mut Buffer,
         indent: u16,
         y: u16,
+        width: u16,
         draft: &DraftSettings,
         section: usize,
     ) -> u16 {
@@ -602,16 +678,36 @@ impl ContextTab {
             indent,
             y,
             format!("Currently set ({})", list.len()),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         );
         let mut y = y + 1;
 
         if list.is_empty() {
-            buf.set_string(indent + 2, y, "(none)", Style::default().fg(Color::DarkGray));
+            buf.set_string(
+                indent + 2,
+                y,
+                "(none)",
+                Style::default().fg(Color::DarkGray),
+            );
             y += 1;
         } else {
             let max_visible = 6usize;
-            for (i, value) in list.iter().take(max_visible).enumerate() {
+            // Keep the cursor row visible in long lists.
+            let start = cursor
+                .saturating_sub(max_visible - 1)
+                .min(list.len().saturating_sub(max_visible));
+            if start > 0 {
+                buf.set_string(
+                    indent + 2,
+                    y,
+                    format!("▲ {start} more"),
+                    Style::default().fg(Color::DarkGray),
+                );
+                y += 1;
+            }
+            for (i, value) in list.iter().enumerate().skip(start).take(max_visible) {
                 let is_cursor = i == cursor && adding.is_none();
                 let style = if is_cursor {
                     Style::default()
@@ -625,11 +721,11 @@ impl ContextTab {
                 buf.set_string(indent, y, format!("{prefix}{value}"), style);
                 y += 1;
             }
-            if list.len() > max_visible {
+            if list.len() > start + max_visible {
                 buf.set_string(
                     indent + 2,
                     y,
-                    format!("+ {} more", list.len() - max_visible),
+                    format!("▼ {} more", list.len() - start - max_visible),
                     Style::default().fg(Color::DarkGray),
                 );
                 y += 1;
@@ -637,15 +733,17 @@ impl ContextTab {
         }
 
         // Add zone
-        if let Some(buf_str) = adding {
+        if let Some(input) = adding {
             y += 1;
-            buf.set_string(
+            y = render_entry_field(
+                buf,
                 indent,
                 y,
-                format!("➤ New entry: {buf_str}_  (Enter to add, Esc to cancel)"),
-                Style::default().fg(Color::Yellow),
+                width,
+                "➤ New entry: ",
+                input,
+                "Enter to add, Esc to cancel",
             );
-            y += 1;
         }
         y
     }
@@ -655,6 +753,7 @@ impl ContextTab {
         buf: &mut Buffer,
         indent: u16,
         y: u16,
+        width: u16,
         draft: &DraftSettings,
     ) -> u16 {
         let map = &draft.current.context.production_env_vars;
@@ -667,17 +766,38 @@ impl ContextTab {
             indent,
             y,
             format!("Currently set ({})", map.len()),
-            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
         );
         let mut y = y + 1;
 
         if map.is_empty() {
-            buf.set_string(indent + 2, y, "(none)", Style::default().fg(Color::DarkGray));
+            buf.set_string(
+                indent + 2,
+                y,
+                "(none)",
+                Style::default().fg(Color::DarkGray),
+            );
             y += 1;
         } else {
             let mut entries: Vec<(&String, &String)> = map.iter().collect();
             entries.sort_by(|a, b| a.0.cmp(b.0));
-            for (i, (k, v)) in entries.iter().take(6).enumerate() {
+            let max_visible = 6usize;
+            let start = cursor
+                .saturating_sub(max_visible - 1)
+                .min(entries.len().saturating_sub(max_visible));
+            if start > 0 {
+                buf.set_string(
+                    indent + 2,
+                    y,
+                    format!("▲ {start} more"),
+                    Style::default().fg(Color::DarkGray),
+                );
+                y += 1;
+            }
+            let hidden_below = entries.len().saturating_sub(start + max_visible);
+            for (i, (k, v)) in entries.iter().enumerate().skip(start).take(max_visible) {
                 let is_cursor = i == cursor && adding.is_none();
                 let style = if is_cursor {
                     Style::default()
@@ -691,18 +811,39 @@ impl ContextTab {
                 buf.set_string(indent, y, format!("{prefix}{k} = {v}"), style);
                 y += 1;
             }
+            if hidden_below > 0 {
+                buf.set_string(
+                    indent + 2,
+                    y,
+                    format!("▼ {hidden_below} more"),
+                    Style::default().fg(Color::DarkGray),
+                );
+                y += 1;
+            }
         }
 
         if let Some(state) = adding {
             y += 1;
-            let line = match state {
-                EnvVarAddState::Key(k) => format!("➤ New key: {k}_  (Enter to continue)"),
-                EnvVarAddState::Value { key, value } => {
-                    format!("➤ {key} = {value}_  (Enter to add)")
-                }
+            y = match state {
+                EnvVarAddState::Key(k) => render_entry_field(
+                    buf,
+                    indent,
+                    y,
+                    width,
+                    "➤ New key: ",
+                    k,
+                    "Enter to continue, Esc to cancel",
+                ),
+                EnvVarAddState::Value { key, value } => render_entry_field(
+                    buf,
+                    indent,
+                    y,
+                    width,
+                    &format!("➤ {key} = "),
+                    value,
+                    "Enter to add, Esc to cancel",
+                ),
             };
-            buf.set_string(indent, y, line, Style::default().fg(Color::Yellow));
-            y += 1;
         }
         y
     }
@@ -722,40 +863,83 @@ impl ContextTab {
         let elevated = ch_index(draft.current.context.escalation.elevated);
         let critical = ch_index(draft.current.context.escalation.critical);
 
-        let render_row =
-            |buf: &mut Buffer, y: u16, label: &str, saved: usize, focused: bool, cursor_col: usize| {
-                let label_style = if focused {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
-                };
-                buf.set_string(indent, y, label, label_style);
-                let cols = ["Math", "Enter", "Yes"];
-                let mut x = indent + 14;
-                for (i, opt) in cols.iter().enumerate() {
-                    let bullet = if i == saved { "(•)" } else { "( )" };
-                    let is_cursor = focused && i == cursor_col;
-                    let style = if is_cursor {
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Green)
-                            .add_modifier(Modifier::BOLD)
-                    } else if i == saved {
-                        Style::default().fg(Color::Cyan)
-                    } else {
-                        Style::default()
-                    };
-                    buf.set_string(x, y, format!("{bullet} {opt}"), style);
-                    x += 12;
-                }
+        let render_row = |buf: &mut Buffer,
+                          y: u16,
+                          label: &str,
+                          saved: usize,
+                          focused: bool,
+                          cursor_col: usize| {
+            let label_style = if focused {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             };
+            buf.set_string(indent, y, label, label_style);
+            let cols = ["Math", "Enter", "Yes"];
+            let mut x = indent + 14;
+            for (i, opt) in cols.iter().enumerate() {
+                let bullet = if i == saved { "(•)" } else { "( )" };
+                let is_cursor = focused && i == cursor_col;
+                let style = if is_cursor {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD)
+                } else if i == saved {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                };
+                buf.set_string(x, y, format!("{bullet} {opt}"), style);
+                x += 12;
+            }
+        };
 
         render_row(buf, y, "Elevated  →", elevated, field == 0, col);
         render_row(buf, y + 1, "Critical  →", critical, field == 1, col);
         y + 2
     }
+}
+
+/// Draw a one-line "New entry" field: the label, the value with a real
+/// caret (Left/Right/Home/End move it), and the hint on the next row so a
+/// long value never pushes it off screen.
+fn render_entry_field(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    width: u16,
+    label: &str,
+    input: &TextInput,
+    hint: &str,
+) -> u16 {
+    let style = Style::default().fg(Color::Yellow);
+    buf.set_stringn(x, y, label, width as usize, style);
+    let label_w = ratatui::text::Span::raw(label).width() as u16;
+    let field_x = x.saturating_add(label_w);
+    let field_w = width.saturating_sub(label_w);
+    crate::tui::a11y::draw_text_with_caret(
+        buf,
+        field_x,
+        y,
+        field_w,
+        input.value(),
+        input.cursor(),
+        true,
+        style,
+    );
+    buf.set_stringn(
+        x + 2,
+        y + 1,
+        format!("({hint}; \u{2190}\u{2192} move the caret)"),
+        width.saturating_sub(2) as usize,
+        Style::default().fg(Color::DarkGray),
+    );
+    y + 2
 }
 
 fn render_summary_body(
@@ -828,7 +1012,9 @@ fn render_summary_body(
             hint_x,
             y,
             hint,
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         );
     }
     y + 1
@@ -890,7 +1076,12 @@ mod tests {
             draft.current.context.protected_branches.len(),
             initial_len + 1
         );
-        assert!(draft.current.context.protected_branches.iter().any(|b| b == "feat"));
+        assert!(draft
+            .current
+            .context
+            .protected_branches
+            .iter()
+            .any(|b| b == "feat"));
     }
 
     #[test]
@@ -907,5 +1098,4 @@ mod tests {
             initial_len - 1
         );
     }
-
 }

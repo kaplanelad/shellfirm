@@ -1,26 +1,59 @@
+# Terraform, OpenTofu (`tofu`) and Terragrunt share the same subcommands.
+# Global options before the subcommand (`-chdir=dir`) are removed by the parser.
 - from: terraform
-  test: terraform\s+apply.*-auto-approve
-  method: Regex
-  enable: true
-  description: "apply state without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:run-all\s+)?apply\b.*\s-?-auto-approve(?:\s|$|=)
+  description: "This applies infrastructure changes without asking for confirmation."
   id: terraform:apply_with_auto_approve
   severity: Critical
-  alternative: "terraform plan -out=plan.tfplan && terraform apply plan.tfplan"
-  alternative_info: "Review the plan first, then apply from the saved plan file for a controlled deployment."
+  alternative: "terraform plan -out=plan.tfplan"
+  alternative_info: "Save the plan and review it (`terraform show plan.tfplan`), then apply exactly that plan with `terraform apply plan.tfplan`."
 - from: terraform
-  test: terraform\s+destroy\s+.*-auto-approve
-  method: Regex
-  enable: true
-  description: "This command will destroy all managed infrastructure without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:run-all\s+)?destroy\b.*\s-?-auto-approve(?:\s|$|=)
+  description: "This destroys all managed infrastructure without asking for confirmation."
   id: terraform:destroy_auto_approve
   severity: Critical
   alternative: "terraform plan -destroy"
   alternative_info: "Preview what would be destroyed first, then run 'terraform destroy' with manual approval."
 - from: terraform
-  test: terraform\s+state\s+(mv|replace-provider)
-  method: Regex
-  enable: true
-  description: "Move state without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:run-all\s+)?(?:destroy\b|apply\b.*\s-destroy(?:\s|$))
+  description: "This destroys managed infrastructure."
+  id: terraform:destroy
+  severity: High
+  filters:
+    # With -auto-approve the Critical checks above apply instead.
+    - type: NotMatches
+      value: '\s-?-auto-approve(?:\s|$|=)'
+    # `terraform destroy -help` prints the usage.
+    - type: NotMatches
+      value: '\s-?-(?:help|h)(?:\s|$)'
+  alternative: "terraform plan -destroy"
+  alternative_info: "Preview what would be destroyed before running it."
+- from: terraform
+  # `terraform apply <planfile>` never asks: the saved plan (which may be a
+  # destroy plan) is applied as-is, like `-auto-approve`.
+  test: '(?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*apply\s+(?:-\S+\s+)*([^-\s<>&|][^\s=<>]*)(?:\s|$)'
+  description: "This applies a saved plan file without asking for confirmation; whatever the plan does (including destroying resources) happens at once."
+  id: terraform:apply_plan_file
+  severity: High
+  filters:
+    # The value of an option given with a space (`-target aws_instance.x`),
+    # not a plan file.
+    - type: NotMatches
+      value: '\sapply\s+(?:-\S+\s+)*?-(?:target|replace|var|var-file|lock-timeout|parallelism|state|state-out|backup)\s+[^-\s][^\s=]*(?:\s|$)'
+  alternative: "terraform show <planfile>"
+  alternative_info: "Read the saved plan first (`terraform show` prints what it will change or destroy)."
+- from: terraform
+  # A destroy plan written and applied on the same line (`plan -destroy
+  # -out=p && apply p`): `terraform destroy` without its confirmation.
+  test: '(?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*plan\s+(?:\S+\s+)*?-destroy(?:\s|=).*\s(?:&&|;|\|\||\n)\s+(?:\S+\s+)*?(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*apply\s+(?:-\S+\s+)*[^-\s<>&|][^\s=<>]*(?:\s|$)'
+  description: "This writes a destroy plan and applies it on the same line: the managed infrastructure is destroyed without any confirmation."
+  id: terraform:apply_destroy_plan
+  severity: Critical
+  alternative: "terraform plan -destroy -out=destroy.tfplan && terraform show destroy.tfplan"
+  alternative_info: "Review the destroy plan first, then apply it as a separate step."
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+state\s+(mv|replace-provider)
+  description: "This modifies Terraform state without asking for confirmation."
   id: terraform:state
   severity: High
   filters:
@@ -29,32 +62,144 @@
   alternative: "terraform state <cmd> -dry-run"
   alternative_info: "Preview the state change with -dry-run before actually modifying state."
 - from: terraform
-  test: terraform\s+state\s+rm\s
-  method: Regex
-  enable: true
-  description: "Removing a resource from state causes Terraform to lose track of existing infrastructure."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+state\s+rm\s
+  description: "Removing a resource from state makes Terraform lose track of existing infrastructure."
   id: terraform:state_rm
   severity: High
   alternative: "terraform state list"
   alternative_info: "List resources in state first to verify what you're removing."
 - from: terraform
-  test: terraform\s+workspace\s+delete.*(-force)
-  method: Regex
-  enable: true
-  description: "Delete a Terraform workspace without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+workspace\s+delete.*(-force)
+  description: "This deletes a Terraform workspace without asking for confirmation."
   id: terraform:workspace_delete_with_force_flag
   severity: High
 - from: terraform
-  test: terraform\s+workspace\s+delete.*(-lock=false)
-  method: Regex
-  enable: true
-  description: "Delete a Terraform workspace without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+workspace\s+delete.*(-lock=false)
+  description: "This deletes a Terraform workspace without acquiring the state lock."
   id: terraform:workspace_delete_without_lock
   severity: High
 - from: terraform
-  test: terraform\s+force-unlock\s+.*(-force)
-  method: Regex
-  enable: true
-  description: "Manually unlock the state for the defined configuration. without asking for confirmation."
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+force-unlock\s+.*(-force)
+  description: "This removes the state lock without asking for confirmation."
   id: terraform:force_unlock_with_force_flag
   severity: High
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+workspace\s+delete\s+(?:-\S+\s+)*[^-\s]
+  description: "This deletes a Terraform workspace and its state."
+  id: terraform:workspace_delete
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s-force(?:\s|$|=)'
+    - type: NotContains
+      value: "-lock=false"
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+force-unlock\s+(?:-\S+\s+)*[^-\s]
+  description: "This removes the state lock; if another run is in progress the state can be corrupted."
+  id: terraform:force_unlock
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s-force(?:\s|$|=)'
+- from: terraform
+  # Pulumi: `destroy` deletes every resource of the stack; `--yes` skips the
+  # confirmation. `pulumi preview --destroy` only previews.
+  test: (?:^|\s)pulumi\s+(?:\S+\s+)*?destroy(?:\s|$)
+  description: "This destroys every resource in the Pulumi stack."
+  id: terraform:pulumi_destroy
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '\s--preview-only(?:\s|$)'
+  alternative: "pulumi preview --destroy"
+  alternative_info: "Preview what would be destroyed first."
+- from: terraform
+  test: (?:^|\s)pulumi\s+(?:\S+\s+)*?stack\s+rm(?:\s|$)
+  description: "This removes a Pulumi stack and its configuration and history."
+  id: terraform:pulumi_stack_rm
+  severity: High
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*import\s+\S
+  description: "This imports an existing resource into the state; a wrong address makes the next apply change or destroy it."
+  id: terraform:import
+  severity: Medium
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*taint\s+\S
+  description: "This marks a resource as tainted: the next apply destroys and recreates it."
+  id: terraform:taint
+  severity: Medium
+- from: terraform
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*state\s+push\s+(?:\S+\s+)*?-force(?:\s|$)
+  description: "This overwrites the remote state with a local file even if it is older (lineage / serial checks are skipped)."
+  id: terraform:state_push_force
+  severity: High
+- from: terraform
+  # `terraform apply -replace=ADDR` (the successor of `terraform taint`).
+  test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*apply\s+(?:\S+\s+)*?-replace(?:=|\s+)\S
+  description: "This destroys and recreates the given resource."
+  id: terraform:apply_replace
+  severity: Medium
+# HashiCorp runtime tools (Vault, Consul, Nomad).
+- from: terraform
+  test: '(?:^|\s)vault\s+(?:secrets\s+disable|kv\s+(?:\S+\s+)*?(?:destroy|metadata\s+(?:\S+\s+)*?delete))(?:\s|$)'
+  description: "This permanently deletes Vault secrets (a disabled secrets engine loses all of its data; kv destroy / metadata delete remove versions for good)."
+  id: terraform:vault_secrets_destroy
+  severity: High
+  alternative: "vault kv delete <path>"
+  alternative_info: "A soft delete can be undone with `vault kv undelete`; read the path (`vault kv get`) first."
+- from: terraform
+  # KV version 1 has no versions: `kv delete` is permanent there. On version
+  # 2 it hides the latest version until `vault kv undelete`.
+  test: '(?:^|\s)vault\s+(?:\S+\s+)*?kv\s+delete\s+\S'
+  description: "This deletes a secret: permanently on a KV version 1 engine, the latest version (until `vault kv undelete`) on version 2."
+  id: terraform:vault_kv_delete
+  severity: Medium
+  alternative: "vault kv get -format=json <path>"
+  alternative_info: "Read the secret (and keep a copy) first; on KV v2 `vault kv undelete -versions=N <path>` restores a deleted version."
+- from: terraform
+  test: '(?:^|\s)vault\s+(?:\S+\s+)*?operator\s+raft\s+remove-peer\s+\S'
+  description: "vault operator raft remove-peer removes a server from the Vault cluster; removing the wrong one (or too many) loses quorum and the cluster stops serving."
+  id: terraform:vault_raft_remove_peer
+  severity: High
+  alternative: "vault operator raft list-peers"
+  alternative_info: "Check the peer id, and that the cluster keeps a quorum without it."
+- from: terraform
+  test: '(?:^|\s)vault\s+(?:operator\s+seal|token\s+revoke\s+(?:\S+\s+)*?-mode[=\s]+(?:orphan|path)|lease\s+revoke\s+(?:\S+\s+)*?-(?:prefix|force))(?:\s|$)'
+  description: "This seals Vault or revokes tokens / leases in bulk: every client that relies on them loses access."
+  id: terraform:vault_seal_or_revoke
+  severity: High
+  alternative: "vault token lookup <token>"
+  alternative_info: "Check what the token or lease is used by before revoking it."
+- from: terraform
+  test: '(?:^|\s)vault\s+auth\s+disable(?:\s|$)'
+  description: "Disabling a Vault auth method revokes every token and lease issued through it: every client that logged in with it loses access."
+  id: terraform:vault_auth_disable
+  severity: High
+  alternative: "vault auth list -detailed"
+  alternative_info: "Check which auth method is mounted at that path (and who uses it) first."
+- from: terraform
+  test: '(?:^|\s)vault\s+policy\s+(?:delete|remove)(?:\s|$)'
+  description: "Deleting a Vault policy removes its permissions from every token and role that uses it."
+  id: terraform:vault_policy_delete
+  severity: Medium
+  alternative: "vault policy read <name>"
+  alternative_info: "Save the policy first (write the output of `vault policy read <name>` to a file) so it can be written back."
+- from: terraform
+  test: '(?:^|\s)consul\s+kv\s+delete\s+(?:\S+\s+)*?-recurse(?:\s|=|$)'
+  description: "This deletes every Consul key under the prefix."
+  id: terraform:consul_kv_delete_recurse
+  severity: High
+  alternative: "consul kv get -recurse <prefix>"
+  alternative_info: "List the keys the command would delete first (and `consul kv export` a backup)."
+- from: terraform
+  test: '(?:^|\s)nomad\s+(?:job\s+stop|stop)\s+(?:\S+\s+)*?-purge(?:\s|=|$)'
+  description: "This stops the Nomad job and purges it from the cluster state, with its history."
+  id: terraform:nomad_job_purge
+  severity: High
+  alternative: "nomad job stop <job>"
+  alternative_info: "Stop without -purge so the job can be inspected and restarted."
+- from: terraform
+  test: '(?:^|\s)nomad\s+system\s+gc(?:\s|$)'
+  description: "This garbage-collects dead jobs, allocations and nodes from Nomad: their history and logs are gone."
+  id: terraform:nomad_system_gc
+  severity: Medium

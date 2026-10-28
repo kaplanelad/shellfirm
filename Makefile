@@ -1,26 +1,39 @@
+# Run from the repository root. `make help` lists the targets.
+# The clippy and doc flags must stay identical to .github/workflows/ci.yaml.
+CLIPPY_FLAGS = -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
 
-build: test ## build project.
-	cargo build
+.PHONY: build test fmt fmt-fix clippy show-doc validate-doc clean-doc ci all-validation catalogue help
 
-test: ## run test.
-	cargo test
+build: ## Build the project.
+	cargo build --locked
 
-fmt: ## validate formating.
+test: ## Run all tests.
+	cargo test --locked --all-features
+
+fmt: ## Check formatting (rustfmt).
 	cargo fmt --all -- --check
 
-clippy: # check common mistakes and improve your Rust code.
-	cargo clippy -- -D warnings
+fmt-fix: ## Format all code.
+	cargo fmt --all
 
-show-doc: clean-doc ## run test.
+clippy: ## Run clippy with the same flags as CI.
+	cargo clippy --locked --all-features -- $(CLIPPY_FLAGS)
+
+show-doc: clean-doc ## Build the API docs and open them in a browser.
 	cargo doc --open --no-deps
 
-validate-doc: clean-doc # validate documentation syntax.
-	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --document-private-items
+validate-doc: clean-doc ## Check the API docs build without warnings (same as CI).
+	RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps --document-private-items
 
-clean-doc: # clean doc folder.
+clean-doc: ## Remove generated API docs.
 	cargo clean --doc
 
-all-validation: test fmt clippy validate-doc ## runs all ci validation.
+catalogue: ## Regenerate docs/checks/README.md from shellfirm/checks/*.yaml.
+	cd shellfirm && SHELLFIRM_UPDATE_CATALOGUE=1 cargo test --test checks catalogue
 
-help: ## Prints help information.
-	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'
+ci: test clippy validate-doc fmt ## Run what CI enforces.
+
+all-validation: ci ## Run every CI check (same as `make ci`).
+
+help: ## Print this help.
+	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/^([a-zA-Z_-]+):.*## (.*)/  \1\t\2/' | expand -t 18

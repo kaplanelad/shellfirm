@@ -31,7 +31,16 @@ impl GroupsTab {
     }
 
     fn all_groups(&self) -> Vec<String> {
-        let mut v: Vec<String> = DEFAULT_ENABLED_GROUPS.iter().map(|s| (*s).to_string()).collect();
+        let mut v: Vec<String> = DEFAULT_ENABLED_GROUPS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        // Built-in groups that are off by default (e.g. `shell`) can be enabled too.
+        for c in crate::checks::all_checks_cached() {
+            if !v.contains(&c.from) {
+                v.push(c.from.clone());
+            }
+        }
         for g in &self.custom_groups {
             if !v.contains(g) {
                 v.push(g.clone());
@@ -40,12 +49,34 @@ impl GroupsTab {
         v
     }
 
+    /// Active = listed in `enabled_groups` and not in `disabled_groups`.
+    fn is_active(draft: &DraftSettings, name: &str) -> bool {
+        draft.current.enabled_groups.iter().any(|e| e == name)
+            && !draft.current.disabled_groups.iter().any(|d| d == name)
+    }
+
     fn is_custom(&self, name: &str) -> bool {
-        self.custom_groups.iter().any(|g| g == name) && !DEFAULT_ENABLED_GROUPS.contains(&name)
+        self.custom_groups.iter().any(|g| g == name)
+            && !crate::checks::all_checks_cached()
+                .iter()
+                .any(|c| c.from == name)
+    }
+}
+
+impl GroupsTab {
+    fn enable(draft: &mut DraftSettings, g: &str) {
+        draft.current.disabled_groups.retain(|x| x != g);
+        if !draft.current.enabled_groups.iter().any(|x| x == g) {
+            draft.current.enabled_groups.push(g.to_string());
+        }
     }
 }
 
 impl Tab for GroupsTab {
+    fn is_editing(&self) -> bool {
+        self.edit_active
+    }
+
     fn title(&self) -> &str {
         "Groups"
     }
@@ -56,10 +87,7 @@ impl Tab for GroupsTab {
         }
 
         let groups = self.all_groups();
-        let enabled_count = groups
-            .iter()
-            .filter(|g| draft.current.enabled_groups.iter().any(|e| e == *g))
-            .count();
+        let enabled_count = groups.iter().filter(|g| Self::is_active(draft, g)).count();
         let total = groups.len();
 
         let mut y = area.y;
@@ -100,12 +128,16 @@ impl Tab for GroupsTab {
 
         if !self.edit_active {
             // Browsing — render every group as a status tile in a grid.
-            // Right-align the Enter hint on the blurb row (y - 1).
+            // Enter hint on the title row, left of the badge (on the blurb
+            // row it overlapped the blurb text at 80 columns).
             let hint = "Enter to edit";
-            let hint_x = area.x + area.width.saturating_sub(hint.chars().count() as u16);
+            let hint_x = area.x
+                + area
+                    .width
+                    .saturating_sub(hint.chars().count() as u16 + badge.chars().count() as u16 + 2);
             buf.set_string(
                 hint_x,
-                y - 1,
+                y - 2,
                 hint,
                 Style::default()
                     .fg(Color::Yellow)
@@ -114,12 +146,21 @@ impl Tab for GroupsTab {
             y += 1;
 
             // Compute the widest tile string so columns line up.
-            // Tile format: "✓ name" or "✓ name  [custom]"
+            // Tile format: "✓ name" or "✓ name  [custom]"; without Unicode
+            // "[x] name" / "[ ] name" (a lone `x` / `X` would be ambiguous).
+            let unicode = crate::tui::a11y::caps().unicode;
+            let icon_w: usize = if unicode { 2 } else { 4 };
             let mut max_label = 0usize;
             for g in &groups {
-                let suffix = if self.is_custom(g) { "  [custom]".len() } else { 0 };
-                let len = g.chars().count() + 2 + suffix; // "✓ " + name + suffix
-                if len > max_label { max_label = len; }
+                let suffix = if self.is_custom(g) {
+                    "  [custom]".len()
+                } else {
+                    0
+                };
+                let len = g.chars().count() + icon_w + suffix; // icon + name + suffix
+                if len > max_label {
+                    max_label = len;
+                }
             }
             let cell_gap: usize = 3;
             let cell_w = max_label + cell_gap;
@@ -133,32 +174,29 @@ impl Tab for GroupsTab {
                 let cx = area.x + 2 + (col * cell_w) as u16;
                 let cy = y + row as u16;
 
-                let enabled = draft.current.enabled_groups.iter().any(|e| e == g);
+                let enabled = Self::is_active(draft, g);
                 let custom = self.is_custom(g);
 
                 let (icon, icon_style, name_style) = if enabled {
                     (
-                        "✓",
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        if unicode { "✓" } else { "[x]" },
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
                         Style::default().fg(Color::Cyan),
                     )
                 } else {
                     (
-                        "✗",
+                        if unicode { "✗" } else { "[ ]" },
                         Style::default().fg(Color::DarkGray),
                         Style::default().fg(Color::DarkGray),
                     )
                 };
                 buf.set_string(cx, cy, icon, icon_style);
-                buf.set_string(cx + 2, cy, g, name_style);
+                buf.set_string(cx + icon_w as u16, cy, g, name_style);
                 if custom {
-                    let badge_x = cx + 2 + g.chars().count() as u16 + 2;
-                    buf.set_string(
-                        badge_x,
-                        cy,
-                        "[custom]",
-                        Style::default().fg(Color::Yellow),
-                    );
+                    let badge_x = cx + icon_w as u16 + g.chars().count() as u16 + 2;
+                    buf.set_string(badge_x, cy, "[custom]", Style::default().fg(Color::Yellow));
                 }
             }
             return;
@@ -185,10 +223,7 @@ impl Tab for GroupsTab {
             })
             .collect();
         let item_refs: Vec<&str> = item_strs.iter().map(String::as_str).collect();
-        let selected: Vec<bool> = groups
-            .iter()
-            .map(|g| draft.current.enabled_groups.iter().any(|e| e == g))
-            .collect();
+        let selected: Vec<bool> = groups.iter().map(|g| Self::is_active(draft, g)).collect();
 
         let list_height = area.height.saturating_sub(y - area.y).saturating_sub(2);
         MultiSelect {
@@ -233,29 +268,32 @@ impl Tab for GroupsTab {
         match outcome {
             MultiSelectKeyOutcome::CursorMoved(c) => {
                 self.cursor = c;
-                TabOutcome::None
+                TabOutcome::FieldFocusChanged(self.current_focus())
             }
+            // Sparse edits (like `config groups --enable/--disable`): turning
+            // a group off only adds it to `disabled_groups`, so the saved
+            // file never pins the whole `enabled_groups` list.
             MultiSelectKeyOutcome::Toggled(i) => {
                 let g = &groups[i];
-                if let Some(pos) = draft.current.enabled_groups.iter().position(|x| x == g) {
-                    draft.current.enabled_groups.remove(pos);
-                    if !draft.current.disabled_groups.contains(g) {
-                        draft.current.disabled_groups.push(g.clone());
-                    }
+                if Self::is_active(draft, g) {
+                    draft.current.disabled_groups.push(g.clone());
                 } else {
-                    draft.current.enabled_groups.push(g.clone());
-                    draft.current.disabled_groups.retain(|x| x != g);
+                    Self::enable(draft, g);
                 }
                 TabOutcome::Mutated
             }
             MultiSelectKeyOutcome::SelectAll => {
-                draft.current.enabled_groups = groups;
-                draft.current.disabled_groups.clear();
+                for g in &groups {
+                    Self::enable(draft, g);
+                }
                 TabOutcome::Mutated
             }
             MultiSelectKeyOutcome::SelectNone => {
-                draft.current.disabled_groups = groups;
-                draft.current.enabled_groups.clear();
+                for g in &groups {
+                    if !draft.current.disabled_groups.contains(g) {
+                        draft.current.disabled_groups.push(g.clone());
+                    }
+                }
                 TabOutcome::Mutated
             }
             MultiSelectKeyOutcome::None => TabOutcome::None,
@@ -316,10 +354,18 @@ mod tests {
         let mut tab = GroupsTab::new(vec![]);
         let mut draft = DraftSettings::from_settings(Settings::default());
         tab.handle_key(key(KeyCode::Enter), &mut draft);
-        let initial_count = draft.current.enabled_groups.len();
         let out = tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
         assert!(matches!(out, TabOutcome::Mutated));
-        assert_ne!(draft.current.enabled_groups.len(), initial_count);
+        // Sparse: the group is disabled, enabled_groups stays the default.
+        assert_eq!(draft.current.disabled_groups, vec!["aws".to_string()]);
+        assert_eq!(
+            draft.current.enabled_groups,
+            Settings::default().enabled_groups
+        );
+        assert!(!GroupsTab::is_active(&draft, "aws"));
+        tab.handle_key(key(KeyCode::Char(' ')), &mut draft);
+        assert!(draft.current.disabled_groups.is_empty());
+        assert!(GroupsTab::is_active(&draft, "aws"));
     }
 
     #[test]
@@ -330,5 +376,4 @@ mod tests {
         tab.handle_key(key(KeyCode::Char('a')), &mut draft);
         assert!(draft.current.enabled_groups.iter().any(|g| g == "my_team"));
     }
-
 }

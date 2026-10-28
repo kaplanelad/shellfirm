@@ -1,0 +1,381 @@
+---
+# Regression cases for the shell-aware parser (src/parser.rs) and the
+# round-1 catalog fixes. Every path is reported as existing by the test env.
+
+# -- quoting: quoted operands are unquoted before matching --
+- test: 'rm -rf "/"'
+  description: "double-quoted root target"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf '/home'"
+  description: "single-quoted system dir"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: '"rm" -rf /'
+  description: "quoted program name"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'git push "-f" origin main'
+  description: "quoted force flag"
+  expect_ids: ["git:force_push"]
+- test: "$'rm' -rf /"
+  description: "ANSI-C quoted program name"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+
+# -- quoted text of non-shell commands is data --
+- test: 'echo "rm -rf /"'
+  description: "echo argument is data"
+  expect_ids: []
+- test: "echo rm -rf / is bad"
+  description: "unquoted echo arguments are data"
+  expect_ids: []
+- test: "grep -rn 'git push --force' ."
+  description: "grep pattern is data"
+  expect_ids: []
+- test: 'git commit -m "fix: rm -rf node_modules"'
+  description: "commit message is data"
+  expect_ids: []
+- test: "man rm"
+  description: "man page lookup"
+  expect_ids: []
+
+# -- wrappers: payloads are analyzed recursively --
+- test: 'bash -c "rm -rf /"'
+  description: "bash -c payload"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "sh -c 'git push -f origin main'"
+  description: "sh -c payload"
+  expect_ids: ["git:force_push"]
+- test: "sudo bash -c 'git reset --hard'"
+  description: "sudo + bash -c payload"
+  expect_ids: ["git:reset"]
+- test: "bash -lc 'git push -f'"
+  description: "combined -lc flags"
+  expect_ids: ["git:force_push"]
+- test: 'eval "git push -f origin main"'
+  description: "eval payload"
+  expect_ids: ["git:force_push"]
+- test: "echo $(git push -f)"
+  description: "command substitution"
+  expect_ids: ["git:force_push"]
+- test: "(cd /tmp && git reset --hard)"
+  description: "subshell"
+  expect_ids: ["git:reset"]
+- test: "ssh host 'git push -f origin main'"
+  description: "remote ssh command"
+  expect_ids: ["git:force_push"]
+- test: "docker exec web sh -c 'git push -f'"
+  description: "docker exec + sh -c"
+  expect_ids: ["git:force_push"]
+- test: "kubectl exec pod -- git push -f"
+  description: "kubectl exec -- command"
+  expect_ids: ["git:force_push"]
+- test: "watch -n1 'git push -f'"
+  description: "watch runs its argument via a shell"
+  expect_ids: ["git:force_push"]
+- test: "bash <<< 'git push -f'"
+  description: "here-string to a shell"
+  expect_ids: ["git:force_push"]
+- test: "alias gpf='git push -f'"
+  description: "an alias definition is not a run (the value is checked where the alias is used)"
+  expect_ids: []
+- test: "alias gpf='git push -f'; gpf origin main"
+  description: "the alias is expanded where it is used"
+  expect_ids: ["git:force_push"]
+- test: "find . -name '*.tmp' -exec git rm -r . \\;"
+  description: "find -exec command is analyzed"
+  expect_ids: ["git:delete_all"]
+
+# -- prefixes and paths --
+- test: "/usr/bin/git push -f"
+  description: "absolute program path"
+  expect_ids: ["git:force_push"]
+- test: "nohup nice -n 5 git push --force &"
+  description: "stacked prefixes"
+  expect_ids: ["git:force_push"]
+- test: "FOO=1 env BAR=2 git push -f"
+  description: "assignments and env"
+  expect_ids: ["git:force_push"]
+
+# -- chains, newlines, comments --
+- test: "ls\ngit push -f origin main"
+  description: "newline-separated commands"
+  expect_ids: ["git:force_push"]
+- test: "# it's fine\ngit push -f origin main\necho 'done'"
+  description: "apostrophe in a comment does not swallow the next line"
+  expect_ids: ["git:force_push"]
+- test: "git push -f origin main # --force-with-lease"
+  description: "exemption text inside a comment does not exempt"
+  expect_ids: ["git:force_push"]
+- test: "cat <<'EOF' > notes.md\nnever run git push -f here\nEOF"
+  description: "heredoc body is data"
+  expect_ids: ["fs:flush_file_content"]
+- test: "bash <<EOF\ngit push -f\nEOF"
+  description: "heredoc fed to a shell is code"
+  expect_ids: ["git:force_push"]
+
+# -- critical rm targets --
+- test: "rm -rf ~"
+  description: "home directory"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf ~/"
+  description: "home directory with trailing slash"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf $HOME"
+  description: "HOME variable"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'rm -rf "$HOME"'
+  description: "quoted HOME variable"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf ${HOME}/"
+  description: "braced HOME variable"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /*"
+  description: "everything under root"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /etc /usr"
+  description: "multiple system directories"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf .git"
+  description: "repository metadata"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf //"
+  description: "doubled root slash"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf /home/.."
+  description: "path that resolves to root"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf ../../"
+  description: "parent of parent"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf -- /"
+  description: "end-of-options marker"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "true && rm -rf build"
+  description: "chained recursive delete of a normal dir is Medium only"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm file.txt"
+  description: "plain file delete is Low"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm a.txt b.txt"
+  description: "multiple file operands"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "git rm -r --cached ."
+  description: "git rm --cached only untracks"
+  expect_ids: []
+
+# -- redirections: only `>` / `>|` to a real file --
+- test: "ls > /dev/null"
+  description: "stdout to /dev/null"
+  expect_ids: []
+- test: "ls 2>/dev/null"
+  description: "stderr redirection"
+  expect_ids: []
+- test: "ls &>/dev/null"
+  description: "combined redirection to /dev/null"
+  expect_ids: []
+- test: "make >> build.log"
+  description: "append does not truncate"
+  expect_ids: []
+- test: "echo x > /etc/hosts"
+  description: "truncating an existing file"
+  expect_ids: ["fs:flush_file_content", "fs:overwrite_system_file"]
+
+# -- global flags before the subcommand --
+- test: "git -C ~/projects/webapp push -f origin main"
+  description: "git -C"
+  expect_ids: ["git:force_push"]
+- test: "git -c core.x=y push --force"
+  description: "git -c"
+  expect_ids: ["git:force_push"]
+- test: "git -C /repo reset --hard"
+  description: "git -C reset"
+  expect_ids: ["git:reset"]
+- test: "git push -uf origin main"
+  description: "combined -uf"
+  expect_ids: ["git:force_push"]
+- test: "git push origin +main"
+  description: "force via +refspec"
+  expect_ids: ["git:force_push"]
+- test: "git push --force-with-lease -f origin main"
+  description: "-f overrides --force-with-lease"
+  expect_ids: ["git:force_push"]
+- test: "git push --force-with-lease origin main"
+  description: "lease alone is not a plain force push"
+  expect_ids: []
+- test: "kubectl --context=prod delete ns payments"
+  description: "kubectl --context= before verb"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl -n=prod delete deploy api"
+  description: "kubectl -n= before verb"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl -v=6 --insecure-skip-tls-verify delete deploy api"
+  description: "boolean and = flags before verb"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl delete deploy api --dry-run=none"
+  description: "--dry-run=none does not exempt"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl delete deploy api --dry-run=client"
+  description: "--dry-run=client exempts"
+  expect_ids: []
+- test: "kubectl apply -f k8s/ --prune -l app=web"
+  description: "apply --prune"
+  expect_ids: ["kubernetes:apply_prune"]
+- test: "helm -n prod uninstall api"
+  description: "helm -n before verb"
+  expect_ids: ["helm:uninstall"]
+- test: "helm --kube-context prod-eu del api"
+  description: "helm del alias"
+  expect_ids: ["helm:uninstall"]
+- test: "terraform -chdir=infra destroy"
+  description: "terraform -chdir before destroy"
+  expect_ids: ["terraform:destroy"]
+- test: "terraform apply -destroy"
+  description: "apply -destroy"
+  expect_ids: ["terraform:destroy"]
+- test: "tofu destroy -auto-approve"
+  description: "OpenTofu"
+  expect_ids: ["terraform:destroy_auto_approve"]
+- test: "terragrunt run-all destroy"
+  description: "Terragrunt run-all"
+  expect_ids: ["terraform:destroy"]
+
+# -- new cloud / database coverage --
+- test: "aws rds delete-db-cluster --db-cluster-identifier prod"
+  description: "RDS cluster delete"
+  expect_ids: ["aws:rds_delete_cluster"]
+- test: "aws s3 sync ./site s3://bucket --delete"
+  description: "s3 sync --delete"
+  expect_ids: ["aws:s3_sync_delete"]
+- test: "aws s3 sync ./site s3://bucket --delete --dryrun"
+  description: "s3 sync --delete dry run"
+  expect_ids: []
+- test: "aws kms schedule-key-deletion --key-id abc"
+  description: "KMS key deletion"
+  expect_ids: ["aws:kms_schedule_key_deletion"]
+- test: "gcloud storage rm -r gs://bucket"
+  description: "gcloud storage recursive rm"
+  expect_ids: ["gcp:storage_recursive_delete"]
+- test: "gcloud sql databases delete app --instance prod"
+  description: "Cloud SQL database delete"
+  expect_ids: ["gcp:delete_sql_database"]
+- test: "az sql db delete -g rg -s srv -n app"
+  description: "Azure SQL database delete"
+  expect_ids: ["azure:delete_database"]
+- test: "az postgres flexible-server delete -g rg -n srv"
+  description: "Azure Postgres flexible server delete"
+  expect_ids: ["azure:delete_database"]
+- test: "heroku pg:reset DATABASE_URL -a app"
+  description: "Heroku Postgres reset"
+  expect_ids: ["heroku:pg_reset"]
+- test: "dropdb -h prod-db app"
+  description: "dropdb"
+  expect_ids: ["psql:dropdb"]
+- test: "mysqladmin -f drop prod"
+  description: "mysqladmin drop"
+  expect_ids: ["mysql:mysqladmin_drop"]
+- test: 'db.getCollection("users").drop()'
+  description: "getCollection().drop()"
+  expect_ids: ["mongodb:interactive_drop_collection_indirect"]
+- test: "db.users.deleteMany({})"
+  description: "deleteMany with empty filter"
+  expect_ids: ["mongodb:delete_all_documents"]
+- test: "db.users.deleteMany({active: false})"
+  description: "deleteMany with a filter"
+  expect_ids: []
+- test: 'mongosh --eval "db.dropDatabase()"'
+  description: "quoted mongosh --eval payload"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_database"]
+- test: "redis-cli -h prod-cache flushall"
+  description: "redis-cli FLUSHALL with host flag"
+  expect_ids: ["redis:flushall"]
+
+# -- history pipe must not match `push` --
+- test: "history | grep git push -f"
+  description: "grep of history is not re-execution"
+  expect_ids: []
+
+# -- round 6: zsh brace forms (victor-r5:F1, maya-r5:F2) --
+- test: "{git push -f}"
+  description: "zsh group closed on the last word"
+  expect_ids: ["git:force_push"]
+- test: "repeat 1 {git push -f;}"
+  description: "zsh repeat with a brace body"
+  expect_ids: ["git:force_push"]
+- test: "() {git push -f;}"
+  description: "zsh anonymous function"
+  expect_ids: ["git:force_push"]
+- test: "{true} always {git push -f}"
+  description: "zsh always block"
+  expect_ids: ["git:force_push"]
+- test: "foreach x (a) {git push -f;}"
+  description: "zsh foreach with a brace body"
+  expect_ids: ["git:force_push"]
+- test: "{git,push,-f}"
+  description: "bash brace expansion builds the command (victor-r5:F3)"
+  expect_ids: ["git:force_push"]
+- test: "nu -c 'git push -f'"
+  description: "nu -c is unwrapped (ken-r5:N3)"
+  expect_ids: ["git:force_push"]
+- test: "pwsh -NoProfile -Command 'git push -f'"
+  description: "pwsh -Command is unwrapped"
+  expect_ids: ["git:force_push"]
+- test: "set c git; $c push -f"
+  description: "fish set assignment (ken-r5:N2)"
+  expect_ids: ["git:force_push"]
+- test: "$'\\x67it' push -f"
+  description: "ANSI-C hex escape in the command word (ken-r5:N4)"
+  expect_ids: ["git:force_push"]
+- test: "sudo $(echo git push -f)"
+  description: "a generated command behind sudo (sam-r5:S5-2)"
+  expect_ids: ["git:force_push"]
+- test: "{ echo ${x}; }"
+  description: "negative: a braced variable in a group"
+  expect_ids: []
+
+# -- round 7: a parenthesised word before the command (rosa-r6:R6-1, victor-r6:N3) --
+- test: "case x in (a) git push -f ;; esac"
+  description: "an opening ( before a case pattern"
+  expect_ids: ["git:force_push"]
+- test: "case x in (a|b) git push -f ;; (*) echo ;; esac"
+  description: "an alternation case pattern"
+  expect_ids: ["git:force_push"]
+- test: "for i (1) git push -f"
+  description: "zsh short for loop"
+  expect_ids: ["git:force_push"]
+- test: "foreach i (1) git push -f; end"
+  description: "zsh foreach"
+  expect_ids: ["git:force_push"]
+- test: "case a in a) {git push -f};; esac"
+  description: "zsh brace group after a case pattern"
+  expect_ids: ["git:force_push"]
+- test: "case a in (a) {git push -f};; esac"
+  description: "zsh brace group after a (pattern)"
+  expect_ids: ["git:force_push"]
+- test: "for ((i=0;i<1;i++)) {git push -f}"
+  description: "zsh brace group after an arithmetic for"
+  expect_ids: ["git:force_push"]
+- test: "for ((;;)) {git push -f;}"
+  description: "zsh brace group after an endless arithmetic for"
+  expect_ids: ["git:force_push"]
+- test: "f () {git push -f;}; f"
+  description: "zsh function with a space before ()"
+  expect_ids: ["git:force_push"]
+- test: "coproc {git push -f;}"
+  description: "zsh coproc brace group"
+  expect_ids: ["git:force_push"]
+- test: "f () {git push -f;}"
+  description: "negative: a definition only"
+  expect_ids: []
+- test: "case x in (a) echo hi ;; esac"
+  description: "negative: a harmless case"
+  expect_ids: []
+- test: "time -p git push -f"
+  description: "time -p prefix (rosa-r6:R6-7)"
+  expect_ids: ["git:force_push"]
+- test: "var c = git; (external $c) push --force origin main"
+  description: "elvish external with a variable (ken-r6:R6-4)"
+  expect_ids: ["git:force_push"]
+- test: "exec 3<<<'git push -f'; source /dev/fd/3"
+  description: "a here-string on a file descriptor sourced later (ken-r6:R6-9)"
+  expect_ids: ["git:force_push"]
+- test: "tmux new -d 'git push -f'"
+  description: "a command run by tmux (rosa-r6:R6-7)"
+  expect_ids: ["git:force_push"]

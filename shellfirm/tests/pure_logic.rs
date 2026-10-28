@@ -123,12 +123,27 @@ fn test_escalate_normal_does_not_change() {
 }
 
 #[test]
-fn test_escalate_elevated_raises_to_enter() {
+fn test_escalate_elevated_raises_to_math() {
     let esc = EscalationConfig::default();
     assert_eq!(
-        context::escalate_challenge(&Challenge::Math, RiskLevel::Elevated, &esc),
-        Challenge::Enter
+        context::escalate_challenge(&Challenge::Enter, RiskLevel::Elevated, &esc),
+        Challenge::Math
     );
+    // Never lowers Math to Enter.
+    assert_eq!(
+        context::escalate_challenge(&Challenge::Math, RiskLevel::Elevated, &esc),
+        Challenge::Math
+    );
+}
+
+#[test]
+fn test_challenge_order_enter_math_yes() {
+    assert!(Challenge::Enter < Challenge::Math);
+    assert!(Challenge::Math < Challenge::Yes);
+    assert_eq!(Challenge::Math.stricter(Challenge::Enter), Challenge::Math);
+    assert_eq!(Challenge::Enter.stricter(Challenge::Yes), Challenge::Yes);
+    assert!(Challenge::Yes.is_stricter_than(Challenge::Math));
+    assert!(!Challenge::Math.is_stricter_than(Challenge::Math));
 }
 
 #[test]
@@ -143,7 +158,7 @@ fn test_escalate_critical_raises_to_yes() {
 #[test]
 fn test_escalate_cannot_lower() {
     let esc = EscalationConfig::default();
-    // Yes is already stricter than Enter (elevated escalation)
+    // Yes is already stricter than the elevated floor
     assert_eq!(
         context::escalate_challenge(&Challenge::Yes, RiskLevel::Elevated, &esc),
         Challenge::Yes
@@ -400,19 +415,19 @@ fn test_severity_escalation_defaults() {
     );
     assert_eq!(
         config.challenge_for_severity(Severity::High),
-        Some(Challenge::Enter)
+        Some(Challenge::Math)
     );
     assert_eq!(
         config.challenge_for_severity(Severity::Medium),
-        Some(Challenge::Math)
+        Some(Challenge::Enter)
     );
     assert_eq!(
         config.challenge_for_severity(Severity::Low),
-        Some(Challenge::Math)
+        Some(Challenge::Enter)
     );
     assert_eq!(
         config.challenge_for_severity(Severity::Info),
-        Some(Challenge::Math)
+        Some(Challenge::Enter)
     );
 }
 
@@ -488,7 +503,7 @@ fn test_sparse_config_deserializes_new_fields_with_defaults() {
     let settings: shellfirm::Settings = serde_yaml::from_str(yaml).unwrap();
     assert!(settings.severity_escalation.enabled);
     assert_eq!(settings.severity_escalation.critical, Challenge::Yes);
-    assert_eq!(settings.severity_escalation.high, Challenge::Enter);
+    assert_eq!(settings.severity_escalation.high, Challenge::Math);
     assert!(settings.group_escalation.is_empty());
     assert!(settings.check_escalation.is_empty());
 }

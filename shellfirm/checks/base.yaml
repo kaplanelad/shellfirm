@@ -4,69 +4,140 @@
   id: base:bash_fork_bomb
   severity: Critical
 - from: base
-  test: \s*crontab\s+-r
-  description: "You are going to remove your entire table of cron tasks."
+  test: (?:^|\s)crontab\s+-r
+  description: "This removes all of your cron jobs."
   id: base:delete_all_cron_tasks
   severity: High
 - from: base
-  test: \s*history(.*)[|](.*)(bash|sh)($|\s)
-  description: "You are going to executes every command from the command log that you have already executed."
+  # `crontab FILE` / `… | crontab -` replace the whole crontab (the commands
+  # of piped cron lines are analyzed too).
+  test: '(?:^|\s)crontab\s+(?:-u\s+\S+\s+)?(?:-|[^-\s]\S*)(?:\s|$)'
+  description: "This replaces your whole crontab with this input: every existing cron job not in it is removed, and the new ones run on a schedule from now on."
+  id: base:crontab_replace
+  severity: Medium
+  alternative: "crontab -l > crontab.backup"
+  alternative_info: "Save the current crontab first, then review the new one with `crontab -l` after installing it."
+- from: base
+  test: (?:^|\s)history\b.*\|\s*(?:sudo\s+)?(?:ba|z|da|k)?sh(?:\s|$)
+  description: "This re-runs every command in your shell history."
   id: base:execute_all_history_commands
   severity: Critical
 - from: base
   test: (^|\s)reboot(\s|$)
-  description: "You are going to reboot your machine."
+  description: "This reboots the machine."
   id: base:reboot_machine
   severity: High
 - from: base
-  test: (^|\s)shutdown(\s|$)
-  description: "You are going to shutdown your machine."
+  # Anchored: `redis-cli shutdown` is a Redis command, not the machine.
+  test: ^shutdown(\s|$)
+  description: "This shuts down the machine."
   id: base:shutdown_machine
   severity: High
 - from: base
-  test: kill\s+-9\s+
+  # PID 1 is init/systemd (in a container: the main process); -1 means every
+  # process the user may signal.
+  test: '(?:^|\s)kill\s+(?:(?:-s|-n|--signal)\s+\S+\s+|-\S+\s+)*(?:--\s+)?-?1(?:\s|$)'
+  description: "This signals PID 1 (init, or a container's main process) or every process you own (-1): it can halt the machine or end your whole session."
+  id: process:kill_init_or_all
+  severity: Critical
+- from: base
+  test: '(?:^|\s)history\s+(?:-\S+\s+)*-[a-zA-Z]*c[a-zA-Z]*(?:\s|$)'
+  description: "This erases your shell history, including the record of what was run."
+  id: base:clear_history
+  severity: Medium
+- from: base
+  test: (?:^|\s)kill\s+-9\s+
   description: "SIGKILL gives no chance for graceful shutdown or cleanup."
   id: process:kill_9
   severity: Low
   alternative: "kill <pid>"
   alternative_info: "Send SIGTERM first to allow graceful shutdown, then kill -9 if needed."
 - from: base
-  test: killall\s+
-  description: "Kills ALL processes matching the name."
+  test: (?:^|\s)killall\s+
+  description: "This kills every process with that name."
   id: process:killall
   severity: Medium
 - from: base
-  test: pkill\s+
-  description: "Kills processes matching a pattern — could match unintended processes."
+  test: (?:^|\s)pkill\s+
+  description: "This kills every process matching the pattern, which can include unintended ones."
   id: process:pkill
   severity: Medium
 - from: base
-  test: systemctl\s+(disable|mask)\s+
+  test: (?:^|\s)systemctl\s+(disable|mask)\s+
   description: "Disabling or masking a service prevents it from starting on boot."
   id: systemd:disable_service
   severity: Medium
 - from: base
-  test: systemctl\s+stop\s+(docker|sshd|nginx|apache2|httpd|postgresql|mysql|redis)[\w.-]*(\s|$)
+  # Also the node's Kubernetes runtime (kubelet, containerd, cri-o, etcd) and
+  # the SysV `service NAME stop` form.
+  test: (?:(?:^|\s)systemctl\s+(?:-\S+\s+)*(?:stop|kill)\s+(?:\S+\s+)*?(docker|sshd?|nginx|apache2|httpd|postgresql|postgres|mysqld?|mariadb|redis|redis-server|mongod|kubelet|containerd|crio|cri-o|etcd|kube-apiserver|haproxy)[\w.@-]*|(?:^|\s)service\s+(docker|sshd?|nginx|apache2|httpd|postgresql|postgres|mysqld?|mariadb|redis|redis-server|mongod|kubelet|containerd|crio|cri-o|etcd|haproxy)[\w.@-]*\s+stop)(\s|$)
   description: "Stopping a critical system service can cause outages."
   id: systemd:stop_critical_service
   severity: High
 - from: base
-  test: (halt|poweroff)(\s|$)
-  description: "This command will immediately power off your machine."
+  test: (?:^|\s)(halt|poweroff)(\s|$)
+  description: "This powers off the machine immediately."
   id: base:poweroff_machine
   severity: High
 - from: base
-  test: init\s+(0|6)(\s|$)
-  description: "This command will shutdown (init 0) or reboot (init 6) your machine."
+  test: (?:^|\s)init\s+(0|6)(\s|$)
+  description: "This shuts down (init 0) or reboots (init 6) the machine."
   id: base:init_shutdown_reboot
   severity: High
 - from: base
-  test: ssh-add\s+-D
-  description: "Removes all SSH identities from the agent."
+  test: (?:^|\s)ssh-add\s+-D
+  description: "This removes all identities from the SSH agent."
   id: ssh:delete_all_identities
   severity: Medium
 - from: base
-  test: ssh-keygen\s+-R\s+
+  test: (?:^|\s)ssh-keygen\s+-R\s+
   description: "Removes a host from known_hosts — could enable MITM attacks."
   id: ssh:remove_known_host
   severity: Low
+- from: base
+  # `userdel -r` / Debian `deluser --remove-home` / `--remove-all-files`.
+  test: (?:^|\s)(?:userdel\s+(?:\S+\s+)*?(?:-r|--remove|-[a-zA-Z]*r[a-zA-Z]*)|deluser\s+(?:\S+\s+)*?--remove-(?:home|all-files))(?:\s|$)
+  description: "This deletes the user together with their home directory and mail spool."
+  id: base:userdel_remove_home
+  severity: High
+- from: base
+  test: (?:^|\s)passwd\s+(?:\S+\s+)*?(?:-d|--delete)(?:\s|$)
+  description: "This removes the account's password: it can then log in without one."
+  id: base:passwd_delete
+  severity: High
+- from: base
+  # `echo b > /proc/sysrq-trigger` reboots at once (o: power off, c: crash).
+  test: '(?:(?:^|\s)\d*>>?\s+|(?:^|\s)tee\s+(?:\S+\s+)*?)/proc/sysrq-trigger(?:\s|$)'
+  description: "This runs a kernel SysRq action immediately (b reboots, o powers off, c crashes the kernel), without a clean shutdown."
+  id: base:sysrq_trigger
+  severity: Critical
+- from: base
+  # A service enabled to start at boot / login keeps running whatever it
+  # runs (`systemctl --user enable x.service` needs no root).
+  test: '(?:^|\s)systemctl\s+(?:-\S+\s+)*?(?:--user\s+(?:-\S+\s+)*?)?(?:enable|link)\s+\S'
+  description: "This makes a service start automatically at every boot or login."
+  id: base:systemctl_enable
+  severity: Low
+- from: base
+  # `systemctl isolate rescue.target` stops every other unit (network, sshd):
+  # a remote session is cut off.
+  test: '(?:^|\s)systemctl\s+(?:-\S+\s+)*(?:isolate\s+(?:rescue|emergency|halt|poweroff|reboot|runlevel[016])(?:\.target)?|rescue|emergency)(?:\s|$)'
+  description: "This switches the machine to single-user / emergency mode (or halts it): every other service stops, including the network and SSH."
+  id: systemd:isolate_rescue
+  severity: High
+- from: base
+  # Locking the root account (or your own) over SSH can lock you out.
+  test: '(?:^|\s)(?:passwd\s+(?:\S+\s+)*?(?:-l|--lock)|usermod\s+(?:\S+\s+)*?(?:-L|--lock))\s+(?:\S+\s+)*?root(?:\s|$)'
+  description: "This locks the root account's password: without another administrator login you can lock yourself out."
+  id: base:lock_root_account
+  severity: High
+- from: base
+  test: '(?:^|\s)mount\s+(?:\S+\s+)*?-o\s+\S*(?:remount,ro|ro,remount)\S*\s+/(?:\s|$)'
+  description: "This remounts the root filesystem read-only: services that write to disk start failing."
+  id: base:remount_root_readonly
+  severity: High
+- from: base
+  test: '(?:^|\s)journalctl\s+(?:\S+\s+)*?--vacuum-(?:time|size|files)'
+  description: "This permanently deletes archived system journal logs."
+  id: base:journal_vacuum
+  severity: Medium

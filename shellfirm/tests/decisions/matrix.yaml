@@ -3,14 +3,24 @@
 
 # --- Basic pattern matching (no context, no policy) ---
 # Note: severity escalation is ON by default, so:
-#   High severity → Enter, Critical severity → Yes
+#   High severity → Math, Critical severity → Yes (challenge order: Enter < Math < Yes)
+# Context detection is command-aware: the push target / --context in the
+# command itself is evaluated, not only the ambient branch / k8s context.
 - name: "force push detected with default settings"
+  command: "git push -f origin feature/foo"
+  context: {}
+  expected:
+    matched_ids: ["git:force_push"]
+    effective_challenge: Math   # High severity → Math
+    risk_level: Normal
+
+- name: "force push TO main is critical even without being on main"
   command: "git push -f origin main"
   context: {}
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Enter   # High severity → Enter
-    risk_level: Normal
+    effective_challenge: "Yes"   # push target `main` is a protected branch
+    risk_level: Critical
 
 - name: "safe command passes through"
   command: "git status"
@@ -31,7 +41,7 @@
   context: {}
   expected:
     matched_ids: ["docker:system_prune_all"]
-    effective_challenge: Enter   # High severity → Enter
+    effective_challenge: Math   # High severity → Math
     risk_level: Normal
 
 - name: "terraform auto-approve detected"
@@ -47,7 +57,7 @@
   context: {}
   expected:
     matched_ids: ["aws:s3_recursive_delete"]
-    effective_challenge: Enter   # High severity → Enter
+    effective_challenge: Math   # High severity → Math
     risk_level: Normal
 
 - name: "database drop detected"
@@ -86,13 +96,13 @@
     effective_challenge: "Yes"   # Critical severity → Yes (even in normal context)
     risk_level: Normal
 
-- name: "SSH session elevates to Enter"
-  command: "git push -f origin main"
+- name: "SSH session elevates (never lowers) the challenge"
+  command: "git push -f origin feature/foo"
   context:
     ssh: true
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Enter
+    effective_challenge: Math   # max(Math severity, Math SSH floor)
     risk_level: Elevated
 
 - name: "root user escalates to Critical"
@@ -121,7 +131,42 @@
     k8s_context: minikube
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Enter   # High severity → Enter (no context escalation)
+    effective_challenge: Math   # High severity → Math (no context escalation)
+    risk_level: Normal
+
+- name: "force push to a feature branch while on main is not protected"
+  command: "git push -f origin feature/foo"
+  context:
+    git_branch: main
+  expected:
+    matched_ids: ["git:force_push"]
+    effective_challenge: Math
+    risk_level: Normal
+
+- name: "force push HEAD:main from a feature branch is critical"
+  command: "git push --force origin HEAD:main"
+  context:
+    git_branch: "feature/foo"
+  expected:
+    matched_ids: ["git:force_push"]
+    effective_challenge: "Yes"
+    risk_level: Critical
+
+- name: "kubectl --context prod overrides a dev current-context"
+  command: "kubectl --context prod-eu delete namespace payments"
+  context:
+    k8s_context: minikube
+  expected:
+    matched_ids: ["kubernetes:delete_namespace"]
+    effective_challenge: "Yes"
+    risk_level: Critical
+
+- name: "preprod is not a production k8s context"
+  command: "kubectl delete namespace payments"
+  context:
+    k8s_context: preprod
+  expected:
+    matched_ids: ["kubernetes:delete_namespace"]
     risk_level: Normal
 
 - name: "release wildcard branch is Critical"
@@ -260,13 +305,13 @@
     effective_challenge: "Yes"
     risk_level: Normal
 
-- name: "High severity gets Enter challenge on normal context"
+- name: "High severity gets Math challenge on normal context"
   command: "git push -f origin feature/foo"
   context:
     git_branch: "feature/foo"
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: Enter
+    effective_challenge: Math
     risk_level: Normal
 
 - name: "High severity + Critical context stacks correctly"
@@ -275,7 +320,7 @@
     git_branch: main
   expected:
     matched_ids: ["git:force_push"]
-    effective_challenge: "Yes"  # max(Enter from severity, Yes from context)
+    effective_challenge: "Yes"  # max(Math from severity, Yes from context)
     risk_level: Critical
 
 - name: "Critical severity + Elevated context takes max"
@@ -284,5 +329,5 @@
     ssh: true
   expected:
     matched_ids: ["kubernetes:delete_namespace"]
-    effective_challenge: "Yes"  # max(Yes from severity, Enter from SSH)
+    effective_challenge: "Yes"  # max(Yes from severity, Math from SSH)
     risk_level: Elevated

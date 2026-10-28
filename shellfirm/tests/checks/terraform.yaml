@@ -75,10 +75,10 @@
   expect_ids: ["terraform:destroy_auto_approve"]
 - test: "terraform destroy"
   description: "negative: destroy without auto-approve should not match"
-  expect_ids: []
+  expect_ids: ["terraform:destroy"]
 - test: "terraform destroy -target=aws_instance.foo"
   description: "negative: destroy with target but no auto-approve should not match"
-  expect_ids: []
+  expect_ids: ["terraform:destroy"]
 
 # -- terraform:state_rm --
 - test: "terraform state rm aws_instance.foo"
@@ -104,8 +104,8 @@
   description: "EDGE: -var before -auto-approve"
   expect_ids: ["terraform:apply_with_auto_approve"]
 - test: "terraform apply plan.tfplan"
-  description: "EDGE: applying from saved plan should NOT match"
-  expect_ids: []
+  description: "applying a saved plan never asks: the plan-file check"
+  expect_ids: ["terraform:apply_plan_file"]
 
 # -- terraform:destroy_auto_approve edge cases --
 - test: "terraform destroy -target=aws_instance.foo -auto-approve"
@@ -116,3 +116,191 @@
 - test: "terraform force-unlock LOCK_ID -force"
   description: "match force-unlock with -force after lock ID"
   expect_ids: ["terraform:force_unlock_with_force_flag"]
+
+# -- terraform workspace delete / force-unlock --
+- test: 'terraform workspace delete prod'
+  description: "delete workspace"
+  expect_ids: ["terraform:workspace_delete"]
+- test: 'tofu workspace delete staging'
+  description: "tofu"
+  expect_ids: ["terraform:workspace_delete"]
+- test: 'terraform force-unlock 1234'
+  description: "force unlock"
+  expect_ids: ["terraform:force_unlock"]
+
+# -- terraform:pulumi_destroy / terraform:pulumi_stack_rm --
+- test: "pulumi destroy"
+  description: "destroys the stack's resources"
+  expect_ids: ["terraform:pulumi_destroy"]
+- test: "pulumi destroy --yes --stack prod"
+  description: "with flags"
+  expect_ids: ["terraform:pulumi_destroy"]
+- test: "pulumi --cwd infra destroy -y"
+  description: "global flag before the verb"
+  expect_ids: ["terraform:pulumi_destroy"]
+- test: "pulumi destroy --preview-only"
+  description: "negative: preview only"
+  expect_ids: []
+- test: "pulumi preview --destroy"
+  description: "negative: preview"
+  expect_ids: []
+- test: "pulumi stack rm prod"
+  description: "removes a stack"
+  expect_ids: ["terraform:pulumi_stack_rm"]
+# -- terraform:import / taint / state_push_force (R4) --
+- test: 'terraform import aws_instance.web i-123'
+  description: "import"
+  expect_ids: ["terraform:import"]
+- test: 'terraform taint aws_instance.web'
+  description: "taint"
+  expect_ids: ["terraform:taint"]
+- test: 'terraform state push -force old.tfstate'
+  description: "forced state push"
+  expect_ids: ["terraform:state_push_force"]
+- test: 'terraform state push new.tfstate'
+  description: "negative: state push without -force keeps the lineage checks"
+  expect_ids: []
+# -- round 5 (Omar R4 N7) --
+- test: "terraform apply -replace=aws_instance.x"
+  description: "apply -replace destroys and recreates"
+  expect_ids: ["terraform:apply_replace"]
+- test: "terraform plan -replace=aws_instance.x"
+  description: "a plan changes nothing"
+  expect_ids: []
+# -- terraform:vault_secrets_destroy --
+- test: "vault secrets disable secret/"
+  description: "unmounting a secrets engine deletes its data"
+  expect_ids: ["terraform:vault_secrets_destroy"]
+- test: "vault kv metadata delete secret/prod/db"
+  description: "deletes every version"
+  expect_ids: ["terraform:vault_secrets_destroy"]
+- test: "vault kv destroy -versions=1,2 secret/prod/db"
+  description: "destroys versions permanently"
+  expect_ids: ["terraform:vault_secrets_destroy"]
+- test: "vault kv get secret/prod/db"
+  description: "negative: reading a secret"
+  expect_ids: []
+- test: "vault kv delete secret/prod/db"
+  description: "kv delete: permanent on KV v1, undoable on v2 (Medium)"
+  expect_ids: ["terraform:vault_kv_delete"]
+- test: "vault kv delete -mount=secret prod/db"
+  description: "kv delete with a mount flag"
+  expect_ids: ["terraform:vault_kv_delete"]
+- test: "vault kv undelete -versions=3 secret/prod/db"
+  description: "negative: undelete restores"
+  expect_ids: []
+
+# -- terraform:vault_raft_remove_peer --
+- test: "vault operator raft remove-peer node3"
+  description: "removing a raft peer"
+  expect_ids: ["terraform:vault_raft_remove_peer"]
+- test: "vault operator raft list-peers"
+  description: "negative: listing peers"
+  expect_ids: []
+- test: "vault secrets list"
+  description: "negative: listing engines"
+  expect_ids: []
+# -- terraform:vault_seal_or_revoke --
+- test: "vault operator seal"
+  description: "seals Vault"
+  expect_ids: ["terraform:vault_seal_or_revoke"]
+- test: "vault token revoke -mode=orphan abc"
+  description: "revokes a token tree"
+  expect_ids: ["terraform:vault_seal_or_revoke"]
+- test: "vault lease revoke -prefix aws/creds"
+  description: "revokes every lease under a prefix"
+  expect_ids: ["terraform:vault_seal_or_revoke"]
+- test: "vault operator unseal"
+  description: "negative: unsealing"
+  expect_ids: []
+- test: "vault token lookup abc"
+  description: "negative: a lookup"
+  expect_ids: []
+# -- terraform:consul_kv_delete_recurse --
+- test: "consul kv delete -recurse service/"
+  description: "deletes every key under the prefix"
+  expect_ids: ["terraform:consul_kv_delete_recurse"]
+- test: "consul kv delete service/web/port"
+  description: "negative: one key"
+  expect_ids: []
+- test: "consul kv get -recurse service/"
+  description: "negative: reading"
+  expect_ids: []
+# -- terraform:nomad_job_purge --
+- test: "nomad job stop -purge api"
+  description: "stops and purges a job"
+  expect_ids: ["terraform:nomad_job_purge"]
+- test: "nomad stop -purge api"
+  description: "the short form"
+  expect_ids: ["terraform:nomad_job_purge"]
+- test: "nomad job stop api"
+  description: "negative: stop without purge"
+  expect_ids: []
+- test: "mynomad job stop -purge api"
+  description: "negative: another tool"
+  expect_ids: []
+# -- terraform:nomad_system_gc --
+- test: "nomad system gc"
+  description: "garbage-collects cluster history"
+  expect_ids: ["terraform:nomad_system_gc"]
+- test: "nomad system reconcile summaries"
+  description: "negative: another system command"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG) ----
+# -- terraform:vault_auth_disable --
+- test: "vault auth disable kubernetes/"
+  description: "disabling an auth method"
+  expect_ids: ["terraform:vault_auth_disable"]
+- test: "vault auth list -detailed"
+  description: "listing"
+  expect_ids: []
+- test: "vault auth enable userpass"
+  description: "enabling"
+  expect_ids: []
+# -- terraform:vault_policy_delete --
+- test: "vault policy delete admin"
+  description: "deleting a policy"
+  expect_ids: ["terraform:vault_policy_delete"]
+- test: "vault policy read admin"
+  description: "reading"
+  expect_ids: []
+- test: "vault policy list"
+  description: "listing"
+  expect_ids: []
+# -- terraform:vault_seal_or_revoke --
+- test: "vault token revoke -mode=path auth/"
+  description: "revoking every token under a path"
+  expect_ids: ["terraform:vault_seal_or_revoke"]
+- test: "vault token revoke s.abc"
+  description: "one token"
+  expect_ids: []
+
+# -- applying a saved plan file (never asks) --
+- test: "terraform apply tfplan"
+  description: "a saved plan is applied without confirmation"
+  expect_ids: ["terraform:apply_plan_file"]
+- test: "tofu apply p"
+  description: "OpenTofu, saved plan"
+  expect_ids: ["terraform:apply_plan_file"]
+- test: "terraform -chdir=infra apply -input=false plan.out"
+  description: "options before the plan file"
+  expect_ids: ["terraform:apply_plan_file"]
+- test: "terraform apply"
+  description: "negative: an interactive apply asks itself"
+  expect_ids: []
+- test: "terraform apply -target aws_instance.web"
+  description: "negative: the value of -target is not a plan file"
+  expect_ids: []
+- test: "terraform apply -var region=eu-west-1"
+  description: "negative: a variable is not a plan file"
+  expect_ids: []
+- test: "terraform plan -destroy -out=p && terraform apply p"
+  description: "a destroy plan written and applied on the same line"
+  expect_ids: ["terraform:apply_destroy_plan", "terraform:apply_plan_file"]
+- test: "tofu plan -destroy -out p; tofu apply p"
+  description: "OpenTofu destroy plan applied on the same line"
+  expect_ids: ["terraform:apply_destroy_plan", "terraform:apply_plan_file"]
+- test: "terraform plan -out=p && terraform apply p"
+  description: "a normal plan applied on the same line is the plan-file check only"
+  expect_ids: ["terraform:apply_plan_file"]

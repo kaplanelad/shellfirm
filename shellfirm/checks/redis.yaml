@@ -1,30 +1,113 @@
 - from: redis
-  test: (?i)redis-cli\s+.*FLUSHALL
-  description: "FLUSHALL will delete all data across all Redis databases."
+  test: (?i)(?:^|\s)redis-cli\s+.*FLUSHALL
+  description: "FLUSHALL deletes all data in every Redis database."
   id: redis:flushall
   severity: Critical
-  alternative: "redis-cli FLUSHDB"
-  alternative_info: "FLUSHDB only clears the current database, not all databases."
+  alternative: "redis-cli BGSAVE && redis-cli -n <db> FLUSHDB"
+  alternative_info: "Take a snapshot first, then clear only the one database you mean (FLUSHALL wipes every database)."
 - from: redis
-  test: (?i)redis-cli\s+.*FLUSHDB
-  description: "FLUSHDB will delete all data in the current Redis database."
+  test: (?i)(?:^|\s)redis-cli\s+.*FLUSHDB
+  description: "FLUSHDB deletes all data in the current Redis database."
   id: redis:flushdb
   severity: High
 # Interactive session patterns (for shellfirm wrap)
 - from: redis
-  test: (?i)^\s*FLUSHALL\s*$
+  test: (?i)^\s*FLUSHALL(?:\s+(?:ASYNC|SYNC))?\s*$
   id: redis:interactive_flushall
   severity: Critical
-  description: "FLUSHALL will delete all data across all Redis databases."
-  alternative: "FLUSHDB"
-  alternative_info: "FLUSHDB only clears the current database."
+  description: "FLUSHALL deletes all data in every Redis database."
+  alternative: "BGSAVE, then SELECT <db> and FLUSHDB"
+  alternative_info: "Take a snapshot first, then clear only the one database you mean (FLUSHALL wipes every database)."
 - from: redis
-  test: (?i)^\s*FLUSHDB\s*$
+  test: (?i)^\s*FLUSHDB(?:\s+(?:ASYNC|SYNC))?\s*$
   id: redis:interactive_flushdb
   severity: High
-  description: "FLUSHDB will delete all data in the current Redis database."
+  description: "FLUSHDB deletes all data in the current Redis database."
 - from: redis
-  test: (?i)^\s*SHUTDOWN\s*(NOSAVE)?\s*$
+  test: (?i)^\s*SHUTDOWN(?:\s+(?:NOSAVE|SAVE|NOW|FORCE|ABORT))*\s*$
   id: redis:interactive_shutdown
   severity: Critical
-  description: "SHUTDOWN will stop the Redis server."
+  description: "SHUTDOWN stops the Redis server."
+- from: redis
+  test: (?i)(?:^|\s)redis-cli\s+(?:\S+\s+)*?SHUTDOWN\b
+  description: "SHUTDOWN stops the Redis server (with NOSAVE, data since the last snapshot is lost)."
+  id: redis:shutdown
+  severity: High
+- from: redis
+  test: (?i)^\s*(?:EVAL|EVAL_RO|FCALL)\s.*\bflush(?:all|db)\b
+  id: redis:eval_flush
+  severity: Critical
+  description: "This Lua script calls FLUSHALL/FLUSHDB and deletes data."
+- from: redis
+  test: (?i)^\s*SCRIPT\s+FLUSH\b
+  id: redis:script_flush
+  severity: Medium
+  description: "SCRIPT FLUSH removes every cached Lua script; EVALSHA calls fail until they are loaded again."
+- from: redis
+  test: (?i)^\s*FUNCTION\s+(?:FLUSH|DELETE)\b
+  id: redis:function_flush
+  severity: Medium
+  description: "This deletes Redis functions that applications may call."
+- from: redis
+  test: (?i)^\s*CONFIG\s+SET\b
+  id: redis:config_set
+  severity: Medium
+  description: "CONFIG SET changes the live server configuration (persistence, memory limits, security)."
+- from: redis
+  test: (?i)^\s*DEBUG\s+(?:SEGFAULT|RELOAD|RESTART|CRASH-AND-RECOVER|SLEEP|OOM|PANIC|SET-ACTIVE-EXPIRE|JMAP)\b
+  id: redis:debug
+  severity: High
+  description: "DEBUG can crash, block or reload the Redis server."
+- from: redis
+  test: (?i)^\s*CLUSTER\s+(?:RESET|FAILOVER|FORGET|FLUSHSLOTS|DELSLOTS)\b
+  id: redis:cluster_reset
+  severity: High
+  description: "This changes the cluster topology and can make the node lose its slots or data."
+- from: redis
+  test: (?i)(?:^|\s)redis-cli\s+(?:\S+\s+)*?(?:CONFIG\s+SET|DEBUG\s+(?:SEGFAULT|RELOAD|RESTART|SLEEP)|CLUSTER\s+RESET|SCRIPT\s+FLUSH)\b
+  id: redis:cli_admin
+  severity: Medium
+  description: "This runs an administrative Redis command (CONFIG SET, DEBUG, CLUSTER RESET, SCRIPT FLUSH)."
+- from: redis
+  test: (?i)(?:^\s*|(?:^|\s)redis-cli\s(?:.*\s)?)(?:REPLICAOF|SLAVEOF)\s+\S+\s+\S+
+  id: redis:replicaof
+  severity: High
+  description: "REPLICAOF/SLAVEOF makes this server a replica: it throws away its whole dataset and copies the other server's."
+  filters:
+    - type: NotMatches
+      value: (?i)\b(?:REPLICAOF|SLAVEOF)\s+NO\s+ONE\b
+- from: redis
+  test: (?i)(?:^\s*|(?:^|\s)redis-cli\s(?:.*\s)?)SWAPDB\s+\d+\s+\d+
+  id: redis:swapdb
+  severity: High
+  description: "SWAPDB swaps two databases: every client of one database instantly sees the other's data."
+- from: redis
+  test: (?i)(?:^\s*|(?:^|\s)redis-cli\s(?:.*\s)?)ACL\s+DELUSER\b
+  id: redis:acl_deluser
+  severity: Medium
+  description: "ACL DELUSER removes users; applications authenticating as them lose access."
+- from: redis
+  test: (?i)(?:^|\s)redis-cli\s(?:.*\s)?FUNCTION\s+(?:FLUSH|DELETE)\b
+  id: redis:cli_function_flush
+  severity: Medium
+  description: "This deletes Redis functions that applications may call."
+# `redis-cli KEYS '*' | xargs redis-cli DEL`: deletes every key (pipelines
+# are matched on the whole line).
+- from: redis
+  test: (?i)(?:^|\s)redis-cli\b[^|]*\s(?:KEYS[\s\x01]+['"]?\*['"]?|--scan)(?:[\s\x01][^|]*)?\|\s*xargs\b[^|]*\bredis-cli\b[^|]*\s(?:DEL|UNLINK)\b
+  id: redis:keys_xargs_del
+  severity: High
+  description: "This lists every key and deletes them all (KEYS/--scan piped into DEL)."
+  filters:
+    - type: NotMatches
+      value: (?i)--pattern[\s\x01=]+['"]?[^*\s\x01'"]
+# `redis-cli --scan --pattern 'sess:*' | xargs redis-cli DEL` (or `KEYS
+# 'sess:*'`): every key of the pattern, in bulk and unreviewed. A pattern that
+# starts with `*` (all keys) is redis:keys_xargs_del above.
+- from: redis
+  test: (?i)(?:^|\s)redis-cli\b[^|]*\s(?:KEYS[\s\x01]+|--scan\b[^|]*\s--pattern(?:[\s\x01]+|=))['"]?[^*\s\x01'"|][^\s\x01'"|]*?[*?\[][^\s\x01'"|]*['"]?(?:[\s\x01][^|]*)?\|\s*xargs\b[^|]*\bredis-cli\b[^|]*\s(?:DEL|UNLINK)\b
+  id: redis:pattern_xargs_del
+  severity: High
+  description: "This deletes every key that matches the pattern (KEYS / --scan --pattern piped into DEL), in bulk and without a review."
+  alternative: "redis-cli --scan --pattern '<pattern>' | head"
+  alternative_info: "Look at (and count, with `| wc -l`) the keys the pattern matches first."

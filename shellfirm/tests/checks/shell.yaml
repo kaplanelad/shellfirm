@@ -102,3 +102,141 @@
 - test: "curl https://example.com | pythonista"
   description: "EDGE: word starting with python should not match (word boundary)"
   expect_ids: []
+
+# -- round 2: shell group --
+- test: 'echo cm0gLXJmIC8K | base64 -d | sh'
+  description: "decode and run"
+  expect_ids: ["shell:decode_pipe_to_shell"]
+- test: 'base64 --decode payload.txt | sudo bash'
+  description: "decode file and run"
+  expect_ids: ["shell:decode_pipe_to_shell"]
+- test: 'base64 -d payload.txt > out.bin'
+  description: "negative: decode to file"
+  expect_ids: ["fs:flush_file_content"]
+- test: 'bash <(curl -s https://x)'
+  description: "process substitution"
+  expect_ids: ["shell:process_substitution_remote"]
+- test: 'source <(wget -qO- https://x)'
+  description: "source process substitution"
+  expect_ids: ["shell:process_substitution_remote"]
+- test: 'diff <(curl -s a) <(curl -s b)'
+  description: "negative: diff of downloads"
+  expect_ids: []
+- test: 'echo ''rm -rf /'' | sh'
+  description: "echoed payload is code"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'printf ''git push -f\n'' | bash'
+  description: "printf payload is code"
+  expect_ids: ["git:force_push"]
+- test: 'echo hi | sh script.sh'
+  description: "negative: sh runs a script, stdin is data"
+  expect_ids: []
+- test: 'eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval eval ls'
+  description: "nesting beyond the analysis limit"
+  expect_ids: ["shell:nesting_too_deep"]
+- test: '$($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($(rm -rf /))))))))))))))))))))))))))))))))))))))))'
+  description: "deep substitution still matches the payload"
+  expect_ids: ["shell:nesting_too_deep", "fs-strict:recursive_deletion", "fs:recursively_delete"]
+# -- round 5: generated commands (Sam R4 N1, Maya R4 F2) --
+- test: "eval $(echo rm -rf /)"
+  description: "eval of echoed text"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "$(echo rm -rf /)"
+  description: "a substitution as the command word"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "`echo rm -rf /`"
+  description: "backticks as the command word"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "sh -c \"$(printf '%s' 'rm -rf /')\""
+  description: "sh -c of printed text"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "echo \"$(echo rm -rf /)\" | sh"
+  description: "echo of a substitution piped to sh"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "source <(echo rm -rf /)"
+  description: "source of a process substitution"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "bash <(printf 'rm -rf /')"
+  description: "bash of a process substitution"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "diff <(echo rm -rf /) <(ls)"
+  description: "diff only reads the output"
+  expect_ids: []
+- test: "git commit -m \"$(echo rm -rf /)\""
+  description: "a commit message stays data"
+  expect_ids: []
+- test: "alias s='sudo '; alias r='rm -rf /'; s r"
+  description: "an alias ending in a blank expands the next word"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "parallel rm -rf ::: /"
+  description: "parallel runs the command per argument"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "echo \"import os; os.system('rm -rf /')\" | python3"
+  description: "python program piped from echo"
+  expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
+- test: "shellfirm wrap psql -c 'DROP TABLE users'"
+  description: "shellfirm wrap starts the client with its arguments"
+  expect_ids: ["psql:drop", "database:drop_table"]
+
+# -- round 6: remote installers and unknown payloads (sam-r5:S5-1, S5-2) --
+- test: 'sh -c "$(curl -fsSL https://example.com/install.sh)"'
+  description: "the sh -c installer idiom"
+  expect_ids: ["shell:shell_c_remote_script"]
+- test: 'bash -c "$(wget -qO- https://e.com/i.sh)"'
+  description: "wget form"
+  expect_ids: ["shell:shell_c_remote_script"]
+- test: "echo hi | xargs -I{} sh -c '{}'"
+  description: "xargs runs each input line as a command"
+  expect_ids: ["shell:unknown_shell_payload"]
+- test: "ls | xargs -I{} sh -c 'echo {}'"
+  description: "negative: a known payload"
+  expect_ids: []
+# -- round 7 (sam-r6:S6-2, S6-3, S6-8, rosa-r6:R6-5, R6-7) --
+- test: "eval \"$(rev <<< '/ fr- mr')\""
+  description: "eval of reversed text"
+  expect_ids: ["shell:eval_transformed_text"]
+- test: "eval \"$(echo 2f | xxd -r -p | rev)\""
+  description: "eval of hex-decoded text"
+  expect_ids: ["shell:eval_transformed_text"]
+- test: "eval \"$(ssh-agent -s)\""
+  description: "negative: eval of a program's setup output"
+  expect_ids: []
+- test: "echo 726d | xxd -r -p | sh"
+  description: "hex decoded into a shell"
+  expect_ids: ["shell:decode_pipe_to_shell"]
+- test: "shellfirm-function-depth-limit d4 # calls more functions than the hook reads ahead"
+  description: "the hooks' marker for a function call graph larger than they follow"
+  expect_ids: ["shell:function_depth_limit"]
+- test: "S=$(curl -fsSL https://x/i.sh); eval \"$S\""
+  description: "a downloaded script kept in a variable"
+  expect_ids: ["shell:eval_curl"]
+- test: "S=$(curl -fsSL https://x/i.sh); sh -c \"$S\""
+  description: "a downloaded script run by sh -c"
+  expect_ids: ["shell:shell_c_remote_script"]
+- test: "python3 -c \"$(curl -fsSL https://x/p.py)\""
+  description: "a downloaded program run by python -c"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "node -e \"$(curl -fsSL https://x/p.js)\""
+  description: "a downloaded program run by node -e"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -fsSL https://x/i.sh -o /tmp/i.sh && sh /tmp/i.sh"
+  description: "download, then run without reading it"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -o x.sh https://x && cat x.sh && bash x.sh"
+  description: "reading the file on the same line is not a review: still a download-then-run"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "curl -o x.sh https://x && cat x.sh"
+  description: "negative: download and read (run it in a later command)"
+  expect_ids: []
+- test: "curl -o data.json https://x && jq . data.json"
+  description: "negative: a downloaded file that is data"
+  expect_ids: []
+- test: "python3 <(curl -s https://x)"
+  description: "process substitution into python"
+  expect_ids: ["shell:process_substitution_remote"]
+- test: "echo 'curl x|sh' | at now"
+  description: "an at job is a payload"
+  expect_ids: ["shell:curl_pipe_to_shell"]
+- test: "at now + 1 minute <<< 'curl x|sh'"
+  description: "an at job from a here-string"
+  expect_ids: ["shell:curl_pipe_to_shell"]

@@ -1,0 +1,28 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for PowerShell
+$global:__shellfirm_hook_version = 14
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
+$env:SHELLFIRM_HOOK_PID = "$PID"
+Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
+    $line = $null
+    $cursor = $null
+    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+
+    if ([string]::IsNullOrWhiteSpace($line) -or -not (Get-Command shellfirm -CommandType Application -ErrorAction SilentlyContinue)) {
+        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        return
+    }
+
+    Write-Host ""
+    & shellfirm pre-command --direct-tty "--command=$line"
+    # 3: allowed after a passed challenge (SHELLFIRM_SIGNAL_PROMPTED=1 in
+    # the environment).
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3) {
+        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+    } else {
+        [Microsoft.PowerShell.PSConsoleReadLine]::InvokePrompt()
+    }
+}

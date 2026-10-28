@@ -1,4 +1,4 @@
-//! CRUD over `~/.shellfirm/checks/*.yaml` files. One file per `from` group.
+//! CRUD over custom check files (`~/.config/shellfirm/checks/*.yaml`). One file per `from` group.
 
 use crate::checks::Check;
 use crate::error::{Error, Result};
@@ -25,10 +25,14 @@ impl CustomCheckStore {
     /// # Errors
     /// Returns an error if a YAML file cannot be read or parsed.
     pub fn list(&self) -> Result<Vec<Check>> {
-        if !self.root.is_dir() {
-            return Ok(vec![]);
-        }
-        crate::checks::load_custom_checks(&self.root)
+        Ok(self.list_report().checks)
+    }
+
+    /// Load custom checks leniently: a broken file is skipped and reported
+    /// in `warnings` instead of hiding every other custom check.
+    #[must_use]
+    pub fn list_report(&self) -> crate::config::CustomChecksLoad {
+        crate::config::load_custom_checks_report(&self.root)
     }
 
     /// Path to the YAML file for a given group name.
@@ -137,7 +141,7 @@ mod tests {
     fn make_check(id: &str, from: &str) -> Check {
         Check {
             id: id.into(),
-            test: Regex::new("foo").unwrap(),
+            test: Regex::new("foo").unwrap().into(),
             description: "x".into(),
             from: from.into(),
             challenge: Challenge::Math,
@@ -242,7 +246,9 @@ mod tests {
     fn update_returns_error_when_id_missing() {
         let tmp = tempfile_dir();
         let store = CustomCheckStore::new(tmp);
-        let err = store.update(&make_check("my:nope", "my"), "my").unwrap_err();
+        let err = store
+            .update(&make_check("my:nope", "my"), "my")
+            .unwrap_err();
         assert!(format!("{err:?}").contains("not found"));
     }
 

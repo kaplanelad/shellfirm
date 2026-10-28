@@ -55,6 +55,7 @@ fn mock_env_production_ssh() -> MockEnvironment {
         command_outputs,
         files: Default::default(),
         home: Some(PathBuf::from("/home/deploy")),
+        ..Default::default()
     }
 }
 
@@ -76,6 +77,7 @@ fn mock_env_local_dev() -> MockEnvironment {
         command_outputs,
         files: Default::default(),
         home: Some(PathBuf::from("/Users/dev")),
+        ..Default::default()
     }
 }
 
@@ -173,10 +175,12 @@ fn test_pipeline_local_dev_force_push_passes() {
 
     assert_eq!(result, Some(ChallengeResult::Passed));
 
-    // Verify the display showed Enter challenge (High severity → Enter, no context escalation)
+    // High severity → Math floor (no context escalation); Enter is never
+    // used as an "escalation" because it is the weakest challenge.
     let displays = prompter.captured_displays.borrow();
     assert_eq!(displays.len(), 1);
-    assert_eq!(displays[0].effective_challenge, Challenge::Enter);
+    assert_eq!(displays[0].effective_challenge, Challenge::Math);
+    assert!(displays[0].escalation_note.is_none());
     assert!(!displays[0].is_denied);
 }
 
@@ -380,6 +384,7 @@ fn test_audit_log_written_to_temp_dir() {
         agent_session_id: None,
         blast_radius_scope: None,
         blast_radius_detail: None,
+        attempts: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();
@@ -413,6 +418,7 @@ fn test_audit_clear() {
         agent_session_id: None,
         blast_radius_scope: None,
         blast_radius_detail: None,
+        attempts: None,
     };
 
     shellfirm::audit::log_event(&path, &event).unwrap();
@@ -427,7 +433,7 @@ fn test_audit_clear() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_ssh_only_elevates_to_enter() {
+fn test_ssh_only_elevates_risk() {
     let mut env_vars = HashMap::new();
     env_vars.insert("SSH_TTY".into(), "/dev/pts/0".into());
     let env = MockEnvironment {
@@ -441,10 +447,8 @@ fn test_ssh_only_elevates_to_enter() {
 
 #[test]
 fn test_root_escalates_to_critical() {
-    let mut env_vars = HashMap::new();
-    env_vars.insert("EUID".into(), "0".into());
     let env = MockEnvironment {
-        env_vars,
+        euid: Some(0),
         cwd: "/root".into(),
         ..Default::default()
     };
@@ -456,7 +460,6 @@ fn test_root_escalates_to_critical() {
 fn test_multiple_critical_signals() {
     let mut env_vars = HashMap::new();
     env_vars.insert("SSH_CONNECTION".into(), "10.0.0.1 22".into());
-    env_vars.insert("EUID".into(), "0".into());
     env_vars.insert("NODE_ENV".into(), "production".into());
 
     let mut cmd_outputs = HashMap::new();
@@ -464,6 +467,7 @@ fn test_multiple_critical_signals() {
 
     let env = MockEnvironment {
         env_vars,
+        euid: Some(0),
         cwd: "/var/app".into(),
         command_outputs: cmd_outputs,
         ..Default::default()
@@ -483,8 +487,8 @@ fn test_multiple_critical_signals() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_pipeline_high_severity_escalates_to_enter() {
-    // git push -f is High severity → Enter on a normal local dev environment
+fn test_pipeline_high_severity_gets_math() {
+    // git push -f is High severity → Math on a normal local dev environment
     let env = mock_env_local_dev();
     let prompter = MockPrompter::passing();
     let settings = default_settings();
@@ -500,7 +504,7 @@ fn test_pipeline_high_severity_escalates_to_enter() {
     assert_eq!(result, Some(ChallengeResult::Passed));
     let displays = prompter.captured_displays.borrow();
     assert_eq!(displays.len(), 1);
-    assert_eq!(displays[0].effective_challenge, Challenge::Enter);
+    assert_eq!(displays[0].effective_challenge, Challenge::Math);
 }
 
 #[test]
@@ -577,7 +581,7 @@ fn test_pipeline_check_id_escalation() {
 
 #[test]
 fn test_pipeline_all_layers_compose() {
-    // All layers composing: severity(Enter) + group(ignored, less than Enter) + context(Yes)
+    // All layers composing: severity(Math) + group(Enter, ignored) + context(Yes)
     let env = mock_env_production_ssh();
     let prompter = MockPrompter::passing();
     let mut settings = default_settings();
@@ -590,7 +594,7 @@ fn test_pipeline_all_layers_compose() {
     assert_eq!(result, Some(ChallengeResult::Passed));
     let displays = prompter.captured_displays.borrow();
     assert_eq!(displays.len(), 1);
-    // max(Enter from severity, Enter from group, Yes from context) = Yes
+    // max(Math from severity, Enter from group, Yes from context) = Yes
     assert_eq!(displays[0].effective_challenge, Challenge::Yes);
 }
 
@@ -619,9 +623,10 @@ fn test_relevant_context_rm_rf_hides_branch_and_k8s() {
         "rm -rf / should match checks"
     );
 
-    // Full context has branch and k8s
+    // Full context has the branch; kubectl is not even probed for a
+    // command that doesn't mention a k8s tool.
     assert!(pipeline.context.git_branch.is_some());
-    assert!(pipeline.context.k8s_context.is_some());
+    assert!(pipeline.context.k8s_context.is_none());
 
     // Relevant context should NOT have branch or k8s (fs command)
     assert!(

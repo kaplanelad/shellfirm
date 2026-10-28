@@ -6,8 +6,8 @@
 use crate::checks::{Check, Filter, Severity};
 use crate::config::{Challenge, DEFAULT_ENABLED_GROUPS};
 use crate::tui::widgets::{
-    handle_picker_key, handle_radio_key, Picker, PickerItem, PickerOutcome,
-    PickerState, RadioGroup, TextInput,
+    handle_picker_key, handle_radio_key, Picker, PickerItem, PickerOutcome, PickerState,
+    RadioGroup, TextInput,
 };
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::buffer::Buffer;
@@ -64,7 +64,10 @@ impl IdUniquenessValidator {
 #[derive(Debug, Clone)]
 pub enum FormMode {
     Create,
-    Edit { original_id: String, original_from: String },
+    Edit {
+        original_id: String,
+        original_from: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -116,6 +119,10 @@ pub struct CheckForm {
     pub validator: IdUniquenessValidator,
     /// Last validation error displayed at the bottom of the form.
     pub error_message: Option<String>,
+    /// Esc was pressed with input in the form: asking before discarding it.
+    pub confirm_discard: bool,
+    /// The field values when the form opened (see [`CheckForm::is_dirty`]).
+    initial: String,
 }
 
 #[derive(Debug, Clone)]
@@ -206,7 +213,10 @@ impl CheckForm {
             focus_idx: 0,
             validator,
             error_message: None,
+            confirm_discard: false,
+            initial: String::new(),
         }
+        .with_snapshot()
     }
 
     pub fn new_edit(
@@ -229,9 +239,7 @@ impl CheckForm {
             description_input: TextInput::with_value(&existing.description),
             severity_idx: sev_idx(existing.severity),
             challenge_idx: ch_idx(existing.challenge),
-            alternative_input: TextInput::with_value(
-                existing.alternative.as_deref().unwrap_or(""),
-            ),
+            alternative_input: TextInput::with_value(existing.alternative.as_deref().unwrap_or("")),
             alternative_info_input: TextInput::with_value(
                 existing.alternative_info.as_deref().unwrap_or(""),
             ),
@@ -240,7 +248,36 @@ impl CheckForm {
             focus_idx: 0,
             validator,
             error_message: None,
+            confirm_discard: false,
+            initial: String::new(),
         }
+        .with_snapshot()
+    }
+
+    fn with_snapshot(mut self) -> Self {
+        self.initial = self.snapshot();
+        self
+    }
+
+    fn snapshot(&self) -> String {
+        format!(
+            "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\u{0}{:?}",
+            self.id_input.value(),
+            self.from_value,
+            self.test_input.value(),
+            self.description_input.value(),
+            self.severity_idx,
+            self.challenge_idx,
+            self.alternative_input.value(),
+            self.alternative_info_input.value(),
+            self.filters
+        )
+    }
+
+    /// `true` when a field differs from what the form opened with.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.snapshot() != self.initial
     }
 
     fn current_focus(&self) -> FormFocus {
@@ -249,6 +286,7 @@ impl CheckForm {
 
     fn next_focus(&mut self) {
         self.focus_idx = (self.focus_idx + 1) % FOCUS_ORDER.len();
+        self.sync_group_cursor();
     }
 
     fn prev_focus(&mut self) {
@@ -257,9 +295,36 @@ impl CheckForm {
         } else {
             self.focus_idx - 1
         };
+        self.sync_group_cursor();
+    }
+
+    /// On the Group step with an empty filter, put the list highlight on
+    /// the group that is selected (`>` follows `fs`, not the first row).
+    fn sync_group_cursor(&mut self) {
+        if self.current_focus() != FormFocus::From || !self.from_picker.filter.is_empty() {
+            return;
+        }
+        if let Some(i) = self
+            .from_options
+            .iter()
+            .position(|o| o.value == self.from_value)
+        {
+            self.from_picker.cursor = i;
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FormOutcome {
+        let before = self.snapshot();
+        let outcome = self.handle_key_inner(key);
+        // A save error describes the fields as they were: once a field
+        // changes it is stale (the live field lines say what is wrong now).
+        if self.error_message.is_some() && self.snapshot() != before {
+            self.error_message = None;
+        }
+        outcome
+    }
+
+    fn handle_key_inner(&mut self, key: KeyEvent) -> FormOutcome {
         // Filter-adding sub-state takes precedence
         if let Some(state) = self.adding_filter.take() {
             match state {
@@ -297,7 +362,9 @@ impl CheckForm {
                         return FormOutcome::None;
                     }
                     KeyCode::Backspace => {
-                        buffer.pop();
+                        let len = buffer.chars().count();
+                        let keep = crate::tui::a11y::prev_cluster(&buffer, len);
+                        buffer = buffer.chars().take(keep).collect();
                         self.adding_filter = Some(FilterAdd::EnterValue { kind, buffer });
                         return FormOutcome::None;
                     }
@@ -314,14 +381,39 @@ impl CheckForm {
             }
         }
 
+        // Discard question (after Esc with input): `y` discards, anything
+        // else keeps editing.
+        if self.confirm_discard {
+            self.confirm_discard = false;
+            if matches!(key.code, KeyCode::Char('y' | 'Y' | 'd' | 'D')) {
+                return FormOutcome::Cancelled;
+            }
+            return FormOutcome::None;
+        }
+
         // Ctrl-S = save from anywhere
         if key.code == KeyCode::Char('s')
-            && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+            && key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::CONTROL)
         {
             return self.try_submit();
         }
 
         match key.code {
+            // Esc in the Group picker clears its filter first.
+            KeyCode::Esc
+                if self.current_focus() == FormFocus::From
+                    && !self.from_picker.filter.is_empty() =>
+            {
+                self.from_picker = PickerState::default();
+                return FormOutcome::None;
+            }
+            // One Esc never throws typed input away without asking.
+            KeyCode::Esc if self.is_dirty() => {
+                self.confirm_discard = true;
+                return FormOutcome::None;
+            }
             KeyCode::Esc => return FormOutcome::Cancelled,
             KeyCode::Tab => {
                 self.next_focus();
@@ -438,21 +530,58 @@ impl CheckForm {
         FormOutcome::None
     }
 
-    fn try_submit(&mut self) -> FormOutcome {
+    /// The problems that block saving, in step order: the names of the
+    /// required steps that are still empty, and every other error.
+    fn blocking_problems(&self) -> (Vec<&'static str>, Vec<String>) {
+        let mut missing = Vec::new();
+        let mut errors = Vec::new();
+        for focus in [
+            FormFocus::Id,
+            FormFocus::From,
+            FormFocus::Test,
+            FormFocus::Description,
+        ] {
+            if let FieldValidity::Invalid(msg) = self.validate_field(focus) {
+                let empty = match focus {
+                    FormFocus::Id => self.id_input.value().trim().is_empty(),
+                    FormFocus::From => self.from_value.trim().is_empty(),
+                    FormFocus::Test => self.test_input.value().trim().is_empty(),
+                    _ => self.description_input.value().trim().is_empty(),
+                };
+                if empty {
+                    missing.push(Self::focus_label(focus));
+                } else {
+                    errors.push(msg);
+                }
+            }
+        }
+        (missing, errors)
+    }
+
+    /// One message naming every problem that blocks saving, or `None`.
+    #[must_use]
+    pub fn blocking_message(&self) -> Option<String> {
+        let (missing, errors) = self.blocking_problems();
+        let mut parts = Vec::new();
+        if !missing.is_empty() {
+            parts.push(format!("Required: {}", missing.join(", ")));
+        }
+        parts.extend(errors);
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join("; "))
+        }
+    }
+
+    /// Validate every field and build the check (what Save / Ctrl-S do).
+    pub fn try_submit(&mut self) -> FormOutcome {
+        if let Some(msg) = self.blocking_message() {
+            self.error_message = Some(msg);
+            return FormOutcome::None;
+        }
         let id = self.id_input.value().trim().to_string();
-        if id.is_empty() {
-            self.error_message = Some("ID is required.".into());
-            return FormOutcome::None;
-        }
-        if !self.validator.is_unique(&id) {
-            self.error_message = Some(format!("ID {id:?} is already in use."));
-            return FormOutcome::None;
-        }
         let from = self.from_value.trim().to_string();
-        if from.is_empty() {
-            self.error_message = Some("Group (from) is required.".into());
-            return FormOutcome::None;
-        }
         let test_str = self.test_input.value().trim().to_string();
         let regex = match regex::Regex::new(&test_str) {
             Ok(r) => r,
@@ -462,16 +591,12 @@ impl CheckForm {
             }
         };
         let description = self.description_input.value().trim().to_string();
-        if description.is_empty() {
-            self.error_message = Some("Description is required.".into());
-            return FormOutcome::None;
-        }
         let alternative = self.alternative_input.value().trim();
         let alternative_info = self.alternative_info_input.value().trim();
 
         let check = Check {
             id,
-            test: regex,
+            test: regex.into(),
             description,
             from,
             challenge: ch_from_idx(self.challenge_idx),
@@ -498,6 +623,7 @@ fn build_from_options(custom_groups: &[String]) -> Vec<PickerItem> {
         .map(|g| PickerItem {
             value: (*g).to_string(),
             badge: Some("built-in"),
+            description: None,
         })
         .collect();
     for g in custom_groups {
@@ -505,6 +631,7 @@ fn build_from_options(custom_groups: &[String]) -> Vec<PickerItem> {
             out.push(PickerItem {
                 value: g.clone(),
                 badge: Some("custom"),
+                description: None,
             });
         }
     }
@@ -532,9 +659,17 @@ impl CheckForm {
             FormFocus::Id => {
                 let v = self.id_input.value().trim();
                 if v.is_empty() {
-                    FieldValidity::Invalid("ID is required".into())
+                    FieldValidity::Invalid("Check id is required".into())
+                } else if crate::config::check_id_has_hidden_chars(v) {
+                    // The loader skips such ids; say so here.
+                    FieldValidity::Invalid(format!(
+                        "Check id `{}` must not contain spaces, control, bidi or zero-width characters",
+                        crate::context::escape_invisible(v)
+                    ))
+                } else if let Some(problem) = crate::config::check_id_format_problem(v) {
+                    FieldValidity::Invalid(problem)
                 } else if !self.validator.is_unique(v) {
-                    FieldValidity::Invalid("ID is already in use".into())
+                    FieldValidity::Invalid("Check id is already in use".into())
                 } else {
                     FieldValidity::Valid("Looks good".into())
                 }
@@ -566,7 +701,9 @@ impl CheckForm {
                 }
             }
             FormFocus::Severity => FieldValidity::Valid(SEVERITY_OPTIONS[self.severity_idx].into()),
-            FormFocus::Challenge => FieldValidity::Valid(CHALLENGE_OPTIONS[self.challenge_idx].into()),
+            FormFocus::Challenge => {
+                FieldValidity::Valid(CHALLENGE_OPTIONS[self.challenge_idx].into())
+            }
             FormFocus::Alternative => {
                 if self.alternative_input.value().trim().is_empty() {
                     FieldValidity::Empty
@@ -595,7 +732,7 @@ impl CheckForm {
     /// Short label for the focus target — used in the wizard header.
     fn focus_label(focus: FormFocus) -> &'static str {
         match focus {
-            FormFocus::Id => "ID",
+            FormFocus::Id => "Check id",
             FormFocus::From => "Group",
             FormFocus::Test => "Test (regex)",
             FormFocus::Description => "Description",
@@ -626,13 +763,17 @@ impl CheckForm {
             FormFocus::Cancel => "Discard the form and return to the Custom tab.",
         }
     }
-
 }
 
 impl Widget for &CheckForm {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if area.height < 10 || area.width < 40 {
-            buf.set_string(area.x, area.y, "Need ≥ 40×10", Style::default().fg(Color::Yellow));
+            buf.set_string(
+                area.x,
+                area.y,
+                "Needs at least 40x10",
+                Style::default().fg(Color::Yellow),
+            );
             return;
         }
 
@@ -654,7 +795,9 @@ impl Widget for &CheckForm {
             inner_x,
             area.y + 1,
             mode_label,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         );
         buf.set_string(
             inner_x + inner_w.saturating_sub(step_text.chars().count() as u16),
@@ -663,31 +806,64 @@ impl Widget for &CheckForm {
             Style::default().fg(Color::DarkGray),
         );
 
-        // ── Row 2: progress dots — filled for completed/current, hollow for upcoming.
-        let mut dots = String::new();
-        for i in 0..total {
-            if i < self.focus_idx { dots.push('●'); }
-            else if i == self.focus_idx { dots.push('◉'); }
-            else { dots.push('○'); }
-            dots.push(' ');
+        // Small dialogs (the editor's 60x16 minimum gives about 12 rows)
+        // drop the decoration first — progress dots, dividers, help text —
+        // so the field being typed into, its caret and the validation line
+        // always stay on screen.
+        let compact = area.height < 20;
+
+        // ── Row 2: progress dots — filled for completed/current, hollow for
+        // upcoming. Without Unicode the dots carry nothing the `Step n/m`
+        // counter above does not already say, so they are left out.
+        let show_dots = crate::tui::a11y::caps().unicode && !compact;
+        if show_dots {
+            let mut dots = String::new();
+            for i in 0..total {
+                if i < self.focus_idx {
+                    dots.push('●');
+                } else if i == self.focus_idx {
+                    dots.push('◉');
+                } else {
+                    dots.push('○');
+                }
+                dots.push(' ');
+            }
+            buf.set_string(
+                inner_x,
+                area.y + 2,
+                dots.trim_end(),
+                Style::default().fg(Color::Cyan),
+            );
         }
-        buf.set_string(inner_x, area.y + 2, dots.trim_end(),
-            Style::default().fg(Color::Cyan));
 
         // Divider line
         let divider = "─".repeat(inner_w as usize);
-        buf.set_string(inner_x, area.y + 3, &divider, Style::default().fg(Color::DarkGray));
+        let divider_y = if compact { area.y + 2 } else { area.y + 3 };
+        buf.set_string(
+            inner_x,
+            divider_y,
+            &divider,
+            Style::default().fg(Color::DarkGray),
+        );
 
-        // ── Body block: from row 5 down to before the footer.
-        // Footer = 4 rows: divider, error/empty, button row, hint
-        let footer_height = 4u16;
-        let body_top = area.y + 5;
+        // ── Footer: [divider], error row, button row, hint. In a compact
+        // dialog the divider goes and the error row only when there is an
+        // error.
+        let notice = self.confirm_discard || self.error_message.is_some();
+        let notice_lines = self.notice_lines(inner_w as usize);
+        let extra = (notice_lines.len() as u16).saturating_sub(1);
+        let footer_height: u16 = match (compact, notice) {
+            (false, _) => 4 + extra,
+            (true, true) => 3 + extra,
+            (true, false) => 2,
+        };
+        let body_top = if compact { area.y + 3 } else { area.y + 5 };
         let body_bottom = area.y + area.height.saturating_sub(footer_height);
-        let body_height = body_bottom.saturating_sub(body_top).max(3);
+        let body_height = body_bottom.saturating_sub(body_top);
 
         // Field label (bold, accent color) — full width above the input.
         let label_text = match cur {
-            FormFocus::Id => "ID",
+            FormFocus::Id => "Check id",
             FormFocus::From => "Group",
             FormFocus::Test => "Test pattern (regex)",
             FormFocus::Description => "Description",
@@ -703,86 +879,158 @@ impl Widget for &CheckForm {
             inner_x,
             body_top,
             label_text,
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
         );
+
+        // Rows the field itself needs: a framed text box takes 3, a bare
+        // one-line input 1; the other widgets take what is left.
+        let text_field = matches!(
+            cur,
+            FormFocus::Id
+                | FormFocus::Test
+                | FormFocus::Description
+                | FormFocus::Alternative
+                | FormFocus::AlternativeInfo
+        );
+        // A text box needs label + 3 rows + the validation line.
+        let boxed = !text_field || body_height >= 5;
+        // List steps keep at least three choices (Group: the filter, the
+        // count and three rows) on screen; the help text gives way first.
+        let field_min: u16 = match cur {
+            _ if text_field => {
+                if boxed {
+                    3
+                } else {
+                    1
+                }
+            }
+            FormFocus::From | FormFocus::Severity => 5,
+            FormFocus::Challenge => 3,
+            FormFocus::Filters => 2,
+            FormFocus::Submit => self.submit_lines(inner_w as usize).len() as u16,
+            _ => 1,
+        };
+        // The live validation text, wrapped to the dialog (never drawn past
+        // its border); a long one takes rows from the help text first.
+        let validity = self.validate_field(cur);
+        let status_lines = status_lines(&validity, inner_w as usize);
+        let status_rows = (status_lines.len() as u16).max(1);
+        let spare = body_height.saturating_sub(1 + field_min + status_rows);
 
         // Description line — right under the title so the user knows what
-        // the field is for before they look at the input.
+        // the field is for before they look at the input. It gets only the
+        // rows the field and its validation line do not need.
         let help_text = CheckForm::focus_help(cur);
-        let max_help_w = inner_w as usize;
-        let help_truncated = if help_text.chars().count() > max_help_w {
-            let mut s: String = help_text.chars().take(max_help_w.saturating_sub(1)).collect();
-            s.push('…');
-            s
-        } else {
-            help_text.to_string()
-        };
-        buf.set_string(
-            inner_x,
-            body_top + 1,
-            &help_truncated,
-            Style::default().fg(Color::DarkGray),
-        );
-
-        // Field widget rendered inside a framed box for the input row.
-        // Shifted down by 1 to make room for the description above.
-        let widget_area = Rect {
-            x: inner_x,
-            y: body_top + 2,
-            width: inner_w,
-            height: body_height.saturating_sub(4),
-        };
-        self.render_focused_field(widget_area, buf);
-
-        // ── Status line: ✓ green / ✗ red / blank (real-time validation).
-        let validity = self.validate_field(cur);
-        let status_y = body_top + 2 + widget_area.height;
-        if status_y < body_bottom {
-            match &validity {
-                FieldValidity::Valid(msg) => {
-                    buf.set_string(
-                        inner_x,
-                        status_y,
-                        format!("  ✓  {msg}"),
-                        Style::default().fg(Color::Green),
-                    );
-                }
-                FieldValidity::Invalid(msg) => {
-                    buf.set_string(
-                        inner_x,
-                        status_y,
-                        format!("  ✗  {msg}"),
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    );
-                }
-                FieldValidity::Empty => {} // blank — optional field, no input yet
+        let max_help = spare.min(2) as usize;
+        let mut help_lines = crate::tui::render::wrap_words(help_text, inner_w as usize);
+        if help_lines.len() > max_help {
+            help_lines.truncate(max_help);
+            if let Some(last) = help_lines.last_mut() {
+                let keep = (inner_w as usize).saturating_sub(1);
+                *last = last.chars().take(keep).collect();
+                last.push('…');
             }
         }
-
-        // ── Footer block (last 4 rows of the area).
-        // Top of footer = divider
-        let footer_y = area.y + area.height.saturating_sub(footer_height);
-        buf.set_string(inner_x, footer_y, &divider, Style::default().fg(Color::DarkGray));
-
-        // Row +1: error message (sticky form-level error, e.g. from try_submit()).
-        if let Some(err) = &self.error_message {
+        let help_rows = help_lines.len() as u16;
+        for (i, line) in help_lines.iter().enumerate() {
             buf.set_string(
                 inner_x,
-                footer_y + 1,
-                format!("  ✗  {err}"),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                body_top + 1 + i as u16,
+                line,
+                Style::default().fg(Color::DarkGray),
             );
         }
 
-        // Row +2: button row + Back/Next preview.
-        let button_y = footer_y + 2;
+        // The field widget, below the description; the validation line
+        // goes right under it.
+        let field_y = body_top + 1 + help_rows;
+        let widget_height = if text_field {
+            field_min
+        } else {
+            body_bottom.saturating_sub(field_y).saturating_sub(1)
+        };
+        let widget_area = Rect {
+            x: inner_x,
+            y: field_y,
+            width: inner_w,
+            height: widget_height,
+        };
+        if text_field && !boxed {
+            if let Some(input) = self.focused_text_input() {
+                crate::tui::a11y::draw_text_with_caret(
+                    buf,
+                    inner_x,
+                    field_y,
+                    inner_w,
+                    input.value(),
+                    input.cursor(),
+                    true,
+                    Style::default().fg(Color::White),
+                );
+            }
+        } else {
+            self.render_focused_field(widget_area, buf);
+        }
+
+        // ── Status lines: ✓ green / ✗ red / blank (real-time validation),
+        // wrapped inside the dialog; cut with `…` when the rows run out.
+        let status_y = widget_area.y + widget_area.height;
+        let rows = body_bottom.saturating_sub(status_y) as usize;
+        let style = match &validity {
+            FieldValidity::Invalid(_) => {
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            }
+            _ => Style::default().fg(Color::Green),
+        };
+        for (i, line) in fit_rows(status_lines, rows, inner_w as usize)
+            .iter()
+            .enumerate()
+        {
+            buf.set_stringn(inner_x, status_y + i as u16, line, inner_w as usize, style);
+        }
+
+        // ── Footer block (last rows of the area).
+        let footer_y = area.y + area.height.saturating_sub(footer_height);
+        let mut row = footer_y;
+        if !compact {
+            buf.set_string(inner_x, row, &divider, Style::default().fg(Color::DarkGray));
+            row += 1;
+        }
+        // Error row (sticky form-level error, e.g. from try_submit()), or
+        // the discard question.
+        if notice {
+            let style = if self.confirm_discard {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            };
+            for line in &notice_lines {
+                buf.set_stringn(inner_x, row, line, inner_w as usize, style);
+                row += 1;
+            }
+        } else if !compact {
+            row += 1;
+        }
+
+        // Button row + Back/Next preview.
+        let button_y = row;
         let submit_style = if cur == FormFocus::Submit {
-            Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Green)
         };
         let cancel_style = if cur == FormFocus::Cancel {
-            Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Red)
         };
@@ -791,31 +1039,117 @@ impl Widget for &CheckForm {
 
         // Right-aligned Back / Next preview
         let back_label = if self.focus_idx > 0 {
-            format!("◄ {}", CheckForm::focus_label(FOCUS_ORDER[self.focus_idx - 1]))
+            format!(
+                "◄ {}",
+                CheckForm::focus_label(FOCUS_ORDER[self.focus_idx - 1])
+            )
         } else {
             String::new()
         };
         let next_label = if self.focus_idx + 1 < total {
-            format!("{} ▶", CheckForm::focus_label(FOCUS_ORDER[self.focus_idx + 1]))
+            format!(
+                "{} ▶",
+                CheckForm::focus_label(FOCUS_ORDER[self.focus_idx + 1])
+            )
         } else {
             String::new()
         };
-        let preview = format!("{back_label}    {next_label}");
-        let preview_x = inner_x + inner_w.saturating_sub(preview.chars().count() as u16);
-        buf.set_string(preview_x, button_y, &preview, Style::default().fg(Color::DarkGray));
+        // Only drawn where it fits right of `[ Cancel ]` (never over it):
+        // the full preview, else just the next step, else nothing.
+        let buttons_end = 12 + "[ Cancel ]".len() + 2;
+        let room = (inner_w as usize).saturating_sub(buttons_end);
+        let full = format!("{back_label}    {next_label}");
+        let preview = [full.trim().to_string(), next_label.clone()]
+            .into_iter()
+            .find(|p| !p.is_empty() && p.chars().count() <= room);
+        if let Some(preview) = preview {
+            let preview_x = inner_x + inner_w.saturating_sub(preview.chars().count() as u16);
+            buf.set_string(
+                preview_x,
+                button_y,
+                &preview,
+                Style::default().fg(Color::DarkGray),
+            );
+        }
 
         // Row +3: keybinding hint
-        buf.set_string(
-            inner_x,
-            footer_y + 3,
+        // Shorter variants for narrow dialogs, so the hint never runs over
+        // the right border.
+        let hint = [
             " Tab/Shift-Tab navigate · Enter advance · Ctrl-S save · Esc cancel",
+            " Tab move · Enter next · Ctrl-S save · Esc cancel",
+            " Tab · Enter · ^S save · Esc",
+        ]
+        .into_iter()
+        .find(|h| h.chars().count() <= inner_w as usize)
+        .unwrap_or(" ^S save · Esc");
+        buf.set_stringn(
+            inner_x,
+            button_y + 1,
+            hint,
+            inner_w as usize,
             Style::default().fg(Color::DarkGray),
         );
     }
 }
 
+/// The validation text of a field as lines of at most `width` columns:
+/// `  ✓  msg` / `  ✗  msg`, continuation lines indented under the message.
+/// Each line of a multi-line message (a regex error with its `^` caret)
+/// starts a new row and keeps its spacing when it fits.
+fn status_lines(validity: &FieldValidity, width: usize) -> Vec<String> {
+    let (mark, msg) = match validity {
+        FieldValidity::Valid(m) => (crate::tui::a11y::sym("✓", "OK:"), m),
+        FieldValidity::Invalid(m) => (crate::tui::a11y::sym("✗", "ERROR:"), m),
+        FieldValidity::Empty => return Vec::new(),
+    };
+    let prefix = format!("  {mark}  ");
+    let indent = prefix.chars().count();
+    let room = width.saturating_sub(indent).max(1);
+    let mut body: Vec<String> = Vec::new();
+    for piece in msg.lines().filter(|l| !l.trim().is_empty()) {
+        if piece.chars().count() <= room {
+            body.push(piece.trim_end().to_string());
+        } else {
+            body.extend(crate::tui::render::wrap_words(piece, room));
+        }
+    }
+    body.iter()
+        .enumerate()
+        .map(|(i, l)| {
+            if i == 0 {
+                format!("{prefix}{l}")
+            } else {
+                format!("{}{l}", " ".repeat(indent))
+            }
+        })
+        .collect()
+}
+
+/// At most `rows` of `lines`; when some are left out the last one shown
+/// ends with `…`, so a cut message is never mistaken for a whole one.
+fn fit_rows(mut lines: Vec<String>, rows: usize, width: usize) -> Vec<String> {
+    if lines.len() > rows {
+        lines.truncate(rows);
+        if let Some(last) = lines.last_mut() {
+            let mark = crate::tui::a11y::sym("…", "...");
+            let keep = width
+                .saturating_sub(mark.chars().count())
+                .min(last.chars().count());
+            *last = last
+                .chars()
+                .take(keep)
+                .collect::<String>()
+                .trim_end()
+                .to_string();
+            last.push_str(mark);
+        }
+    }
+    lines
+}
+
 /// Render a single-line text input inside a framed box.
-fn draw_input_box(value: &str, area: Rect, buf: &mut Buffer) {
+fn draw_input_box(input: &TextInput, area: Rect, buf: &mut Buffer) {
     if area.width < 4 || area.height < 3 {
         return;
     }
@@ -826,58 +1160,114 @@ fn draw_input_box(value: &str, area: Rect, buf: &mut Buffer) {
     buf.set_string(area.x, area.y, &top, frame_style);
     buf.set_string(area.x, area.y + 2, &bottom, frame_style);
     buf.set_string(area.x, area.y + 1, "│", frame_style);
-    buf.set_string(area.x + area.width.saturating_sub(1), area.y + 1, "│", frame_style);
-    // Truncate value to fit inside the box (account for cursor and padding).
-    let max_chars = inner_w.saturating_sub(2) as usize;
-    let display_val: String = if value.chars().count() > max_chars {
-        let start = value.chars().count() - max_chars;
-        value.chars().skip(start).collect()
-    } else {
-        value.to_string()
-    };
-    let line = format!(" {display_val}_");
-    buf.set_string(area.x + 1, area.y + 1, &line, Style::default().fg(Color::White));
+    buf.set_string(
+        area.x + area.width.saturating_sub(1),
+        area.y + 1,
+        "│",
+        frame_style,
+    );
+    // The value scrolls horizontally so the caret stays inside the box.
+    crate::tui::a11y::draw_text_with_caret(
+        buf,
+        area.x + 2,
+        area.y + 1,
+        inner_w.saturating_sub(2),
+        input.value(),
+        input.cursor(),
+        true,
+        Style::default().fg(Color::White),
+    );
 }
 
 impl CheckForm {
+    /// The Save step's text, wrapped to `width`.
+    fn submit_lines(&self, width: usize) -> Vec<String> {
+        let mut lines =
+            crate::tui::render::wrap_words("Press Enter to validate and save the check.", width);
+        if self.error_message.is_none() {
+            let (missing, errors) = self.blocking_problems();
+            let text = if !missing.is_empty() {
+                format!(
+                    "Still needed: {}. Shift-Tab goes back to fill {}.",
+                    missing.join(", "),
+                    if missing.len() == 1 { "it" } else { "them" }
+                )
+            } else if !errors.is_empty() {
+                format!("Fix first: {}", errors.join("; "))
+            } else {
+                "All required fields are filled. Shift-Tab goes back to review.".to_string()
+            };
+            lines.extend(crate::tui::render::wrap_words(&text, width));
+        }
+        lines
+    }
+
+    /// The footer notice (discard question or save error), wrapped to
+    /// `width` in at most two rows.
+    fn notice_lines(&self, width: usize) -> Vec<String> {
+        let text = if self.confirm_discard {
+            [
+                "Discard this check? y = discard, n or Esc = keep editing",
+                "Discard this check? y = discard, n = keep editing",
+                "Discard this check? y = discard, n = keep",
+                "Discard? y = discard, n = keep",
+            ]
+            .into_iter()
+            .find(|t| t.chars().count() <= width)
+            .unwrap_or("Discard? y/n")
+            .to_string()
+        } else if let Some(err) = &self.error_message {
+            format!("{} {err}", crate::tui::a11y::sym("✗", "ERROR:"))
+        } else {
+            return Vec::new();
+        };
+        let mut lines = crate::tui::render::wrap_words(&text, width);
+        if lines.len() > 2 {
+            lines.truncate(2);
+            if let Some(last) = lines.last_mut() {
+                *last = last.chars().take(width.saturating_sub(1)).collect();
+                last.push_str(crate::tui::a11y::sym("…", "~"));
+            }
+        }
+        lines
+    }
+
+    /// The text input of the focused field, when it is a text field.
+    fn focused_text_input(&self) -> Option<&TextInput> {
+        match self.current_focus() {
+            FormFocus::Id => Some(&self.id_input),
+            FormFocus::Test => Some(&self.test_input),
+            FormFocus::Description => Some(&self.description_input),
+            FormFocus::Alternative => Some(&self.alternative_input),
+            FormFocus::AlternativeInfo => Some(&self.alternative_info_input),
+            _ => None,
+        }
+    }
+
     /// Render the widget(s) for the currently-focused field at full size.
     /// The outer wizard renders the polished label above this area; this
     /// function only renders the input/widget itself starting at `area.y`.
     fn render_focused_field(&self, area: Rect, buf: &mut Buffer) {
         match self.current_focus() {
             FormFocus::Id => {
-                draw_input_box(self.id_input.value(), area, buf);
+                draw_input_box(&self.id_input, area, buf);
             }
             FormFocus::From => {
-                let current_label = if self.from_value.is_empty() {
-                    "(none selected)".to_string()
-                } else {
-                    format!("✓ {}", self.from_value)
-                };
-                buf.set_string(
-                    area.x,
-                    area.y,
-                    format!("Selected: {current_label}"),
-                    Style::default().fg(Color::Cyan),
-                );
-                let picker_area = Rect {
-                    x: area.x,
-                    y: area.y + 2,
-                    width: area.width,
-                    height: area.height.saturating_sub(2),
-                };
+                // The selected group is named once, on the status line
+                // under the list ("✓ Selected: fs").
                 Picker {
                     items: &self.from_options,
                     state: &self.from_picker,
                     focused: true,
+                    allow_create: true,
                 }
-                .render(picker_area, buf);
+                .render(area, buf);
             }
             FormFocus::Test => {
-                draw_input_box(self.test_input.value(), area, buf);
+                draw_input_box(&self.test_input, area, buf);
             }
             FormFocus::Description => {
-                draw_input_box(self.description_input.value(), area, buf);
+                draw_input_box(&self.description_input, area, buf);
             }
             FormFocus::Severity => {
                 RadioGroup::new(SEVERITY_OPTIONS, self.severity_idx, true)
@@ -906,35 +1296,58 @@ impl CheckForm {
                     );
             }
             FormFocus::Alternative => {
-                draw_input_box(self.alternative_input.value(), area, buf);
+                draw_input_box(&self.alternative_input, area, buf);
             }
             FormFocus::AlternativeInfo => {
-                draw_input_box(self.alternative_info_input.value(), area, buf);
+                draw_input_box(&self.alternative_info_input, area, buf);
             }
             FormFocus::Filters => {
                 let mut y = area.y;
                 for (i, filter) in self.filters.iter().enumerate() {
-                    if y >= area.y + area.height { break; }
+                    if y >= area.y + area.height {
+                        break;
+                    }
                     let descr = match filter {
                         Filter::PathExists(idx) => format!("PathExists({idx})"),
                         Filter::Contains(s) => format!("Contains({s:?})"),
                         Filter::NotContains(s) => format!("NotContains({s:?})"),
+                        Filter::NotMatches(s) => format!("NotMatches({s:?})"),
+                        Filter::Matches(s) => format!("Matches({s:?})"),
                     };
-                    buf.set_string(area.x + 2, y, format!("{}. {descr}", i + 1), Style::default());
+                    buf.set_string(
+                        area.x + 2,
+                        y,
+                        format!("{}. {descr}", i + 1),
+                        Style::default(),
+                    );
                     y += 1;
                 }
                 if let Some(state) = &self.adding_filter {
                     let line = match state {
-                        FilterAdd::PickType => " Add filter — c=Contains  n=NotContains  Esc=cancel".to_string(),
+                        FilterAdd::PickType => {
+                            " Add filter — c=Contains  n=NotContains  Esc=cancel".to_string()
+                        }
                         FilterAdd::EnterValue { kind, buffer } => {
                             let kind_label = match kind {
                                 FilterKind::Contains => "Contains",
                                 FilterKind::NotContains => "NotContains",
                             };
-                            format!(" {kind_label}: {buffer}_  (Enter to add, Esc to cancel)")
+                            format!(" {kind_label}: {buffer}   (Enter to add, Esc to cancel)")
                         }
                     };
                     buf.set_string(area.x, y, line, Style::default().fg(Color::Yellow));
+                    if let FilterAdd::EnterValue { kind, buffer } = state {
+                        let kind_label = match kind {
+                            FilterKind::Contains => "Contains",
+                            FilterKind::NotContains => "NotContains",
+                        };
+                        crate::tui::a11y::caret_after(
+                            buf,
+                            area.x,
+                            y,
+                            &format!(" {kind_label}: {buffer}"),
+                        );
+                    }
                 } else {
                     buf.set_string(
                         area.x,
@@ -945,19 +1358,21 @@ impl CheckForm {
                 }
             }
             FormFocus::Submit => {
-                buf.set_string(
-                    area.x,
-                    area.y,
-                    "Press Enter to validate and save the check.",
-                    Style::default(),
-                );
-                if self.error_message.is_none() {
-                    buf.set_string(
-                        area.x,
-                        area.y + 2,
-                        "Filled fields look good. Use Shift-Tab to go back and review.",
-                        Style::default().fg(Color::DarkGray),
-                    );
+                // Wrapped inside the dialog; names what is still missing
+                // instead of claiming the fields look good.
+                let missing = self.blocking_message().is_some();
+                for (i, line) in self.submit_lines(area.width as usize).iter().enumerate() {
+                    if i as u16 >= area.height {
+                        break;
+                    }
+                    let style = if i == 0 {
+                        Style::default()
+                    } else if missing {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    buf.set_stringn(area.x, area.y + i as u16, line, area.width as usize, style);
                 }
             }
             FormFocus::Cancel => {
@@ -987,6 +1402,27 @@ mod tests {
     }
 
     #[test]
+    fn id_with_bidi_or_bad_format_is_rejected() {
+        // The wizard used to say "Looks good" for `mine:b\u{202e}x`.
+        let mut form = fresh_form();
+        form.id_input = TextInput::with_value("mine:b\u{202e}x");
+        match form.validate_field(FormFocus::Id) {
+            FieldValidity::Invalid(m) => assert!(m.contains("\\u{202e}"), "{m}"),
+            other => panic!("accepted: {other:?}"),
+        }
+        form.id_input = TextInput::with_value("mine:Bad Id");
+        assert!(matches!(
+            form.validate_field(FormFocus::Id),
+            FieldValidity::Invalid(_)
+        ));
+        form.id_input = TextInput::with_value("mine:good_id");
+        assert!(matches!(
+            form.validate_field(FormFocus::Id),
+            FieldValidity::Valid(_)
+        ));
+    }
+
+    #[test]
     fn id_uniqueness_validator_works() {
         let v = IdUniquenessValidator::new(vec!["git:force".into()], vec!["my:foo".into()]);
         assert!(v.is_unique("new:check"));
@@ -1007,7 +1443,10 @@ mod tests {
     fn empty_form_submit_fails_with_id_error() {
         let mut form = fresh_form();
         // Skip to Submit
-        form.focus_idx = FOCUS_ORDER.iter().position(|f| *f == FormFocus::Submit).unwrap();
+        form.focus_idx = FOCUS_ORDER
+            .iter()
+            .position(|f| *f == FormFocus::Submit)
+            .unwrap();
         let outcome = form.handle_key(key(KeyCode::Enter));
         assert_eq!(outcome, FormOutcome::None);
         assert!(form
@@ -1073,8 +1512,11 @@ mod tests {
             form.handle_key(key(KeyCode::Char(c)));
         }
         form.handle_key(key(KeyCode::Enter));
-        assert_eq!(form.current_focus(), FormFocus::Test,
-            "Enter on invalid regex must not advance past the Test field");
+        assert_eq!(
+            form.current_focus(),
+            FormFocus::Test,
+            "Enter on invalid regex must not advance past the Test field"
+        );
         // Move past Test with Tab to test the rest of the flow.
         form.handle_key(key(KeyCode::Tab));
         for c in "Desc".chars() {
@@ -1093,6 +1535,266 @@ mod tests {
             .contains("regex"));
     }
 
+    fn screen(form: &CheckForm, w: u16, h: u16) -> (String, Option<(u16, u16)>) {
+        crate::tui::a11y::reset_cursor();
+        let mut buf = Buffer::empty(Rect::new(0, 0, w, h));
+        Widget::render(form, Rect::new(0, 0, w, h), &mut buf);
+        let text = (0..h)
+            .map(|y| {
+                (0..w)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        (text, crate::tui::a11y::requested_cursor())
+    }
+
+    #[test]
+    fn field_and_validation_fit_the_editor_minimum() {
+        // At 60x16 the dialog's inner area is 46x12; the field
+        // being typed into, its caret and the live check must be visible,
+        // and the step preview never overwrites the buttons.
+        for (w, h) in [(46u16, 12u16), (46, 16), (66, 16), (78, 20)] {
+            let mut form = fresh_form();
+            for c in "mine:x".chars() {
+                form.handle_key(key(KeyCode::Char(c)));
+            }
+            let (text, cursor) = screen(&form, w, h);
+            assert!(text.contains("mine:x"), "{w}x{h}\n{text}");
+            assert!(text.contains("Looks good"), "{w}x{h}\n{text}");
+            assert!(cursor.is_some(), "{w}x{h}: no caret");
+            assert!(
+                text.contains("[ Save ]") && text.contains("[ Cancel ]"),
+                "{w}x{h}\n{text}"
+            );
+            form.handle_key(key(KeyCode::Tab));
+            form.handle_key(key(KeyCode::Tab));
+            let (text, _) = screen(&form, w, h);
+            assert!(text.contains("[ Cancel ]"), "{w}x{h}\n{text}");
+        }
+    }
+
+    /// The form drawn in a `w`x`h` dialog at the top left of a wider
+    /// screen, so anything drawn past the dialog's right edge shows up.
+    fn screen_in_wider(form: &CheckForm, w: u16, h: u16) -> Vec<String> {
+        let mut buf = Buffer::empty(Rect::new(0, 0, w + 20, h));
+        Widget::render(form, Rect::new(0, 0, w, h), &mut buf);
+        (0..h)
+            .map(|y| {
+                (0..w + 20)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn field_errors_wrap_inside_the_dialog() {
+        // The editor at 60x16 gives the dialog 46x12, at 80x24 62x19.
+        for (w, h) in [(46u16, 12u16), (62, 19)] {
+            let mut form = fresh_form();
+            form.id_input = TextInput::with_value("mine:b\u{202e}x");
+            let rows = screen_in_wider(&form, w, h);
+            for row in &rows {
+                let outside: String = row.chars().skip(w as usize).collect();
+                assert!(
+                    outside.trim().is_empty(),
+                    "{w}x{h}: past the border: {row:?}"
+                );
+            }
+            let flat = rows
+                .iter()
+                .flat_map(|r| r.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(
+                flat.contains("must not contain spaces, control, bidi or zero-width characters"),
+                "{w}x{h}\n{}",
+                rows.join("\n")
+            );
+
+            // A regex error keeps its caret on its own row, or is cut with `…`.
+            goto(&mut form, FormFocus::Test);
+            form.test_input = TextInput::with_value("([");
+            let rows = screen_in_wider(&form, w, h);
+            for row in &rows {
+                let outside: String = row.chars().skip(w as usize).collect();
+                assert!(
+                    outside.trim().is_empty(),
+                    "{w}x{h}: past the border: {row:?}"
+                );
+            }
+            let text = rows.join("\n");
+            assert!(
+                text.contains("error: unclosed") || text.contains('…') || text.contains("..."),
+                "{w}x{h}\n{text}"
+            );
+            if h >= 19 {
+                assert!(text.contains("error: unclosed"), "{text}");
+                assert!(rows.iter().any(|r| r.trim() == "^"), "caret row\n{text}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_cut_status_line_ends_with_a_marker() {
+        let lines = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+        let cut = fit_rows(lines.clone(), 2, 10);
+        let mark = crate::tui::a11y::sym("…", "...");
+        assert_eq!(cut, vec!["one".to_string(), format!("two{mark}")]);
+        assert_eq!(fit_rows(lines.clone(), 3, 10), lines);
+    }
+
+    #[test]
+    fn a_save_error_is_cleared_once_a_field_changes() {
+        let mut form = fresh_form();
+        for c in "mine:b".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
+        let ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
+        assert_eq!(form.handle_key(ctrl_s), FormOutcome::None);
+        assert!(form.error_message.is_some());
+        let (text, _) = screen(&form, 62, 19);
+        assert!(text.contains("Required"), "{text}");
+        // Moving between fields keeps it; editing one clears it.
+        form.handle_key(key(KeyCode::Tab));
+        assert!(form.error_message.is_some());
+        form.handle_key(key(KeyCode::BackTab));
+        form.handle_key(key(KeyCode::Char('x')));
+        assert!(form.error_message.is_none());
+        let (text, _) = screen(&form, 62, 19);
+        assert!(!text.contains("Required"), "{text}");
+    }
+
+    #[test]
+    fn esc_asks_before_discarding_input() {
+        let mut form = fresh_form();
+        for c in "mine:xyz".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
+        assert_eq!(form.handle_key(key(KeyCode::Esc)), FormOutcome::None);
+        assert!(form.confirm_discard);
+        let (text, _) = screen(&form, 46, 12);
+        assert!(text.contains("Discard this check?"), "{text}");
+        // n keeps the draft.
+        assert_eq!(form.handle_key(key(KeyCode::Char('n'))), FormOutcome::None);
+        assert_eq!(form.id_input.value(), "mine:xyz");
+        form.handle_key(key(KeyCode::Esc));
+        assert_eq!(
+            form.handle_key(key(KeyCode::Char('y'))),
+            FormOutcome::Cancelled
+        );
+    }
+
+    fn goto(form: &mut CheckForm, target: FormFocus) {
+        while form.current_focus() != target {
+            form.handle_key(key(KeyCode::Tab));
+        }
+    }
+
+    #[test]
+    fn list_steps_show_three_choices_at_the_editor_minimum() {
+        // At 60x16 (dialog 46x12) the Group list used to draw no row
+        // and Severity hid High / Critical with no marker.
+        for (w, h) in [(46u16, 12u16), (66, 20)] {
+            let mut form = fresh_form();
+            for c in "mine:x".chars() {
+                form.handle_key(key(KeyCode::Char(c)));
+            }
+            form.handle_key(key(KeyCode::Tab));
+            let (text, cursor) = screen(&form, w, h);
+            let rows = ["aws", "azure", "base"]
+                .iter()
+                .filter(|g| text.lines().any(|l| l.trim_start().starts_with(*g)))
+                .count();
+            assert_eq!(rows, 3, "{w}x{h}\n{text}");
+            assert!(text.contains("more"), "{w}x{h}\n{text}");
+            // The count is on its own row, not over the filter label.
+            let label_row = text.lines().find(|l| l.contains("Type to filter")).unwrap();
+            assert!(!label_row.contains("shown"), "{label_row}");
+            let (cx, cy) = cursor.expect("caret");
+            let row: String = text.lines().nth(cy as usize).unwrap().to_string();
+            assert!(row.contains("Type to filter"), "caret on {row:?}");
+            let colon = row.chars().position(|c| c == ':').unwrap();
+            assert!(cx as usize > colon, "caret after the label: {cx} {row:?}");
+
+            goto(&mut form, FormFocus::Severity);
+            for _ in 0..2 {
+                form.handle_key(key(KeyCode::Down));
+            }
+            let (text, _) = screen(&form, w, h);
+            assert!(text.contains("(•) Critical"), "{w}x{h}\n{text}");
+            assert!(text.contains("Info"), "all five fit: {w}x{h}\n{text}");
+        }
+    }
+
+    #[test]
+    fn group_highlight_follows_the_selected_group() {
+        let mut form = fresh_form();
+        form.from_value = "fs".into();
+        goto(&mut form, FormFocus::From);
+        let fs = form
+            .from_options
+            .iter()
+            .position(|o| o.value == "fs")
+            .unwrap();
+        assert_eq!(form.from_picker.cursor, fs);
+        form.handle_key(key(KeyCode::Enter));
+        assert_eq!(form.from_value, "fs");
+    }
+
+    #[test]
+    fn save_step_names_every_missing_field_and_stays_inside_the_dialog() {
+        // It used to say "Filled fields look good" with every field empty,
+        // drawn past the border; Save named only the Group.
+        let mut form = fresh_form();
+        goto(&mut form, FormFocus::Submit);
+        for (w, h) in [(46u16, 12u16), (66, 20)] {
+            let (text, _) = screen(&form, w, h);
+            assert!(!text.contains("look good"), "{text}");
+            let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert!(
+                flat.contains("Still needed: Check id, Group, Test (regex),"),
+                "{text}"
+            );
+            for line in text.lines() {
+                assert!(line.chars().count() <= w as usize, "{line}");
+            }
+        }
+        assert_eq!(form.handle_key(key(KeyCode::Enter)), FormOutcome::None);
+        assert_eq!(
+            form.error_message.as_deref(),
+            Some("Required: Check id, Group, Test (regex), Description")
+        );
+        let (text, _) = screen(&form, 46, 12);
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(flat.contains("Required: Check id, Group, Test"), "{text}");
+        assert!(flat.contains("Description"), "{text}");
+        // Filled in: the Save step says so.
+        let mut form = fresh_form();
+        for c in "mine:x".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
+        form.test_input = TextInput::with_value("zzqq");
+        form.description_input = TextInput::with_value("d");
+        goto(&mut form, FormFocus::Submit);
+        let (text, _) = screen(&form, 66, 20);
+        assert!(text.contains("All required fields are filled"), "{text}");
+    }
+
+    #[test]
+    fn discard_question_fits_at_sixty_columns() {
+        let mut form = fresh_form();
+        form.handle_key(key(KeyCode::Char('a')));
+        form.handle_key(key(KeyCode::Esc));
+        let (text, _) = screen(&form, 46, 12);
+        assert!(
+            text.contains("Discard this check? y = discard, n = keep"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn esc_cancels_form() {
         let mut form = fresh_form();
@@ -1103,7 +1805,10 @@ mod tests {
     #[test]
     fn add_contains_filter() {
         let mut form = fresh_form();
-        form.focus_idx = FOCUS_ORDER.iter().position(|f| *f == FormFocus::Filters).unwrap();
+        form.focus_idx = FOCUS_ORDER
+            .iter()
+            .position(|f| *f == FormFocus::Filters)
+            .unwrap();
         // Press + to start filter add → PickType
         form.handle_key(key(KeyCode::Char('+')));
         assert!(matches!(form.adding_filter, Some(FilterAdd::PickType)));
@@ -1150,7 +1855,10 @@ mod tests {
     fn validate_field_test_invalid_regex_is_invalid() {
         let mut form = fresh_form();
         // Move to Test field
-        form.focus_idx = FOCUS_ORDER.iter().position(|f| *f == FormFocus::Test).unwrap();
+        form.focus_idx = FOCUS_ORDER
+            .iter()
+            .position(|f| *f == FormFocus::Test)
+            .unwrap();
         for c in "[unclosed".chars() {
             form.handle_key(key(KeyCode::Char(c)));
         }
@@ -1170,8 +1878,11 @@ mod tests {
         let mut form = fresh_form();
         assert_eq!(form.current_focus(), FormFocus::Id);
         form.handle_key(key(KeyCode::Enter));
-        assert_eq!(form.current_focus(), FormFocus::Id,
-            "Enter on invalid required field must keep focus");
+        assert_eq!(
+            form.current_focus(),
+            FormFocus::Id,
+            "Enter on invalid required field must keep focus"
+        );
         // Inline error should be set.
         assert!(form.error_message.is_some());
     }
@@ -1190,7 +1901,7 @@ mod tests {
     #[test]
     fn picker_select_auto_advances_past_group() {
         let mut form = fresh_form();
-        for c in "x".chars() {
+        for c in "my_team:x".chars() {
             form.handle_key(key(KeyCode::Char(c)));
         }
         form.handle_key(key(KeyCode::Enter));
@@ -1221,17 +1932,25 @@ mod tests {
     fn ctrl_s_saves_when_valid() {
         let mut form = fresh_form();
         // Type ID
-        for c in "my_team:foo".chars() { form.handle_key(key(KeyCode::Char(c))); }
+        for c in "my_team:foo".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
         form.handle_key(key(KeyCode::Tab));
         // Pick group
-        for c in "my_t".chars() { form.handle_key(key(KeyCode::Char(c))); }
+        for c in "my_t".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
+        // Enter picks the group and moves on to the pattern.
         form.handle_key(key(KeyCode::Enter));
-        form.handle_key(key(KeyCode::Tab));
         // Test regex
-        for c in "^foo$".chars() { form.handle_key(key(KeyCode::Char(c))); }
+        for c in "^foo$".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
         form.handle_key(key(KeyCode::Tab));
         // Description
-        for c in "Test desc".chars() { form.handle_key(key(KeyCode::Char(c))); }
+        for c in "Test desc".chars() {
+            form.handle_key(key(KeyCode::Char(c)));
+        }
         // Press Ctrl-S from any field — should validate + save.
         let ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
         let outcome = form.handle_key(ctrl_s);

@@ -1,0 +1,337 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for elvish
+use re
+use str
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
+set-env SHELLFIRM_HOOK_PID (to-string $pid)
+var shellfirm-warned = $false
+var shellfirm-rebound-warned = $false
+var shellfirm-orig-enter = $edit:insert:binding[Enter]
+# The Enter binding that was there when shellfirm loaded. When the binding
+# shellfirm runs after its check calls back into shellfirm (a plugin loaded
+# after shellfirm that chains to "the previous Enter", which is shellfirm's),
+# this one runs instead, so one Enter press is checked once and never loops.
+var shellfirm-base-enter = $shellfirm-orig-enter
+var shellfirm-in-enter = $false
+var shellfirm-checked = ''
+# True when elvish would wait for more input: the code has a parse error
+# right at its end (an open block, list or string). Other errors (a
+# variable defined in this session, a real syntax error) are not "incomplete".
+fn shellfirm-incomplete {|cmd|
+    if (not (has-external elvish)) {
+        put $false
+        return
+    }
+    var out = (try { e:elvish -norc -compileonly -json -c $cmd 2>/dev/null } catch { nop } | slurp)
+    var errs = $nil
+    try { set errs = (echo $out | from-json) } catch { }
+    if (not-eq (kind-of $errs) list) {
+        put $false
+        return
+    }
+    var len = (str:to-utf8-bytes $cmd | count)
+    for err $errs {
+        if (and (has-key $err start) (== $err[start] $len)) {
+            put $true
+            return
+        }
+    }
+    put $false
+}
+# The code in the option defaults of a lambda signature (`fn a {|&x=(code)|
+# ... }`, `{|&x=(code)| ...}`): elvish runs it when the closure is made, so
+# at definition time. One command per line ('' = none).
+fn shellfirm-sig-code {|cmd|
+    var out = ''
+    if (str:contains $cmd '|') {
+        for m [(re:find '\{\s*\|([^|]*)\|' $cmd)] {
+            for g [(re:find '\(([^()]*)\)' $m[groups][1][text])] {
+                set out = $out"\n"$g[groups][1][text]
+            }
+        }
+    }
+    put $out
+}
+# True when the line only defines a function (`fn name { ... }`): that runs
+# nothing, and calling it is what gets checked. Option defaults with code
+# in them run now: not "only".
+fn shellfirm-only-fn {|cmd|
+    var t = (str:trim-space $cmd)
+    if (not (re:match '^fn\s+[^\s{]+\s*\{' $t)) {
+        put $false
+        return
+    }
+    if (not-eq (shellfirm-sig-code $t) '') {
+        put $false
+        return
+    }
+    var depth = (num 0)
+    var q = ''
+    var esc = $false
+    var comment = $false
+    var closed = $false
+    for c [(str:split '' $t)] {
+        if $closed {
+            if (not (re:match '^\s$' $c)) {
+                put $false
+                return
+            }
+            continue
+        }
+        if $comment {
+            if (eq $c "\n") { set comment = $false }
+            continue
+        }
+        if $esc {
+            set esc = $false
+            continue
+        }
+        if (eq $q '"') {
+            if (eq $c '\') { set esc = $true } elif (eq $c '"') { set q = '' }
+            continue
+        }
+        if (eq $q "'") {
+            if (eq $c "'") { set q = '' }
+            continue
+        }
+        if (or (eq $c '"') (eq $c "'")) {
+            set q = $c
+        } elif (eq $c '#') {
+            set comment = $true
+        } elif (has-value ['{' '[' '('] $c) {
+            set depth = (+ $depth 1)
+        } elif (has-value ['}' ']' ')'] $c) {
+            set depth = (- $depth 1)
+            if (== $depth 0) { set closed = $true }
+        }
+    }
+    put (and $closed (eq $q ''))
+}
+# The last line shellfirm checked (a chained binding that rewrote the line
+# and called back into shellfirm had the new line checked already; when it
+# was not let through, the binding did not accept it).
+var shellfirm-last-checked = ''
+var shellfirm-saved-paths = $nil
+# The binding that ran after the check changed the line it accepts (an
+# abbreviation-style plugin loaded before shellfirm: `set
+# edit:current-command = ...` then the built-in Enter). elvish runs that new
+# line once the binding returns and it cannot be taken back, so it is
+# checked now; if it is not confirmed, external programs cannot start for
+# that line (PATH is emptied until the next prompt).
+fn shellfirm-recheck {|cmd|
+    var now = $edit:current-command
+    if (or (eq $now $cmd) (eq $now $shellfirm-last-checked) (eq (str:trim-space $now) '') (not (has-external shellfirm))) {
+        return
+    }
+    var incomplete = $false
+    if (str:contains-any $now '{[("''|^') {
+        try { set incomplete = (shellfirm-incomplete $now) } catch { }
+    }
+    if $incomplete {
+        return
+    }
+    set shellfirm-last-checked = $now
+    var ok = $false
+    try {
+        set ok = ?(e:shellfirm pre-command --direct-tty --command=$now </dev/tty >/dev/tty 2>/dev/tty)
+    } catch {
+        set ok = $false
+    }
+    if $ok {
+        return
+    }
+    set shellfirm-saved-paths = $paths
+    set paths = []
+    echo "shellfirm: the Enter binding changed the line after the check and it was not confirmed: external programs on it will not start (elvish built-ins still run)." >/dev/tty
+}
+# The check, for the line $line ($cmd: with what it calls). Exit 3 is
+# "allowed after a passed challenge": with $defer the approved line is not
+# printed yet (after-readline prints it below the line). Set for this call
+# only, so a SHELLFIRM_SIGNAL_PROMPTED the user exported changes nothing.
+var shellfirm-approved = ''
+fn shellfirm-env {|name value|
+    if (eq $value $nil) { unset-env $name } else { set-env $name $value }
+}
+fn shellfirm-check {|cmd line defer|
+    var saved = [&]
+    for n [SHELLFIRM_SIGNAL_PROMPTED SHELLFIRM_DEFER_APPROVED] {
+        set saved[$n] = (if (has-env $n) { get-env $n } else { put $nil })
+    }
+    set-env SHELLFIRM_SIGNAL_PROMPTED 1
+    if $defer { set-env SHELLFIRM_DEFER_APPROVED 1 } else { unset-env SHELLFIRM_DEFER_APPROVED }
+    var r = $ok
+    try {
+        set r = ?(e:shellfirm pre-command --direct-tty --command=$cmd --line=$line </dev/tty >/dev/tty 2>/dev/tty)
+    } finally {
+        for n [SHELLFIRM_SIGNAL_PROMPTED SHELLFIRM_DEFER_APPROVED] { shellfirm-env $n $saved[$n] }
+    }
+    if (eq $r $ok) {
+        put $true
+        return
+    }
+    var st = -1
+    try { set st = $r[reason][exit-status] } catch { }
+    if (eq (to-string $st) 3) {
+        if $defer { set shellfirm-approved = $line }
+        put $true
+        return
+    }
+    put $false
+}
+# Runs the binding after the check, marking that a check is in progress.
+fn shellfirm-next {|next cmd|
+    var was-in = $shellfirm-in-enter
+    var was-checked = $shellfirm-checked
+    set shellfirm-in-enter = $true
+    set shellfirm-checked = $cmd
+    try { $next } finally {
+        set shellfirm-in-enter = $was-in
+        set shellfirm-checked = $was-checked
+    }
+    if (not $was-in) {
+        shellfirm-recheck $cmd
+    }
+}
+# A fn (not a bare lambda): `return` only works inside fn.
+fn shellfirm-enter {
+    var cmd = $edit:current-command
+    var next = $shellfirm-orig-enter
+    if (not $shellfirm-in-enter) {
+        set shellfirm-last-checked = ''
+    }
+    if $shellfirm-in-enter {
+        # Called back from the binding shellfirm runs after its check: run
+        # the binding from before shellfirm loaded. The line is checked
+        # again only when that binding changed it.
+        set next = $shellfirm-base-enter
+        if (eq $cmd $shellfirm-checked) {
+            $next
+            return
+        }
+    }
+    if (eq (str:trim-space $cmd) '') {
+        shellfirm-next $next $cmd
+        return
+    }
+    if (not (has-external shellfirm)) {
+        if (not $shellfirm-warned) {
+            set shellfirm-warned = $true
+            echo "shellfirm: binary not found in PATH; commands are NOT being checked" >/dev/tty
+        }
+        shellfirm-next $next $cmd
+        return
+    }
+    # Code that does not parse yet is never run: let Enter insert the
+    # newline, and check the block once it is complete.
+    var incomplete = $false
+    if (str:contains-any $cmd '{[("''|^') {
+        try { set incomplete = (shellfirm-incomplete $cmd) } catch { }
+    }
+    if $incomplete {
+        shellfirm-next $next $cmd
+        return
+    }
+    var only-fn = $false
+    try { set only-fn = (shellfirm-only-fn $cmd) } catch { }
+    if $only-fn {
+        shellfirm-next $next $cmd
+        return
+    }
+    set shellfirm-last-checked = $cmd
+    var ok = $false
+    try {
+        if (> (count $cmd) 30000) {
+            # Too long to pass as one argument: checked through stdin, no prompt.
+            set ok = ?(print $cmd | e:shellfirm check --stdin --exit-code >/dev/null 2>/dev/null)
+            if (not $ok) {
+                echo "shellfirm: blocked: this line is too long to confirm interactively and it matches a risky pattern (or could not be checked). Run it from a script file instead." >/dev/tty
+            }
+        } else {
+            set ok = (shellfirm-check $cmd(shellfirm-sig-code $cmd) $cmd $true)
+        }
+    } catch err {
+        echo "shellfirm: could not check this line ("(to-string $err[reason])"); command not run" >/dev/tty
+        set ok = $false
+    }
+    if $ok {
+        shellfirm-next $next $cmd
+    } else {
+        edit:notify 'shellfirm: the line is kept for editing (Ctrl-U clears it).'
+        edit:redraw &full=$true
+    }
+}
+# Load once: evaluating this file again (reloading the rc) must not wrap
+# shellfirm's own Enter binding, which would check every line twice. The
+# marker holds this shell's pid, so a child elvish installs its own.
+fn shellfirm-marker {|b| put $pid':'(repr $b) }
+if (not-eq (shellfirm-marker $edit:insert:binding[Enter]) (if (has-env __SHELLFIRM_ELV_ENTER) { get-env __SHELLFIRM_ELV_ENTER } else { put '' })) {
+    var shellfirm-binding = { shellfirm-enter }
+    set edit:insert:binding[Enter] = $shellfirm-binding
+    set-env __SHELLFIRM_ELV_ENTER (shellfirm-marker $shellfirm-binding)
+    # Enter rebound after shellfirm loaded (a plugin, `set
+    # edit:insert:binding[Enter] = ...`): before the next prompt, check
+    # the line first again, then run that binding. This hook keeps itself
+    # the last one, so a plugin that rebinds Enter at every prompt from a
+    # hook added later is wrapped too.
+    var shellfirm-before = $nil
+    set shellfirm-before = {
+        # PATH emptied for a line shellfirm did not let through: back now.
+        if (not-eq $shellfirm-saved-paths $nil) {
+            set paths = $shellfirm-saved-paths
+            set shellfirm-saved-paths = $nil
+        }
+        set shellfirm-last-checked = ''
+        var hooks = $edit:before-readline
+        if (and (> (count $hooks) 0) (not-eq $hooks[-1] $shellfirm-before)) {
+            set edit:before-readline = [(each {|h| if (not-eq $h $shellfirm-before) { put $h } } $hooks) $shellfirm-before]
+        }
+        var cur = $edit:insert:binding[Enter]
+        if (not-eq (repr $cur) (repr $shellfirm-binding)) {
+            set shellfirm-orig-enter = $cur
+            set edit:insert:binding[Enter] = $shellfirm-binding
+            if (not $shellfirm-rebound-warned) {
+                set shellfirm-rebound-warned = $true
+                echo "shellfirm: Enter was rebound after shellfirm loaded; shellfirm now checks the line first, then runs that binding." >/dev/tty
+            }
+        }
+    }
+    set edit:before-readline = [$@edit:before-readline $shellfirm-before]
+    # The last moment before elvish runs the line: one that did not pass
+    # through shellfirm's Enter (rebound by a hook that ran after
+    # shellfirm's at this prompt) is checked here. Not confirmed: external
+    # programs on it cannot start (PATH is emptied until the next prompt).
+    # (No `return` here: it only works inside fn.)
+    set edit:after-readline = [$@edit:after-readline {|line|
+        # After a passed challenge: "approved, running ..." now, on the row
+        # elvish left blank below the answer.
+        if (not-eq $shellfirm-approved '') {
+            var a = $shellfirm-approved
+            set shellfirm-approved = ''
+            if (and (not-eq $E:TERM dumb) (not-eq $E:TERM '')) {
+                try { print "\e[A" >/dev/tty } catch { }
+            }
+            try { e:shellfirm pre-command --approved-notice --command=$a </dev/tty >/dev/tty 2>/dev/null } catch { }
+        }
+        var skip = (or (eq $line $shellfirm-last-checked) (eq (str:trim-space $line) '') (not (has-external shellfirm)))
+        if (not $skip) {
+            try { set skip = (shellfirm-only-fn $line) } catch { }
+        }
+        if (not $skip) {
+            set shellfirm-last-checked = $line
+            var ok = $false
+            try {
+                set ok = (shellfirm-check $line(shellfirm-sig-code $line) $line $false)
+            } catch {
+                set ok = $false
+            }
+            if (not $ok) {
+                set shellfirm-saved-paths = $paths
+                set paths = []
+                echo "shellfirm: this line did not pass through shellfirm's Enter (it was rebound) and was not confirmed: external programs on it will not start (elvish built-ins still run)." >/dev/tty
+            }
+        }
+    }]
+}

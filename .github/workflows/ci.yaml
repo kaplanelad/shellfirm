@@ -13,23 +13,12 @@ on:
       - '**.md'
 
 env:
-  RUST_TOOLCHAIN: stable
+  RUST_TOOLCHAIN: "1.99.1"
+  # Keep in sync with `rust-version` in shellfirm/Cargo.toml.
+  MSRV: "1.88"
+  CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-      
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-      - name: Run cargo check
-        run: cargo check
-
   test:
     name: Test Suite
     runs-on: ${{ matrix.os }}
@@ -37,7 +26,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
-        rust: [stable]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -46,13 +34,31 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build
+        run: cargo build --locked
 
+      # Includes the check catalogue / id / group hygiene tests in
+      # shellfirm/tests/checks.rs.
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
+
+  msrv:
+    name: MSRV build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.MSRV }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build (MSRV, all features)
+        run: cargo build --locked --all-features
 
   features:
     name: Feature isolation
@@ -65,15 +71,34 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - uses: taiki-e/install-action@cargo-hack
 
       # Verifies each cargo feature compiles standalone (and the
       # no-features and all-features builds), so a hidden cross-feature
       # dependency cannot slip through. Compile-only — no tests.
+      # No `--no-dev-deps`: it edits Cargo.toml, so the lock file no longer
+      # matches and `--locked` fails. Not needed either: `cargo check`
+      # without `--tests` does not build dev-dependencies, and resolver 2
+      # does not let them add features to normal dependencies.
       - name: cargo hack check --each-feature
-        run: cargo hack check --each-feature --no-dev-deps
+        run: cargo hack check --locked --each-feature
+
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
 
   clippy:
     name: clippy
@@ -85,9 +110,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
 
+      - uses: Swatinem/rust-cache@v2
+
+      # Same flags as `make clippy`.
       - name: Run clippy
-        run: cargo clippy --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
+        run: cargo clippy --locked --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery -W rust-2018-idioms
 
   docs:
     name: Docs
@@ -99,10 +128,10 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ env.RUST_TOOLCHAIN }}
-        
-    - uses: Swatinem/rust-cache@v1
+
+    - uses: Swatinem/rust-cache@v2
 
     - name: Check documentation
       env:
         RUSTDOCFLAGS: -D warnings
-      run: cargo doc --workspace --all-features --no-deps --document-private-items
+      run: cargo doc --locked --workspace --all-features --no-deps --document-private-items

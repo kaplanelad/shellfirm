@@ -2,10 +2,10 @@
 # -- psql:drop --
 - test: "psql -c DROP TABLE users"
   description: "executing DROP commands via psql CLI"
-  expect_ids: ["database:drop_table", "psql:drop"]
+  expect_ids: ["psql:drop"]  # unquoted: -c only receives "DROP"
 - test: "psql -c  DROP DATABASE testdb"
   description: "psql DROP DATABASE with extra space still matches"
-  expect_ids: ["database:drop_database", "psql:drop"]
+  expect_ids: ["psql:drop"]
 - test: "psql -c SELECT 1"
   description: "psql SELECT should not trigger drop check"
   expect_ids: []
@@ -16,8 +16,8 @@
   expect_ids: ["database:drop_table", "psql:drop"]
 
 - test: "psql --command 'DROP DATABASE test'"
-  description: "BUG: --command long form not matched"
-  expect_ids: ["database:drop_database"]
+  description: "--command long form"
+  expect_ids: ["database:drop_database", "psql:drop"]
 
 # ====== EDGE CASE / STRESS TESTS ======
 
@@ -28,3 +28,86 @@
 - test: "psql -h localhost -c 'DROP TABLE users'"
   description: "EDGE: -h flag before -c"
   expect_ids: ["database:drop_table", "psql:drop"]
+
+# -- psql:pg_restore_clean --
+- test: 'pg_restore --clean -d prod dump.sql'
+  description: "clean restore"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: 'pg_restore -c -d prod dump.sql'
+  description: "short flag"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: 'pg_restore -Fc -d dev dump.sql'
+  description: "negative: custom format"
+  expect_ids: []
+
+# -- psql:drop is scoped to DROP DATABASE/TABLE/SCHEMA (Dana F10) --
+- test: 'psql -c ''ALTER TABLE users DROP COLUMN email'''
+  description: "drop column keeps its own High severity"
+  expect_ids: ["database:alter_drop_column"]
+- test: 'psql -c ''DROP INDEX idx_users_email'''
+  description: "drop index stays Medium"
+  expect_ids: ["database:drop_index"]
+- test: 'psql -c ''SELECT drop_count FROM stats'''
+  description: "negative: drop as part of a word"
+  expect_ids: []
+
+# -- round 4: Dana r3 F7 --
+- test: 'dropuser app'
+  description: "dropuser removes a role"
+  expect_ids: ["psql:dropuser"]
+- test: 'sudo -u postgres dropuser --if-exists app'
+  description: "dropuser through sudo"
+  expect_ids: ["psql:dropuser"]
+- test: 'dropuser --help'
+  description: "negative: help"
+  expect_ids: []
+- test: 'pg_ctl stop -m immediate -D /var/lib/postgresql/data'
+  description: "immediate stop"
+  expect_ids: ["psql:pg_ctl_immediate"]
+- test: 'pg_ctl -D /data restart --mode=immediate'
+  description: "immediate restart, long flag"
+  expect_ids: ["psql:pg_ctl_immediate"]
+- test: 'pg_ctl stop -m fast -D /data'
+  description: "negative: fast stop"
+  expect_ids: []
+- test: 'pg_ctl status -D /data'
+  description: "negative: status"
+  expect_ids: []
+- test: 'pg_resetwal -f /var/lib/postgresql/data'
+  description: "pg_resetwal"
+  expect_ids: ["psql:pg_resetwal"]
+- test: 'pg_resetxlog /data'
+  description: "old pg_resetxlog name"
+  expect_ids: ["psql:pg_resetwal"]
+- test: 'pg_resetwal -n /data'
+  description: "negative: dry run"
+  expect_ids: []
+- test: 'pg_dropcluster 16 main --stop'
+  description: "pg_dropcluster deletes a cluster"
+  expect_ids: ["psql:pg_dropcluster"]
+- test: 'pg_dropcluster --help'
+  description: "negative: help"
+  expect_ids: []
+
+# -- round 8 (R8-WRAP): \gexec, pgbench -i, patronictl (Dana r7 D7-2 / D7-7) --
+- test: 'psql -c "SELECT format(''DROP TABLE %I'', tablename) FROM pg_tables \gexec"'
+  description: 'psql \gexec (Dana r7 D7-2)'
+  expect_ids: ["psql:gexec"]
+- test: 'psql -c "SELECT 1"'
+  description: 'negative: no gexec'
+  expect_ids: []
+- test: 'pgbench -i -s 50 bench'
+  description: 'pgbench -i (Dana r7 D7-7)'
+  expect_ids: ["psql:pgbench_initialize"]
+- test: 'pgbench -c 10 -T 60 bench'
+  description: 'negative: a pgbench run'
+  expect_ids: []
+- test: 'patronictl -c /etc/patroni.yml remove pg-cluster'
+  description: 'patronictl remove'
+  expect_ids: ["psql:patronictl_remove"]
+- test: 'patronictl list'
+  description: 'negative: patronictl list'
+  expect_ids: []
+- test: 'patronictl failover pg-cluster --candidate pg-2 --force'
+  description: 'patronictl failover --force'
+  expect_ids: ["psql:patronictl_failover_force"]

@@ -46,3 +46,114 @@
 - test: "db.my-collection.drop()"
   description: "match hyphenated collection name in drop"
   expect_ids: ["mongodb:interactive_drop_collection"]
+
+# -- round 3: more mongo coverage (Dana F11) --
+- test: 'db.users.updateMany({}, {$set: {admin: true}})'
+  description: "update every document"
+  expect_ids: ["mongodb:update_all_documents"]
+- test: 'db.users.updateMany({name: ''x''}, {$set: {a: 1}})'
+  description: "negative: filtered update"
+  expect_ids: []
+- test: 'db.dropAllUsers()'
+  description: "drop all users"
+  expect_ids: ["mongodb:drop_all_users"]
+- test: 'db.dropAllRoles()'
+  description: "drop all roles"
+  expect_ids: ["mongodb:drop_all_users"]
+- test: 'db.dropUser(''app'')'
+  description: "drop user"
+  expect_ids: ["mongodb:drop_user"]
+- test: 'db.shutdownServer()'
+  description: "shutdown"
+  expect_ids: ["mongodb:shutdown"]
+- test: 'db.adminCommand({shutdown: 1})'
+  description: "shutdown admin command"
+  expect_ids: ["mongodb:shutdown"]
+
+# -- round 4: Dana r3 F6/F7 --
+- test: "mongosh --eval 'db.users.find({name: \"drop()\"})'"
+  description: "negative: drop() inside a string literal is data"
+  expect_ids: []
+- test: "mongosh --eval 'db.users.dropIndexes()'"
+  description: "dropIndexes is Medium, not a Critical drop"
+  expect_ids: ["mongodb:drop_indexes"]
+- test: "db.users.dropIndex('email_1')"
+  description: "interactive dropIndex"
+  expect_ids: ["mongodb:drop_indexes"]
+- test: "db.users.createIndex({email: 1})"
+  description: "negative: create index"
+  expect_ids: []
+- test: "mongosh --eval 'db.dropUser(\"app\")'"
+  description: "dropUser keeps its own Medium check (not mongodb:drop)"
+  expect_ids: ["mongodb:drop_user"]
+- test: "db.users.bulkWrite([{deleteMany: {filter: {}}}])"
+  description: "bulkWrite deleteMany with an empty filter"
+  expect_ids: ["mongodb:bulk_delete_all"]
+- test: "db.users.bulkWrite([{deleteMany: {filter: {active: false}}}])"
+  description: "negative: filtered bulk delete"
+  expect_ids: []
+- test: "mongorestore --drop /backup"
+  description: "mongorestore --drop drops collections first"
+  expect_ids: ["mongodb:mongorestore_drop"]
+- test: "mongorestore --uri mongodb://x /backup"
+  description: "negative: plain restore"
+  expect_ids: []
+- test: "mongosh --eval 'db.users.find({q: \"db.users.deleteMany({})\"})'"
+  description: "negative: deleteMany({}) inside a string is data (Dana r4 N12)"
+  expect_ids: []
+- test: "mongosh --eval 'db.users.deleteMany({}); print(\"done\")'"
+  description: "deleteMany({}) before a string"
+  expect_ids: ["mongodb:delete_all_documents"]
+- test: "mongosh --eval 'print(\"start\"); db.users.deleteMany({})'"
+  description: "deleteMany({}) after a string"
+  expect_ids: ["mongodb:delete_all_documents"]
+- test: "mongosh --eval 'db.getSiblingDB(\"prod\").dropDatabase()'"
+  description: "dropDatabase on another database handle (Dana r4 N3)"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_database"]
+- test: "mongosh --eval 'db.getSiblingDB(\"prod\").users.drop()'"
+  description: "collection drop on another database handle"
+  expect_ids: ["mongodb:drop", "mongodb:interactive_drop_collection_indirect"]
+
+# -- mongodb:run_command_drop (round 6) --
+- test: "mongosh --eval 'db.runCommand({dropDatabase: 1})'"
+  description: "dropDatabase as a command document"
+  expect_ids: ["mongodb:run_command_drop"]
+- test: "mongosh --eval 'db.getSiblingDB(\"prod\").runCommand({drop: \"users\"})'"
+  description: "drop collection as a command document on another database"
+  expect_ids: ["mongodb:run_command_drop"]
+- test: "db.adminCommand({ \"dropDatabase\": 1 })"
+  description: "adminCommand with a quoted key"
+  expect_ids: ["mongodb:run_command_drop"]
+- test: "db.runCommand({dropIndexes: \"users\", index: \"*\"})"
+  description: "negative for run_command_drop: dropIndexes is not drop"
+  expect_ids: []
+- test: "db.runCommand({ping: 1})"
+  description: "negative: ping"
+  expect_ids: []
+
+# -- mongodb:run_command_delete_all (round 6) --
+- test: "mongosh --eval 'db.runCommand({delete: \"users\", deletes: [{q: {}, limit: 0}]})'"
+  description: "delete command with an empty filter"
+  expect_ids: ["mongodb:run_command_delete_all"]
+- test: "db.runCommand({delete: \"users\", deletes: [{q: {status: \"old\"}, limit: 0}]})"
+  description: "negative: delete command with a filter"
+  expect_ids: []
+
+# -- mongodb:rename_drop_target (round 6) --
+- test: "db.users.renameCollection(\"archive\", true)"
+  description: "renameCollection with dropTarget"
+  expect_ids: ["mongodb:rename_drop_target"]
+- test: "db.adminCommand({renameCollection: \"app.users\", to: \"app.archive\", dropTarget: true})"
+  description: "renameCollection command with dropTarget"
+  expect_ids: ["mongodb:rename_drop_target"]
+- test: "db.users.renameCollection(\"archive\")"
+  description: "negative: renameCollection without dropTarget"
+  expect_ids: []
+
+# -- round 8 (R8-WRAP): mongoimport --drop (Dana r7 D7-7) --
+- test: 'mongoimport --db app --collection users --drop --file users.json'
+  description: 'mongoimport --drop (Dana r7 D7-7)'
+  expect_ids: ["mongodb:mongoimport_drop"]
+- test: 'mongoimport --db app --collection users --file users.json'
+  description: 'negative: mongoimport without --drop'
+  expect_ids: []

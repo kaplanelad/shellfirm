@@ -170,8 +170,8 @@
 
 # -- kubernetes-strict:delete_resource edge cases --
 - test: "kubectl delete pod mypod --force --grace-period=0"
-  description: "EDGE: force delete pod"
-  expect_ids: ["kubernetes-strict:delete_resource"]
+  description: "EDGE: force delete pod (no graceful shutdown) is High"
+  expect_ids: ["kubernetes-strict:force_delete_pod"]
 - test: "kubectl delete all --all -n default"
   description: "EDGE: delete all resources"
   expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
@@ -197,10 +197,10 @@
   expect_ids: []
 - test: "kubectl delete pod mypod"
   description: "negative: delete specific pod should not match delete_all_resources"
-  expect_ids: ["kubernetes-strict:delete_resource"]
+  expect_ids: ["kubernetes-strict:delete_pod"]
 - test: "kubectl delete pods --field-selector status.phase=Failed"
   description: "negative: delete with field-selector should not match delete_all"
-  expect_ids: ["kubernetes-strict:delete_resource"]
+  expect_ids: ["kubernetes-strict:delete_pod"]
 - test: "kubectl get pods --all-namespaces"
   description: "negative: get with --all-namespaces should not match"
   expect_ids: []
@@ -231,5 +231,282 @@
   description: "negative: apply without --force should not match"
   expect_ids: []
 - test: "kubectl apply --force-conflicts -f deployment.yaml"
-  description: "negative: --force-conflicts is not --force (different flag)"
+  description: "--force-conflicts is not --force, but takes over fields (omar-r5:R5-5)"
+  expect_ids: ["kubernetes:apply_force_conflicts"]
+- test: "kubectl annotate deploy api team=x --overwrite"
+  description: "overwriting annotations"
+  expect_ids: ["kubernetes:overwrite_metadata"]
+- test: "kubectl annotate deploy api team=x"
+  description: "negative: a new annotation"
   expect_ids: []
+- test: "kubectl debug node/n1 -it --image=busybox -- chroot /host"
+  description: "a root shell on the node"
+  expect_ids: ["kubernetes:debug_node_root"]
+- test: "helmfile -e prod destroy"
+  description: "helmfile destroy"
+  expect_ids: ["kubernetes:helmfile_destroy"]
+- test: "helmfile -e prod diff"
+  description: "negative: helmfile diff"
+  expect_ids: []
+- test: "argocd app delete api --cascade"
+  description: "argocd app delete"
+  expect_ids: ["kubernetes:argocd_app_delete"]
+- test: "flux delete kustomization apps"
+  description: "flux delete"
+  expect_ids: ["kubernetes:flux_delete"]
+- test: "flux get kustomizations"
+  description: "negative: flux get"
+  expect_ids: []
+- test: "eksctl delete cluster --name prod"
+  description: "eksctl delete cluster"
+  expect_ids: ["kubernetes:eksctl_delete_cluster"]
+
+# -- kubernetes:taint_noexecute --
+- test: 'kubectl taint nodes node-1 key=v:NoExecute'
+  description: "NoExecute taint"
+  expect_ids: ["kubernetes:taint_noexecute"]
+- test: 'oc taint nodes n1 k=v:NoExecute'
+  description: "oc"
+  expect_ids: ["kubernetes:taint_noexecute"]
+- test: 'kubectl taint nodes node-1 key=v:NoExecute-'
+  description: "negative: removing the taint"
+  expect_ids: []
+- test: 'kubectl taint nodes node-1 key=v:NoSchedule'
+  description: "negative: NoSchedule"
+  expect_ids: []
+- test: 'kubectl get pods -o name | xargs kubectl delete'
+  description: "xargs delete"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: 'kubecolor delete deploy api'
+  description: "kubecolor"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+# -- kubernetes:patch (R4) --
+- test: 'kubectl patch deploy api -p {"spec":{"replicas":0}}'
+  description: "patch a deployment"
+  expect_ids: ["kubernetes:patch"]
+- test: 'kubectl --context prod patch svc web --type merge -p x'
+  description: "patch with global flags"
+  expect_ids: ["kubernetes:patch"]
+- test: 'kubectl get deploy patch-job'
+  description: "negative: a name containing patch"
+  expect_ids: []
+# -- round 5 (Omar R4 N7) --
+- test: "kubectl patch --help"
+  description: "help changes nothing"
+  expect_ids: []
+- test: "kubectl patch deploy api -p '{}' --dry-run=client"
+  description: "a dry run changes nothing"
+  expect_ids: []
+# -- round 7 (omar-r6:R6-2, jules-r6:R6-4) --
+- test: 'sudo etcdctl del "" --prefix'
+  description: "every key of the cluster"
+  expect_ids: ["kubernetes:etcd_delete_keys"]
+- test: "etcdctl snapshot restore snap.db"
+  description: "replacing the store"
+  expect_ids: ["kubernetes:etcd_delete_keys"]
+- test: "etcdctl get /registry --prefix --keys-only"
+  description: "negative: listing keys"
+  expect_ids: []
+- test: "sudo kubeadm reset -f"
+  description: "tearing down a node"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "kubeadm token list"
+  description: "negative: listing tokens"
+  expect_ids: []
+- test: "kubectl config delete-context prod-eu"
+  description: "removing a kubeconfig context"
+  expect_ids: ["kubernetes:config_delete_context"]
+- test: "task delete namespace"
+  description: "negative: go-task, not kubectl"
+  expect_ids: []
+- test: "check delete ns"
+  description: "negative: a word ending in k"
+  expect_ids: []
+- test: "mytask delete pods"
+  description: "negative: not kubectl"
+  expect_ids: []
+- test: "kubectl delete nsx"
+  description: "a resource kind nsx, not a namespace"
+  expect_ids: ["kubernetes-strict:delete_resource"]
+- test: "kubectl delete namespaces dev"
+  description: "the plural kind"
+  expect_ids: ["kubernetes:delete_namespace", "kubernetes-strict:delete_resource"]
+- test: "helm uninstall api --dry-run"
+  description: "negative: a dry run"
+  expect_ids: []
+# -- round 8 (jules-r7:R7-2): anchored kubectl / helm regexes --
+- test: "task delete pods --all"
+  description: "negative: `task` ends in k but is not kubectl"
+  expect_ids: []
+- test: "task drain node1"
+  description: "negative: not kubectl drain"
+  expect_ids: []
+- test: "check cordon node1"
+  description: "negative: not kubectl cordon"
+  expect_ids: []
+- test: "task replace --force -f x.yaml"
+  description: "negative: not kubectl replace"
+  expect_ids: []
+- test: "mock apply -f x --force"
+  description: "negative: not kubectl apply"
+  expect_ids: []
+- test: "myhelm uninstall web"
+  description: "negative: another tool whose name ends in helm"
+  expect_ids: []
+- test: "xhelm rollback web 1"
+  description: "negative: not helm rollback"
+  expect_ids: []
+- test: "myhelm upgrade web ./chart --force"
+  description: "negative: not helm upgrade"
+  expect_ids: []
+- test: "sudo kubectl drain node1"
+  description: "sudo kubectl drain still matches"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "env KUBECONFIG=/tmp/k kubectl cordon node1"
+  description: "env-prefixed kubectl cordon still matches"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "/usr/local/bin/kubectl -n x delete pods --all"
+  description: "a kubectl path still matches"
+  expect_ids: ["kubernetes:delete_all_resources", "kubernetes-strict:delete_resource"]
+- test: "k replace --force -f x.yaml"
+  description: "the k alias still matches"
+  expect_ids: ["kubernetes:replace_force"]
+- test: "k apply -f x.yaml --force"
+  description: "the k alias still matches apply --force"
+  expect_ids: ["kubernetes:apply_force"]
+- test: "/usr/local/bin/helm uninstall web"
+  description: "a helm path still matches"
+  expect_ids: ["helm:uninstall"]
+- test: "sudo helm rollback web 1"
+  description: "sudo helm rollback still matches"
+  expect_ids: ["helm:rollback"]
+- test: "helm upgrade web ./chart --force"
+  description: "helm upgrade --force still matches"
+  expect_ids: ["helm:upgrade_force"]
+# -- kubernetes:velero_backup_delete --
+- test: "velero backup delete --all --confirm"
+  description: "deletes every backup"
+  expect_ids: ["kubernetes:velero_backup_delete"]
+- test: "velero schedule delete nightly"
+  description: "deletes a backup schedule"
+  expect_ids: ["kubernetes:velero_backup_delete"]
+- test: "velero backup get"
+  description: "negative: listing backups"
+  expect_ids: []
+- test: "myvelero backup delete x"
+  description: "negative: another tool"
+  expect_ids: []
+# -- kubernetes:velero_restore --
+- test: "velero restore create --from-backup nightly"
+  description: "restores objects into the live cluster"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore get"
+  description: "negative: listing restores"
+  expect_ids: []
+# -- kubernetes:etcd_member_remove --
+- test: "etcdctl member remove 8e9e05c52164694d"
+  description: "removes an etcd member"
+  expect_ids: ["kubernetes:etcd_member_remove"]
+- test: "etcdctl member list -w table"
+  description: "negative: listing members"
+  expect_ids: []
+
+# ---- round 9 (R9-CATALOG) ----
+# -- kubernetes:argocd_sync_force --
+- test: "argocd app sync myapp --prune --force"
+  description: "prune and force"
+  expect_ids: ["kubernetes:argocd_sync_force"]
+- test: "argocd app sync myapp --force"
+  description: "force only"
+  expect_ids: ["kubernetes:argocd_sync_force"]
+- test: "argocd app sync myapp --force --dry-run"
+  description: "a dry run"
+  expect_ids: []
+# -- kubernetes:argocd_sync_prune --
+- test: "argocd app sync myapp --prune"
+  description: "prune deletes resources no longer in Git"
+  expect_ids: ["kubernetes:argocd_sync_prune"]
+- test: "argocd app sync myapp"
+  description: "a plain sync"
+  expect_ids: []
+- test: "argocd app sync myapp --prune --preview-changes"
+  description: "previewing"
+  expect_ids: []
+- test: "argocd app diff myapp"
+  description: "the alternative"
+  expect_ids: []
+# -- kubernetes:argocd_app_delete --
+- test: "argocd app delete myapp --cascade=false"
+  description: "non-cascading delete keeps the resources"
+  expect_ids: []
+# -- kubernetes:istioctl_uninstall --
+- test: "istioctl uninstall --purge -y"
+  description: "purge every Istio resource"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "istioctl x uninstall --purge"
+  description: "the experimental form"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "istioctl uninstall --revision canary"
+  description: "one revision"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "istioctl uninstall --purge --dry-run"
+  description: "a dry run"
+  expect_ids: []
+- test: "istioctl install"
+  description: "installing"
+  expect_ids: []
+# -- kubernetes:cilium_uninstall --
+- test: "cilium uninstall"
+  description: "removes the CNI"
+  expect_ids: ["kubernetes:cilium_uninstall"]
+- test: "cilium status"
+  description: "status"
+  expect_ids: []
+- test: "cilium install"
+  description: "installing"
+  expect_ids: []
+# -- kubernetes:debug_node --
+- test: "kubectl debug node/node-1 -it --image=busybox"
+  description: "a debug pod on the node"
+  expect_ids: ["kubernetes:debug_node"]
+- test: "k debug node/node-1 -it --image=ubuntu -- bash"
+  description: "a shell without chroot"
+  expect_ids: ["kubernetes:debug_node"]
+- test: "kubectl debug node/node-1 -it --image=busybox -- chroot /host"
+  description: "chroot stays the High check"
+  expect_ids: ["kubernetes:debug_node_root"]
+- test: "kubectl debug mypod -it --image=busybox"
+  description: "debugging a pod"
+  expect_ids: []
+# -- kubernetes:taint_noexecute --
+- test: "kubectl taint nodes node-1 dedicated=db:NoExecute"
+  description: "NoExecute evicts pods"
+  expect_ids: ["kubernetes:taint_noexecute"]
+- test: "kubectl taint nodes node-1 dedicated=db:NoSchedule"
+  description: "NoSchedule only stops new pods"
+  expect_ids: []
+- test: "kubectl taint nodes node-1 dedicated:NoExecute-"
+  description: "removing the taint"
+  expect_ids: []
+
+# -- kubernetes:argocd_cluster_rm --
+- test: "argocd cluster rm https://prod-eu.example.com"
+  description: "removing a cluster from Argo CD"
+  expect_ids: ["kubernetes:argocd_cluster_rm"]
+- test: "argocd cluster list"
+  description: "listing clusters is safe"
+  expect_ids: []
+
+# -- kubernetes-strict:delete_pod --
+- test: "kubectl delete pod web-123"
+  description: "deleting one pod (recreated by its controller) is Medium"
+  expect_ids: ["kubernetes-strict:delete_pod"]
+- test: "kubectl delete pods web-1 web-2 -n staging"
+  description: "deleting named pods"
+  expect_ids: ["kubernetes-strict:delete_pod"]
+- test: "kubectl delete pod/web-123"
+  description: "pod/NAME form"
+  expect_ids: ["kubernetes-strict:delete_pod"]
+- test: "kubectl delete deploy web"
+  description: "a deployment is still the High delete_resource"
+  expect_ids: ["kubernetes-strict:delete_resource"]

@@ -72,10 +72,45 @@ impl<'a> Widget for RadioGroup<'a> {
             .map(|s| s.chars().count())
             .max()
             .unwrap_or(0);
-        for (i, opt) in self.options.iter().enumerate() {
-            if i as u16 >= area.height {
+        // More options than rows: show a window that keeps the cursor (or
+        // the selection) visible, with `▲ more` / `▼ more` on the edge
+        // rows so the hidden options are not a surprise.
+        let rows = area.height as usize;
+        let n = self.options.len();
+        let focus = self
+            .cursor_row
+            .unwrap_or(self.selected)
+            .min(n.saturating_sub(1));
+        let first = if n <= rows || rows == 0 {
+            0
+        } else {
+            focus.saturating_sub(rows - 1).min(n - rows)
+        };
+        let hidden_above = first > 0;
+        let hidden_below = first + rows < n;
+        let marker_w: u16 = if hidden_above || hidden_below { 7 } else { 0 };
+        for (i, opt) in self.options.iter().enumerate().skip(first) {
+            let row = i - first;
+            if row >= rows {
                 break;
             }
+            let y = area.y + row as u16;
+            let marker = if row == 0 && hidden_above {
+                Some(crate::tui::a11y::sym("▲ more", "^ more"))
+            } else if row + 1 == rows && hidden_below {
+                Some(crate::tui::a11y::sym("▼ more", "v more"))
+            } else {
+                None
+            };
+            if let Some(m) = marker {
+                buf.set_string(
+                    area.x + area.width.saturating_sub(marker_w - 1),
+                    y,
+                    m,
+                    Style::default().fg(Color::Yellow),
+                );
+            }
+            let width = area.width.saturating_sub(marker_w);
             let bullet = if i == self.selected { "(•)" } else { "( )" };
             let highlight = self.focused_within
                 && match self.cursor_row {
@@ -91,7 +126,7 @@ impl<'a> Widget for RadioGroup<'a> {
                 Style::default()
             };
             let label = format!("{bullet} {opt}");
-            buf.set_string(area.x, area.y + i as u16, &label, style);
+            buf.set_stringn(area.x, y, &label, width as usize, style);
 
             if let Some(descs) = self.descriptions {
                 let desc = descs[i];
@@ -99,7 +134,7 @@ impl<'a> Widget for RadioGroup<'a> {
                     Some(col) => area.x + col,
                     None => area.x + 4 + label_width as u16 + 4,
                 };
-                if desc_x < area.x + area.width {
+                if desc_x < area.x + width {
                     let desc_style = if highlight {
                         // When the radio row is highlighted (cursor on it),
                         // the description should still be readable. Use a
@@ -108,9 +143,9 @@ impl<'a> Widget for RadioGroup<'a> {
                     } else {
                         Style::default().fg(Color::DarkGray)
                     };
-                    let max = (area.x + area.width).saturating_sub(desc_x) as usize;
+                    let max = (area.x + width).saturating_sub(desc_x) as usize;
                     let truncated: String = desc.chars().take(max).collect();
-                    buf.set_string(desc_x, area.y + i as u16, &truncated, desc_style);
+                    buf.set_string(desc_x, y, &truncated, desc_style);
                 }
             }
         }
@@ -126,7 +161,11 @@ pub fn handle_radio_key(key: KeyEvent, current: usize, len: usize) -> usize {
     }
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            if current == 0 { len - 1 } else { current - 1 }
+            if current == 0 {
+                len - 1
+            } else {
+                current - 1
+            }
         }
         KeyCode::Down | KeyCode::Char('j') => (current + 1) % len,
         _ => current,
@@ -158,6 +197,37 @@ mod tests {
     fn vim_keys_work() {
         assert_eq!(handle_radio_key(key(KeyCode::Char('j')), 0, 3), 1);
         assert_eq!(handle_radio_key(key(KeyCode::Char('k')), 0, 3), 2);
+    }
+
+    fn draw(selected: usize, h: u16) -> Vec<String> {
+        let opts = ["Info", "Low", "Medium", "High", "Critical"];
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, h));
+        RadioGroup::new(&opts, selected, true).render(Rect::new(0, 0, 30, h), &mut buf);
+        (0..h)
+            .map(|y| (0..30).map(|x| buf[(x, y)].symbol().to_string()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn short_area_scrolls_to_the_selection_with_markers() {
+        // High and Critical used to be off screen with no hint.
+        let rows = draw(0, 3);
+        assert!(
+            rows[0].contains("Info") && rows[2].contains("Medium"),
+            "{rows:?}"
+        );
+        assert!(
+            rows[2].contains("more") && !rows[0].contains("more"),
+            "{rows:?}"
+        );
+        let rows = draw(4, 3);
+        assert!(rows[2].contains("(•) Critical"), "{rows:?}");
+        assert!(
+            rows[0].contains("more") && !rows[2].contains("more"),
+            "{rows:?}"
+        );
+        let rows = draw(2, 5);
+        assert!(rows.iter().all(|r| !r.contains("more")), "{rows:?}");
     }
 
     #[test]

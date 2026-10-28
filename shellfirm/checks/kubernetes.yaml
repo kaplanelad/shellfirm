@@ -1,95 +1,301 @@
 - from: kubernetes
-  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+(ns|namespace)
+  test: (?:^|\s)(kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+(ns|namespaces?)(?:\s|/|$)
   description: "Deleting the namespace also deletes all the residing components."
   id: kubernetes:delete_namespace
   severity: Critical
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
   alternative: "kubectl get all -n <namespace>"
   alternative_info: "List all resources in the namespace first to verify what will be deleted."
 - from: kubernetes
-  test: (k|kubectl)\s+(?:-\S+\s+\S+\s+)*delete\s+
-  description: "This command will going to delete a given resource."
+  test: (?:^|\s)(k|kubectl)\s+(?:-\S+\s+\S+\s+)*delete\s+
+  description: "This deletes the given Kubernetes resource."
   id: kubernetes-strict:delete_resource
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+    # Pods: `kubernetes-strict:delete_pod` (Medium).
+    - type: NotMatches
+      value: '\sdelete\s+(?:-\S+\s+)*(?:pods?|po)(?:/\S+|(?:\s+(?:-\S+\s+)*[^-\s]\S*)+)(?:\s|$)'
+- from: kubernetes
+  # Deleting pods is the usual "kick the stuck pod" step: the Deployment /
+  # ReplicaSet recreates them. Every pod of a namespace (`--all`) stays
+  # Critical (`kubernetes:delete_all_resources`).
+  test: (?:^|\s)(k|kubectl)\s+(?:-\S+\s+\S+\s+)*delete\s+(?:-\S+\s+)*(?:pods?|po)(?:/\S+|(?:\s+(?:-\S+\s+)*[^-\s]\S*)+)(?:\s|$)
+  description: "This deletes the given pod(s); a Deployment or ReplicaSet recreates them, a bare pod is gone."
+  id: kubernetes-strict:delete_pod
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+    - type: NotMatches
+      value: '\s(?:--force|--grace-period[=\s]0|--now)(?:\s|$)'
+- from: kubernetes
+  # A forced pod delete skips the graceful shutdown (a stateful pod can lose
+  # writes, and its volume may still be attached when the new one starts).
+  test: (?:^|\s)(k|kubectl)\s+(?:-\S+\s+\S+\s+)*delete\s+(?:-\S+\s+)*(?:pods?|po)(?:/|\s).*\s(?:--force|--grace-period[=\s]0|--now)(?:\s|$)
+  description: "This force-deletes pods without a graceful shutdown: a stateful pod can lose data in flight."
+  id: kubernetes-strict:force_delete_pod
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+  alternative: "kubectl delete pod <name>"
+  alternative_info: "A normal delete gives the pod its grace period to shut down cleanly."
 - from: kubernetes
   test: ^(k|kubectl)\s+set\s+([[:word:]]+)
-  description: "This command will update the given given resource."
+  description: "This updates the given Kubernetes resource."
   id: kubernetes-strict:update_resource
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
 - from: kubernetes
-  test: (kubectl|k)\s+scale
-  description: "This command will set a new size for a given resource."
+  test: (?:^|\s)(kubectl|k)\s+scale(?:\s|$)
+  description: "This changes the replica count of the given resource."
   id: kubernetes-strict:change_resource_size
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
 - from: kubernetes
-  test: (k|kubectl)\s+rollout\s+(pause|restart|resume|undo)
-  description: "This command will manage a rollout for a given resource."
+  test: (?:^|\s)(k|kubectl)\s+rollout\s+(pause|restart|resume|undo)(?:\s|$)
+  # Medium: a rolling restart is the routine way to roll pods and deletes
+  # nothing; a production context still escalates it.
+  description: "This changes the rollout state of the given resource (restart rolls every pod, undo reverts to the previous revision, pause stops further rollouts)."
   id: kubernetes-strict:rollout_resource
-  severity: High
+  severity: Medium
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
 - from: kubernetes
-  test: helm\s+(uninstall|delete)\s+
+  test: (?:^|\s)helm\s+(uninstall|delete|del|un)\s+
   description: "Removing a Helm release deletes all its managed Kubernetes resources."
   id: helm:uninstall
   severity: High
+  filters:
+    # `--dry-run` only simulates the uninstall.
+    - type: NotMatches
+      value: '\s--dry-run(?:=\S+)?(?:\s|$)'
 - from: kubernetes
-  test: helm\s+rollback\s+
+  test: (?:^|\s)helm\s+rollback\s+
   description: "Rolling back a Helm release reverts to a previous revision."
   id: helm:rollback
   severity: Medium
 - from: kubernetes
-  test: helm\s+upgrade\s+.*--force
+  test: (?:^|\s)helm\s+upgrade\s+.*--force
   description: "Force-upgrading a Helm release deletes and recreates resources."
   id: helm:upgrade_force
   severity: High
 - from: kubernetes
-  test: (kubectl|k)\s+drain\s+
+  test: (?:^|\s)(kubectl|k)\s+drain\s+
   description: "Draining a node evicts all pods and marks the node unschedulable."
   id: kubernetes:drain_node
   severity: High
 - from: kubernetes
-  test: (kubectl|k)\s+cordon\s+
+  test: (?:^|\s)(kubectl|k)\s+cordon\s+
   description: "Cordoning a node prevents new pods from being scheduled on it."
   id: kubernetes:cordon_node
   severity: Medium
 - from: kubernetes
-  test: (kubectl|k)\s+replace\s+.*--force
+  test: (?:^|\s)(kubectl|k)\s+replace\s+.*--force
   description: "Force-replacing a resource deletes and recreates it, causing downtime."
   id: kubernetes:replace_force
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
 - from: kubernetes
-  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+.*--all(\s|$)
+  test: (?:^|\s)(kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+.*--all(\s|$)
   description: "Deleting all resources of a type wipes everything in the namespace."
   id: kubernetes:delete_all_resources
   severity: Critical
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
   alternative: "kubectl get <resource> -n <namespace>"
   alternative_info: "List resources first to verify what would be deleted."
 - from: kubernetes
-  test: (kubectl|k)\s+(?:-\S+\s+\S+\s+)*apply\s+.*--force(\s|$)
+  test: (?:^|\s)(kubectl|k)\s+(?:-\S+\s+\S+\s+)*apply\s+.*--force(\s|$)
   description: "Force-applying deletes and recreates resources, causing downtime."
   id: kubernetes:apply_force
   severity: High
   filters:
-    - type: NotContains
-      value: "--dry-run"
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
   alternative: "kubectl apply -f <file>"
   alternative_info: "Apply without --force to update resources in-place without downtime."
+- from: kubernetes
+  test: (?:^|\s)(?:kubectl|k|oc)\s+apply\s+.*--prune(?:\s|$|=)
+  description: "Applying with --prune deletes every resource that is not in the applied files."
+  id: kubernetes:apply_prune
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+  alternative: "kubectl diff -f <file>"
+  alternative_info: "Review what would change (including deletions) before pruning."
+- from: kubernetes
+  test: (?:^|\s)(?:kubectl|k|oc)\s+taint\s+.*:NoExecute(?:\s|$)
+  description: "A NoExecute taint immediately evicts every pod that does not tolerate it from the node."
+  id: kubernetes:taint_noexecute
+  severity: Medium
+- from: kubernetes
+  # `kubectl patch deploy x -p '{"spec":{"replicas":0}}'` changes a live
+  # object in place, without a manifest to review or roll back to.
+  test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?patch\s+\S
+  description: "This patches a live Kubernetes object in place (e.g. scaling it to 0 or changing its spec)."
+  id: kubernetes:patch
+  severity: Medium
+  filters:
+    # Help and dry runs change nothing.
+    - type: NotMatches
+      value: '\s(?:--help|-h|--dry-run(?:=(?:client|server|true))?)(?:\s|$)'
+- from: kubernetes
+  # Server-side apply that takes ownership of fields other managers own.
+  test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?apply\s+(?:\S+\s+)*?--force-conflicts(?:=true)?(?:\s|$)
+  description: "--force-conflicts takes over fields that other controllers or users manage, overwriting their values."
+  id: kubernetes:apply_force_conflicts
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+- from: kubernetes
+  test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?(?:annotate|label)\s+(?:\S+\s+)*?--overwrite(?:=true)?(?:\s|$)
+  description: "--overwrite replaces existing annotations or labels that controllers and selectors may rely on."
+  id: kubernetes:overwrite_metadata
+  severity: Medium
+- from: kubernetes
+  # `kubectl debug node/x -it --image=busybox -- chroot /host`: a root shell
+  # on the node itself.
+  test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?debug\s+(?:\S+\s+)*?node/\S+(?:\s.*)?\s--\s+(?:\S+\s+)*?chroot\s+/host(?:\s|$)
+  description: "This opens a root shell on the Kubernetes node itself (chroot into the host filesystem): anything run there changes the node, not a pod."
+  id: kubernetes:debug_node_root
+  severity: High
+- from: kubernetes
+  test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?debug\s+(?:\S+\s+)*?node/\S+
+  description: "This starts a debugging pod on the Kubernetes node with the host's filesystem mounted at /host and its network and process namespaces: what you run there can change the node itself."
+  id: kubernetes:debug_node
+  severity: Medium
+  filters:
+    # With `-- chroot /host` the High check above applies.
+    - type: NotMatches
+      value: \s--\s+(?:\S+\s+)*?chroot\s+/host(?:\s|$)
+  alternative: "kubectl describe node <node>"
+  alternative_info: "Inspect the node (conditions, taints, pods) without a shell on it."
+- from: kubernetes
+  test: (?:^|\s)helmfile\s+(?:\S+\s+)*?(?:destroy|delete)(?:\s|$)
+  description: "helmfile destroy uninstalls every release of the helmfile (in the selected environment) from the cluster."
+  id: kubernetes:helmfile_destroy
+  severity: High
+- from: kubernetes
+  test: (?:^|\s)argocd\s+(?:\S+\s+)*?app\s+delete\s+\S
+  description: "Deleting an Argo CD application (with its default cascade) deletes every Kubernetes resource it manages."
+  id: kubernetes:argocd_app_delete
+  severity: High
+  filters:
+    # `--cascade=false` removes only the Application; the resources stay.
+    - type: NotMatches
+      value: \s--cascade(?:=|\s+)false(?:\s|$)
+  alternative: "argocd app delete <app> --cascade=false"
+  alternative_info: "Removes only the Argo CD application and keeps the resources it manages running (`argocd app resources <app>` lists them)."
+- from: kubernetes
+  test: (?:^|\s)argocd\s+(?:\S+\s+)*?cluster\s+(?:rm|remove|delete)\s+\S
+  description: "argocd cluster rm removes the cluster from Argo CD: the applications deployed to it stop being managed (and their sync and history)."
+  id: kubernetes:argocd_cluster_rm
+  severity: High
+  alternative: "argocd app list --dest-server <cluster>"
+  alternative_info: "List the applications deployed to that cluster first."
+- from: kubernetes
+  test: (?:^|\s)argocd\s+(?:\S+\s+)*?app\s+sync\s+(?:\S+\s+)*?--force(?:=true)?(?:\s|$)
+  description: "argocd app sync --force deletes and recreates the resources it cannot update in place (and, with --prune, deletes every resource that is not in Git)."
+  id: kubernetes:argocd_sync_force
+  severity: High
+  filters:
+    - type: NotMatches
+      value: \s(?:--dry-run|--preview-changes)(?:=true)?(?:\s|$)
+  alternative: "argocd app diff <app>"
+  alternative_info: "Review what the sync would change and delete first (`argocd app sync <app> --dry-run` previews it)."
+- from: kubernetes
+  test: (?:^|\s)argocd\s+(?:\S+\s+)*?app\s+sync\s+(?:\S+\s+)*?--prune(?:=true)?(?:\s|$)
+  description: "argocd app sync --prune deletes every live resource of the application that is no longer in Git."
+  id: kubernetes:argocd_sync_prune
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: \s(?:--dry-run|--preview-changes)(?:=true)?(?:\s|$)
+    # With --force the High check above applies.
+    - type: NotMatches
+      value: \s--force(?:=true)?(?:\s|$)
+  alternative: "argocd app diff <app>"
+  alternative_info: "Review which resources the prune would delete first (`argocd app sync <app> --dry-run` previews it)."
+- from: kubernetes
+  test: (?:^|\s)istioctl\s+(?:\S+\s+)*?(?:x\s+)?uninstall(?:\s|$)
+  description: "istioctl uninstall removes the Istio control plane (with --purge every Istio resource): the mesh's traffic routing, mTLS and policies stop working."
+  id: kubernetes:istioctl_uninstall
+  severity: High
+  filters:
+    - type: NotMatches
+      value: \s(?:--dry-run|-d)(?:=true)?(?:\s|$)
+  alternative: "istioctl uninstall --purge --dry-run"
+  alternative_info: "Lists what would be removed without removing it."
+- from: kubernetes
+  test: (?:^|\s)cilium\s+(?:\S+\s+)*?uninstall(?:\s|$)
+  description: "cilium uninstall removes the cluster's CNI: pods lose networking until another CNI is installed."
+  id: kubernetes:cilium_uninstall
+  severity: High
+  alternative: "cilium status"
+  alternative_info: "Check which cluster and Cilium installation you are on first."
+- from: kubernetes
+  test: (?:^|\s)flux\s+(?:\S+\s+)*?(?:delete\s+\S|uninstall(?:\s|$))
+  description: "This deletes a Flux object (and, with prune, the resources it manages) or uninstalls Flux from the cluster."
+  id: kubernetes:flux_delete
+  severity: High
+- from: kubernetes
+  test: (?:^|\s)eksctl\s+(?:\S+\s+)*?delete\s+(?:cluster|clusters|nodegroup)(?:\s|$)
+  description: "This deletes an EKS cluster (or node group) and everything running on it."
+  id: kubernetes:eksctl_delete_cluster
+  severity: High
+- from: kubernetes
+  # `etcdctl del "" --prefix` deletes every key of the cluster store (every
+  # object of the cluster); a restore replaces the store with a snapshot.
+  test: '(?:^|\s)etcdctl\s+(?:\S+\s+)*?(?:del\s+(?:\S+\s+)*?--prefix|del\s+(?:\S+\s+)*?--from-key|snapshot\s+restore)(?:\s|$)'
+  description: "This deletes (or replaces from a snapshot) the keys of the etcd store, which holds every object of the Kubernetes cluster."
+  id: kubernetes:etcd_delete_keys
+  severity: Critical
+  alternative: "etcdctl get <prefix> --prefix --keys-only"
+  alternative_info: "List the keys the command would remove first, and take an `etcdctl snapshot save` backup."
+- from: kubernetes
+  test: '(?:^|\s)kubeadm\s+(?:\S+\s+)*?reset(?:\s|$)'
+  description: "This tears down the Kubernetes node: it removes the control-plane / kubelet configuration and the local etcd data of this machine."
+  id: kubernetes:kubeadm_reset
+  severity: High
+- from: kubernetes
+  test: '(?:^|\s)(?:kubectl|k)\s+config\s+(?:delete-context|delete-cluster|delete-user)\s'
+  description: "This removes a context, cluster or user entry from your kubeconfig."
+  id: kubernetes:config_delete_context
+  severity: Low
+- from: kubernetes
+  # Velero backups are the cluster's disaster-recovery copies.
+  test: '(?:^|\s)velero\s+(?:\S+\s+)*?(?:backup|schedule)\s+(?:delete|del)(?:\s|$)'
+  description: "This deletes Velero backups (or a backup schedule): the cluster's disaster-recovery copies are gone."
+  id: kubernetes:velero_backup_delete
+  severity: High
+  alternative: "velero backup get"
+  alternative_info: "List the backups first and delete only named, expired ones."
+- from: kubernetes
+  test: '(?:^|\s)velero\s+(?:\S+\s+)*?restore\s+create(?:\s|$)'
+  description: "This restores Kubernetes objects from a Velero backup into the current cluster, which can recreate or (with --existing-resource-policy=update) overwrite live objects."
+  id: kubernetes:velero_restore
+  severity: Medium
+  alternative: "velero backup describe <backup> --details"
+  alternative_info: "Check what the backup contains and which cluster you are on before restoring."
+- from: kubernetes
+  test: '(?:^|\s)etcdctl\s+(?:\S+\s+)*?member\s+remove(?:\s|$)'
+  description: "This removes a member from the etcd cluster; removing the wrong one (or too many) loses quorum and stops the Kubernetes control plane."
+  id: kubernetes:etcd_member_remove
+  severity: High
+  alternative: "etcdctl member list -w table"
+  alternative_info: "Check the member id and the cluster health first."

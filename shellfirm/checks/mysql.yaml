@@ -1,5 +1,37 @@
 - from: mysql
-  test: (?i)mysql.*-e\s+.*\bDROP\s
-  description: "Executing DROP commands via mysql CLI."
+  test: (?i)(?:^|\s)(?:mysql|mariadb)\b.*\s(?:-[a-zA-Z]*e|--execute|--init-command)(?:=|\s+|)['"]?[\s\x01]*DROP[\s\x01]+(?:DATABASE|TABLE|SCHEMA|USER)\b
+  description: "This runs a DROP DATABASE/TABLE/SCHEMA statement through mysql (-e / --execute / --init-command)."
   id: mysql:drop
   severity: Critical
+- from: mysql
+  test: (?:^|\s)mysqladmin\s+(?:.*\s)?drop\s+\S
+  description: "mysqladmin drop permanently deletes a MySQL database."
+  id: mysql:mysqladmin_drop
+  severity: Critical
+- from: mysql
+  test: (?i)^\s*RESET\s+(?:MASTER|BINARY\s+LOGS\s+AND\s+GTIDS)\b
+  description: "RESET MASTER deletes every binary log (breaks replicas and point-in-time recovery)."
+  id: mysql:reset_master
+  severity: High
+- from: mysql
+  test: (?i)^\s*PURGE\s+(?:BINARY|MASTER)\s+LOGS\b
+  description: "PURGE BINARY LOGS deletes binary logs (replicas that still need them break, point-in-time recovery is lost)."
+  id: mysql:purge_binary_logs
+  severity: High
+- from: mysql
+  test: (?i)^\s*SET\s+(?:GLOBAL\s+|PERSIST\s+|@@global\.|@@persist\.)(?:super_)?read_only\s*=\s*(?:OFF|0|FALSE)\b
+  description: "Turning read_only off makes the server writable (on a replica, writes diverge it from the primary)."
+  id: mysql:read_only_off
+  severity: Medium
+- from: mysql
+  test: (?:^|\s)mysqladmin\s+(?:.*\s)?shutdown\b
+  description: "mysqladmin shutdown stops the MySQL server; every connection is cut."
+  id: mysql:mysqladmin_shutdown
+  severity: High
+- from: mysql
+  test: (?i)^\s*SET\s+(?:(?:SESSION|GLOBAL|PERSIST|LOCAL)\s+|@@(?:session\.|global\.|persist\.|local\.)?)?sql_safe_updates\s*=\s*(?:0|OFF|FALSE)\b
+  description: "Turning sql_safe_updates off lets UPDATE and DELETE statements without a key in the WHERE clause (or without any WHERE) change every row."
+  id: mysql:safe_updates_off
+  severity: Medium
+  alternative: "DELETE FROM my_table WHERE id = 42"
+  alternative_info: "Keep safe updates on and select the rows by a key column (or add a LIMIT)."

@@ -1,4 +1,4 @@
-//! Custom checks tab — list view (authoring form added in Phase 7).
+//! Custom checks tab — list view; `+`/`e` open the authoring form.
 
 use crate::checks::Check;
 use crate::tui::check_store::CustomCheckStore;
@@ -15,26 +15,37 @@ pub struct CustomChecksTab {
     pub checks: Vec<Check>,
     pub cursor: usize,
     /// Set when user pressed `+` or `e` — the App will then open the
-    /// authoring form (Phase 7).
+    /// authoring form.
     pub pending_action: Option<PendingAction>,
 }
 
 #[derive(Debug, Clone)]
 pub enum PendingAction {
     Create,
-    Edit { index: usize },
+    Edit {
+        index: usize,
+    },
     /// Open a confirmation modal before actually deleting the check at
     /// the given index. The App handles the modal and dispatches the
     /// real delete.
-    ConfirmDelete { index: usize },
-    OpenInEditor { path: std::path::PathBuf },
+    ConfirmDelete {
+        index: usize,
+    },
+    OpenInEditor {
+        path: std::path::PathBuf,
+    },
 }
 
 impl CustomChecksTab {
     #[must_use]
     pub fn new(store: CustomCheckStore) -> Self {
         let checks = store.list().unwrap_or_default();
-        Self { store, checks, cursor: 0, pending_action: None }
+        Self {
+            store,
+            checks,
+            cursor: 0,
+            pending_action: None,
+        }
     }
 
     pub fn reload(&mut self) {
@@ -50,15 +61,31 @@ impl CustomChecksTab {
 }
 
 impl Tab for CustomChecksTab {
-    fn title(&self) -> &str { "Custom" }
+    /// `r` reloads the custom checks from disk (as the key hint says) instead
+    /// of opening the global "Reset draft?" dialog.
+    fn claims_key(&self, key: &KeyEvent) -> bool {
+        matches!(key.code, KeyCode::Char('r'))
+    }
+
+    fn title(&self) -> &str {
+        "Custom"
+    }
 
     fn render(&self, area: Rect, buf: &mut Buffer, _draft: &DraftSettings) {
-        if area.height < 6 { return; }
+        if area.height < 6 {
+            return;
+        }
         let indent = area.x + crate::tui::style::SECTION_INDENT;
 
         let title = format!("Custom checks  ({})", self.checks.len());
         let mut y = crate::tui::style::section_header(
-            buf, area.x, area.y, area.width, &title, Some("all"), true,
+            buf,
+            area.x,
+            area.y,
+            area.width,
+            &title,
+            Some("all"),
+            true,
         );
 
         crate::tui::style::section_help(
@@ -74,12 +101,14 @@ impl Tab for CustomChecksTab {
                 indent,
                 y,
                 "No custom checks yet.",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
             );
             buf.set_string(
                 indent,
                 y + 1,
-                "Press [+] to create one. They'll be saved to ~/.shellfirm/checks/.",
+                "Press [+] to create one. They are saved to ~/.config/shellfirm/checks/.",
                 Style::default().fg(Color::DarkGray),
             );
             return;
@@ -90,8 +119,10 @@ impl Tab for CustomChecksTab {
         let sev_col = id_col + 44;
         let from_col = sev_col + 12;
         let challenge_col = from_col + 18;
-        let header_style = Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD);
-        buf.set_string(id_col, y, "Check ID", header_style);
+        let header_style = Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD);
+        buf.set_string(id_col, y, "Check id", header_style);
         buf.set_string(sev_col, y, "Severity", header_style);
         buf.set_string(from_col, y, "Group", header_style);
         buf.set_string(challenge_col, y, "Challenge", header_style);
@@ -167,12 +198,20 @@ impl Tab for CustomChecksTab {
     fn handle_key(&mut self, key: KeyEvent, _draft: &mut DraftSettings) -> TabOutcome {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.checks.is_empty() { return TabOutcome::None; }
-                self.cursor = if self.cursor == 0 { self.checks.len() - 1 } else { self.cursor - 1 };
+                if self.checks.is_empty() {
+                    return TabOutcome::None;
+                }
+                self.cursor = if self.cursor == 0 {
+                    self.checks.len() - 1
+                } else {
+                    self.cursor - 1
+                };
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if self.checks.is_empty() { return TabOutcome::None; }
+                if self.checks.is_empty() {
+                    return TabOutcome::None;
+                }
                 self.cursor = (self.cursor + 1) % self.checks.len();
                 TabOutcome::FieldFocusChanged(self.current_focus())
             }
@@ -215,9 +254,12 @@ impl Tab for CustomChecksTab {
             FieldFocus {
                 name: format!("Check: {}", c.id),
                 badges: vec!["all"],
-                help: format!("from: {} · severity: {:?} · file: {}",
-                    c.from, c.severity,
-                    self.store.path_for_group(&c.from).display()),
+                help: format!(
+                    "from: {} · severity: {:?} · file: {}",
+                    c.from,
+                    c.severity,
+                    self.store.path_for_group(&c.from).display()
+                ),
             }
         }
     }
@@ -247,7 +289,7 @@ mod tests {
     fn make_check(id: &str, from: &str) -> Check {
         Check {
             id: id.into(),
-            test: Regex::new("foo").unwrap(),
+            test: Regex::new("foo").unwrap().into(),
             description: "x".into(),
             from: from.into(),
             challenge: Challenge::Math,
@@ -269,7 +311,8 @@ mod tests {
         let entire: String = (0..8u16)
             .flat_map(|y| (0..80u16).map(move |x| (x, y)))
             .map(|(x, y)| buf[(x, y)].symbol().to_string())
-            .collect::<Vec<_>>().join("");
+            .collect::<Vec<_>>()
+            .join("");
         assert!(entire.contains("No custom checks yet"));
     }
 
@@ -291,7 +334,11 @@ mod tests {
         assert_eq!(tab.checks.len(), 1);
         let _ = tab.handle_key(key(KeyCode::Char('d')), &mut draft);
         // Check is NOT removed yet; a ConfirmDelete pending action is set.
-        assert_eq!(tab.checks.len(), 1, "delete must not happen without confirmation");
+        assert_eq!(
+            tab.checks.len(),
+            1,
+            "delete must not happen without confirmation"
+        );
         assert!(matches!(
             tab.pending_action,
             Some(PendingAction::ConfirmDelete { index: 0 })
@@ -317,7 +364,10 @@ mod tests {
         let mut tab = CustomChecksTab::new(store);
         let mut draft = DraftSettings::from_settings(Settings::default());
         tab.handle_key(key(KeyCode::Char('e')), &mut draft);
-        assert!(matches!(tab.pending_action, Some(PendingAction::Edit { .. })));
+        assert!(matches!(
+            tab.pending_action,
+            Some(PendingAction::Edit { .. })
+        ));
     }
 
     #[test]
@@ -327,6 +377,9 @@ mod tests {
         let mut tab = CustomChecksTab::new(store);
         let mut draft = DraftSettings::from_settings(Settings::default());
         tab.handle_key(key(KeyCode::Char('f')), &mut draft);
-        assert!(matches!(tab.pending_action, Some(PendingAction::OpenInEditor { .. })));
+        assert!(matches!(
+            tab.pending_action,
+            Some(PendingAction::OpenInEditor { .. })
+        ));
     }
 }

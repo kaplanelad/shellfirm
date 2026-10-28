@@ -1,0 +1,899 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for fish
+if status is-interactive
+    set -g __shellfirm_hook_version 14
+    # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
+    # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec fish`).
+    set -gx SHELLFIRM_HOOK_PID $fish_pid
+    set -gx SHELLFIRM_HOOK_LOAD $fish_pid.(random)(random)
+    set -g __shellfirm_warned 0
+    set -g __shellfirm_seen 0
+    set -g __shellfirm_bypass_warned 0
+
+    function __shellfirm_warn_missing
+        if test $__shellfirm_warned = 0
+            set -g __shellfirm_warned 1
+            echo >&2
+            echo "shellfirm: binary not found in PATH; commands are NOT being checked" >&2
+        end
+    end
+
+    # The expansion of the abbreviation under the cursor, which fish expands
+    # when the line is executed (after this check reads the buffer).
+    function __shellfirm_abbr_expansion
+        set -l tok (builtin commandline -t)
+        test -n "$tok"; or return 1
+        set -l first (builtin commandline -po)[1]
+        for line in (abbr --show)
+            set -l parts (string split -m1 -- ' -- ' $line)
+            set -q parts[2]; or continue
+            set -l opts
+            set -l toks
+            printf '%s\n' $parts[1] | read -lat opts
+            printf '%s\n' $parts[2] | read -lat toks
+            set -l regex
+            set -l func
+            set -l position command
+            set -l i 1
+            while test $i -lt (count $opts)
+                set -l next (math $i + 1)
+                switch $opts[$i]
+                    case --regex -r
+                        set regex $opts[$next]
+                    case --function -f
+                        set func $opts[$next]
+                    case --position -p
+                        set position $opts[$next]
+                end
+                set i $next
+            end
+            if set -q regex[1]
+                string match -qr -- $regex $tok; or continue
+            else
+                test "$tok" = "$toks[1]"; or continue
+            end
+            if test "$position" != anywhere; and test "$tok" != "$first"
+                continue
+            end
+            if set -q func[1]
+                $func $tok | string collect
+            else
+                set -e toks[1]
+                string join ' ' -- $toks
+            end
+            return 0
+        end
+        return 1
+    end
+
+    # The source of the function $argv[1] when its body is worth checking
+    # with a call: a small function that is not one of fish's own (those in
+    # $__fish_data_dir/functions, unless redefined) and not shellfirm's.
+    # Which functions are fish's own is remembered for the session (until a
+    # line could define functions, or a file for one shows up in a function
+    # directory that comes before fish's own).
+    function __shellfirm_function_source
+        set -l w $argv[1]
+        string match -q '__shellfirm*' -- $w; and return 1
+        if test "$__shellfirm_fn_path" != "$fish_function_path"
+            set -g __shellfirm_fn_path $fish_function_path
+            set -g __shellfirm_fn_shipped
+        end
+        if set -l i (contains -i -- $w $__shellfirm_fn_shipped)
+            set -l own 1
+            for d in $fish_function_path
+                test "$d" = "$__fish_data_dir/functions"; and break
+                if test -e "$d/$w.fish"
+                    set own 0
+                    break
+                end
+            end
+            test $own = 1; and return 1
+            set -e __shellfirm_fn_shipped[$i]
+        end
+        functions -q -- $w; or return 1
+        set -l file (functions --details -- $w 2>/dev/null)
+        if set -q __fish_data_dir[1]; and string match -q -- "$__fish_data_dir/functions/*" $file
+            set -a __shellfirm_fn_shipped $w
+            return 1
+        end
+        set -l body (functions --no-details -- $w 2>/dev/null | string collect)
+        string match -q '*__shellfirm*' -- $body; and return 1
+        if test (string length -- "$body") -gt 16000
+            # Loaded from a file (a plugin): like a program on PATH, its
+            # arguments are checked and its body is not read. Typed or
+            # pasted into the session: not read, said so
+            # (shell:function_depth_limit), never skipped silently.
+            test -f "$file"; and return 1
+            printf '%s' "shellfirm-function-depth-limit $w # a function too large for the hook to read ahead"
+            return 0
+        end
+        printf '%s' $body
+    end
+
+    # Bodies of small functions (fish aliases) called anywhere in $argv[1],
+    # with `$argv` replaced by the arguments of the call. The text is split
+    # into commands with fish's own tokenizer, so redirections (`>&2`,
+    # `2>&1`) stay what they are, and an argument is put in quoted when it
+    # has characters that would change the body's meaning. Functions already
+    # in __shellfirm_fn_seen are not repeated. $argv[2] = probe: print only
+    # the names of the functions that would be expanded.
+    function __shellfirm_function_bodies
+        set -l toks
+        printf '%s' $argv[1] | read -lzat toks
+        set -l seg
+        set -l subs
+        set -l n 0
+        set -l skip 0
+        for t in $toks ';'
+            if test $skip = 1
+                set skip 0
+                continue
+            end
+            if not contains -- $t ';' '|' '&&' '||' '&' \n
+                # A redirection operator takes the next word (its target).
+                if string match -qr -- '^([0-9]*[<>]+[&?|]?|&>>?)$' $t
+                    set skip 1
+                    continue
+                end
+                string match -qr -- '^[0-9]*[<>]|^&>' $t; and continue
+                # Command substitutions run commands of their own.
+                if string match -q -- '*(*' $t
+                    set -a subs (string match -ra -- '\(([^()]*)\)' $t | string match -rv -- '^\(')
+                end
+                set -a seg $t
+                continue
+            end
+            set -l words $seg
+            set seg
+            while set -q words[1]; and contains -- $words[1] and or not '!' begin time if while else eval
+                set -e words[1]
+            end
+            set -q words[1]; or continue
+            # `command x` / `builtin x` / `exec x` do not call a function.
+            contains -- $words[1] command builtin exec; and continue
+            contains -- $words[1] $__shellfirm_fn_seen; and continue
+            functions -q -- $words[1]; or continue
+            set -l body (__shellfirm_function_source $words[1]); or continue
+            set -ga __shellfirm_fn_seen $words[1]
+            if test "$argv[2]" = probe
+                echo $words[1]
+                continue
+            end
+            set -e words[1]
+            set -l q
+            for a in $words
+                if string match -qr -- '[^A-Za-z0-9_./~:=@%+,-]' $a
+                    set -a q "'"(string replace -a -- "'" "\\'" (string replace -a -- '\\' '\\\\' $a))"'"
+                else
+                    set -a q $a
+                end
+            end
+            # A body that changes its arguments (`set -e argv[1]`, `set
+            # argv ...`, argparse) keeps `$argv` as written: unknown.
+            if string match -qr -- '(^|[\s;|&(])(set\s+(-\S+\s+)*argv\b|argparse\s)' $body
+                printf '%s\n' $body
+                continue
+            end
+            set body (string replace -a -- '$argv[' \x1f $body | string collect)
+            for i in (seq (count $q))
+                test $i -le 9; or break
+                set body (string replace -a -- \x1f"$i]" $q[$i] $body | string collect)
+            end
+            set body (string replace -a -- '$argv' "$q" $body | string collect)
+            string replace -a -- \x1f '$argv[' $body
+        end
+        for s in $subs[1..4]
+            __shellfirm_function_bodies $s $argv[2]
+        end
+    end
+
+    # A command named by a variable (`$c delete ...`, `eval $x`), with the
+    # value the variable has in this session or from a `set` earlier on the
+    # line: prints those commands with the value in place of the variable.
+    function __shellfirm_var_commands
+        string match -q -- '*$*' $argv[1]; or return
+        test (string length -- "$argv[1]") -le 4000; or return
+        set -l toks
+        printf '%s' $argv[1] | read -lzat toks
+        set -l names
+        set -l values
+        set -l seg
+        set -l n 0
+        for t in $toks ';'
+            if not contains -- $t ';' '|' '&&' '||' '&' \n
+                set -a seg $t
+                continue
+            end
+            while set -q seg[1]; and contains -- $seg[1] and or not begin command builtin exec time eval
+                set -e seg[1]
+            end
+            if test "$seg[1]" = set
+                # `set [options] NAME VALUE...` with literal values.
+                set -e seg[1]
+                while set -q seg[1]; and string match -q -- '-*' $seg[1]
+                    set -e seg[1]
+                end
+                if set -q seg[2]; and string match -qr -- '^[A-Za-z_][A-Za-z0-9_]*$' $seg[1]; and not string match -qr -- '[$(]' "$seg[2..-1]"
+                    set -a names $seg[1]
+                    set -a values (string join ' ' -- $seg[2..-1])
+                end
+            else if set -q seg[1]; and string match -qr -- '^\$[A-Za-z_][A-Za-z0-9_]*$' $seg[1]
+                set -l name (string sub -s 2 -- $seg[1])
+                set -l value
+                if set -l i (contains -i -- $name $names)
+                    set value $values[$i]
+                else if set -q $name
+                    set value (string join ' ' -- $$name)
+                end
+                if test -n "$value"
+                    string join ' ' -- $value $seg[2..-1]
+                    set n (math $n + 1)
+                    test $n -ge 8; and return
+                end
+            end
+            set seg
+        end
+    end
+
+    # `bind KEY 'command'` installs code that runs when the key is pressed:
+    # print those commands (not fish's input functions) so they are checked
+    # when the binding is made, like a function that runs by itself.
+    function __shellfirm_bind_commands
+        string match -qr -- '(^|[;|&\n(]|\s)bind\s' $argv[1]; or return
+        test (string length -- "$argv[1]") -le 4000; or return
+        set -l toks
+        printf '%s' $argv[1] | read -lzat toks
+        set -l seg
+        set -l fnames (bind --function-names)
+        for t in $toks ';'
+            if not contains -- $t ';' '|' '&&' '||' '&' \n
+                set -a seg $t
+                continue
+            end
+            while set -q seg[1]; and contains -- $seg[1] and or not begin command builtin
+                set -e seg[1]
+            end
+            if test "$seg[1]" = bind
+                set -e seg[1]
+                set -l run 1
+                while set -q seg[1]; and string match -q -- '-*' $seg[1]
+                    switch $seg[1]
+                        case -M --mode -m --sets-mode
+                            set -e seg[1]
+                        case -e --erase -a --all -L --list-modes -f --function-names -K --key-names -h --help
+                            set run 0
+                    end
+                    set -e seg[1]
+                end
+                if test $run = 1; and set -q seg[2]
+                    for c in $seg[2..-1]
+                        contains -- $c $fnames; or echo $c
+                    end
+                end
+            end
+            set seg
+        end
+    end
+
+    # Defining a function, abbreviation or alias runs nothing: those
+    # statements are left out of the check (calling them is checked).
+    # Prints the rest. Anything it cannot read for certain (an open quote,
+    # a command substitution in a header) is printed unchanged.
+    function __shellfirm_strip_defs
+        set -l s $argv[1]
+        if test (string length -- "$s") -gt 4000; or not string match -qr '(^|[;\n&|({]|\s)(function|abbr|alias)\s' -- $s
+            printf '%s' $s
+            return
+        end
+        set -l q ''
+        set -l esc 0
+        set -l par 0
+        set -l spec 0
+        set -l comment 0
+        set -l stmt ''
+        set -l stmts
+        set -l specs
+        for c in (string replace -a \n \x1e -- $s | string split '')
+            if test $comment = 1
+                test "$c" = \x1e; or continue
+                set comment 0
+            end
+            if test $esc = 1
+                set esc 0
+                set stmt "$stmt$c"
+                continue
+            end
+            if test -n "$q"
+                test "$c" = '\\'; and set esc 1
+                test "$c" = "$q"; and set q ''
+                set stmt "$stmt$c"
+                continue
+            end
+            switch $c
+                case "'" '"'
+                    set q $c
+                case '\\'
+                    set esc 1
+                case '('
+                    set par (math $par + 1)
+                    set spec 1
+                case ')'
+                    set par (math $par - 1)
+                case '|' '&' '<' '>' '$'
+                    test $par = 0; and set spec 1
+                case '#'
+                    if test $par = 0; and string match -qr '(^|\s)$' -- $stmt
+                        set comment 1
+                        continue
+                    end
+                case ';' \x1e
+                    if test $par = 0
+                        set -a stmts $stmt
+                        set -a specs $spec
+                        set stmt ''
+                        set spec 0
+                        continue
+                    end
+            end
+            set stmt "$stmt$c"
+        end
+        if test -n "$q"; or test $esc = 1; or test $par != 0
+            printf '%s' $s
+            return
+        end
+        set -a stmts $stmt
+        set -a specs $spec
+        # Functions that run by themselves (event handlers, the prompt, key
+        # bindings) and those they call: redefining one is checked.
+        set -l reach (__shellfirm_hook_reach)
+        set -l depth 0
+        set -l fnlevel -1
+        set -l kept
+        set -l i 0
+        for st in $stmts
+            set i (math $i + 1)
+            set -l words (string trim -- $st | string split -n ' ')
+            while set -q words[1]; and contains -- $words[1] and or not time
+                set -e words[1]
+            end
+            set -l w $words[1]
+            if test $fnlevel -ge 0
+                switch "$w"
+                    case function if while for begin switch
+                        set depth (math $depth + 1)
+                    case end
+                        if test (count $words) -gt 1
+                            printf '%s' $s
+                            return
+                        end
+                        set depth (math $depth - 1)
+                        test $depth -eq $fnlevel; and set fnlevel -1
+                end
+                continue
+            end
+            switch "$w"
+                case function
+                    if test $specs[$i] != 0
+                        printf '%s' $s
+                        return
+                    end
+                    # An event handler (`--on-event fish_prompt`, ...) and
+                    # the functions fish calls by name (the prompt, the
+                    # title, command-not-found) run by themselves: they are
+                    # checked when they are defined.
+                    if string match -qr -- '^(--on-(event|variable|signal|process-exit|job-exit)(=.*)?|-[a-zA-Z]*[evspj])$' $words[3..-1]; \
+                        or contains -- "$words[2]" fish_prompt fish_right_prompt fish_mode_prompt fish_title fish_greeting fish_command_not_found $reach
+                        set depth (math $depth + 1)
+                        set -a kept (string replace -a \x1e \n -- $st)
+                        continue
+                    end
+                    set fnlevel $depth
+                    set depth (math $depth + 1)
+                    continue
+                case abbr alias
+                    test $specs[$i] = 0; and continue
+                case if while for begin switch
+                    set depth (math $depth + 1)
+                case end
+                    set depth (math $depth - 1)
+            end
+            set -a kept (string replace -a \x1e \n -- $st)
+        end
+        if test $fnlevel -ge 0
+            printf '%s' $s
+            return
+        end
+        string join \n -- $kept
+    end
+
+    # The functions that run by themselves (event handlers, the prompt and
+    # title, key bindings) and the functions they name, however deep.
+    function __shellfirm_hook_reach
+        set -l fns (functions -n)
+        set -l todo (functions --handlers 2>/dev/null | string match -rv '^Event ' | string match -ra '[A-Za-z0-9_:.@+-]+') \
+            fish_prompt fish_right_prompt fish_mode_prompt fish_title fish_greeting fish_command_not_found \
+            (builtin bind 2>/dev/null | string replace -r -- '^bind( -M \S+| -m \S+| --preset| --user)* \S+ ' '' | string match -ra '[A-Za-z0-9_:.@+-]+')
+        set -l seen
+        while set -q todo[1]; and test (count $seen) -lt 128
+            set -l next
+            for w in $todo
+                contains -- $w $fns; or continue
+                contains -- $w $seen $next; and continue
+                string match -q -- '__fish*' $w; and continue
+                string match -q -- '__shellfirm*' $w; and continue
+                set -a next $w
+            end
+            set todo
+            for w in $next
+                set -a seen $w
+                # fish's own functions (from its data directory) are not read.
+                set -l file (functions --details -- $w 2>/dev/null)
+                string match -q -- "$__fish_data_dir/*" $file; and continue
+                set -a todo (functions --no-details -- $w 2>/dev/null | string match -ra '[A-Za-z0-9_:.@+-]+')
+            end
+        end
+        printf '%s\n' $seen
+    end
+
+    # After the check: run the Enter binding that was there before shellfirm
+    # (a transient-prompt plugin, ...), else execute.
+    function __shellfirm_run_enter
+        set -l var __shellfirm_enter_$fish_bind_mode
+        if set -q $var
+            set -g __shellfirm_allowed (builtin commandline | string collect)
+            for c in $$var
+                if contains -- $c (builtin bind --function-names)
+                    builtin commandline -f $c
+                else if functions -q -- $c; and functions --no-details -- $c | string match -qr 'builtin\s+commandline'
+                    # It runs the line with `builtin commandline -f execute`,
+                    # which skips the check: a copy of it that goes through
+                    # the checked `commandline` (a line it rewrote is checked).
+                    functions --no-details -- $c | string replace -r -- '^function\s+\S+' "function __shellfirm_via_$c" \
+                        | string replace -ar -- 'builtin(\s+)commandline\b' 'commandline' | source
+                    eval __shellfirm_via_$c
+                else
+                    eval $c
+                end
+            end
+            return
+        end
+        builtin commandline -f execute
+    end
+
+    # shellfirm prints settings problems (a stale SHELLFIRM_CONFIG_DIR, an
+    # invalid setting) on every call. Shown once per session (and again when
+    # SHELLFIRM_CONFIG_DIR changes) on a line of their own, not glued to the
+    # line being edited; after that only above a challenge.
+    function __shellfirm_probe_notes
+        set -l key "$SHELLFIRM_CONFIG_DIR"
+        set -q __shellfirm_notes; and test "$__shellfirm_notes_key" = "$key"; and return
+        set -g __shellfirm_notes_key $key
+        set -l w (command shellfirm pre-command --test --command=: 2>&1 >/dev/null | string collect)
+        if test -n "$w"
+            echo >&2
+            printf '%s\n' $w >&2
+        end
+        # A SHELLFIRM_CONFIG_DIR that is not a directory: the checks use the
+        # default directory (as shellfirm itself does) without saying it again.
+        if test -n "$w"; and __shellfirm_stale_dir
+            set w (env SHELLFIRM_CONFIG_DIR= shellfirm pre-command --test --command=: 2>&1 >/dev/null | string collect)
+        end
+        if test -n "$w"
+            set -g __shellfirm_notes 1
+        else
+            set -g __shellfirm_notes 0
+        end
+    end
+    # shellfirm, with the default configuration directory once a stale
+    # SHELLFIRM_CONFIG_DIR was reported.
+    function __shellfirm_pc
+        if test "$__shellfirm_notes_key" = "$SHELLFIRM_CONFIG_DIR"; and __shellfirm_stale_dir
+            env SHELLFIRM_CONFIG_DIR= shellfirm $argv
+        else
+            command shellfirm $argv
+        end
+    end
+    function __shellfirm_stale_dir
+        set -q SHELLFIRM_CONFIG_DIR; or return 1
+        set -l t (string trim -- "$SHELLFIRM_CONFIG_DIR")
+        test -n "$t"; and not test -d "$SHELLFIRM_CONFIG_DIR"
+    end
+
+    function __shellfirm_check
+        set -g __shellfirm_seen 1
+        set -e __shellfirm_allowed
+        set -e __shellfirm_pending_change
+        set -l cmd (builtin commandline | string collect)
+        if test -z (string trim -- "$cmd" | string collect)
+            __shellfirm_run_enter
+            return
+        end
+        # This line can define functions: which are fish's own is looked up again.
+        if string match -qr -- '(^|[^\w-])(function|funcsave|funced|functions|alias|source|\.)(\s|$)' $cmd
+            set -g __shellfirm_fn_shipped
+        end
+        # Incomplete input (open block or quote): let fish add a new line.
+        builtin commandline --is-valid
+        if test $status -eq 2
+            builtin commandline -f execute
+            return
+        end
+        if not command -q shellfirm
+            __shellfirm_warn_missing
+            __shellfirm_run_enter
+            return
+        end
+        set -l check $cmd
+        set -l exp (__shellfirm_abbr_expansion | string collect)
+        if test -n "$exp"
+            set -l tok (builtin commandline -t)
+            set -l pos (builtin commandline -C)
+            set -l before (string sub -l $pos -- $cmd)
+            if string match -q -- "*$tok" $before
+                set -l start (math (string length -- $before) - (string length -- $tok))
+                set -l pre ""
+                test $start -gt 0; and set pre (string sub -l $start -- $cmd | string collect)
+                set -l post (string sub -s (math $pos + 1) -- $cmd | string collect)
+                set check "$pre$exp$post"
+            else
+                set check "$cmd"\n"$exp"
+            end
+        end
+        set check (__shellfirm_strip_defs "$check" | string collect)
+        if test -z (string trim -- "$check" | string collect)
+            __shellfirm_run_enter
+            return
+        end
+        # What the banner and the audit log show (not the function bodies).
+        set -l shown $check
+        set -l vc (__shellfirm_var_commands "$check" | string collect)
+        test -n "$vc"; and set check "$check"\n"$vc"
+        set -l bc (__shellfirm_bind_commands "$check" | string collect)
+        test -n "$bc"; and set check "$check"\n"$bc"
+        # Functions and aliases, and those their bodies call (`alias nk2
+        # rmr`, `function w1; w2 $argv; end`), each once, however deep,
+        # within a budget (64 functions, 64 KB). Past it the rest is not
+        # read: a marker says so (shell:function_depth_limit).
+        set -g __shellfirm_fn_seen
+        set -l body (__shellfirm_function_bodies "$check" | string collect)
+        set -l bodies
+        set -l bytes 0
+        while test -n "$body"
+            set check "$check"\n"$body"
+            set -a bodies $body
+            set bytes (math $bytes + (string length -- "$body"))
+            if test (count $__shellfirm_fn_seen) -gt 64; or test $bytes -gt 64000
+                set -l deeper (__shellfirm_function_bodies "$body" probe)
+                set -q deeper[1]; and set check "$check"\n"shellfirm-function-depth-limit $deeper[1] # calls more functions than the hook reads ahead"
+                break
+            end
+            set body (__shellfirm_function_bodies "$body" | string collect)
+        end
+        # `eval $x` / `$c ...` inside those bodies: the session value.
+        if set -q bodies[1]
+            set -l bvc (__shellfirm_var_commands (string join \n -- $bodies | string replace -a \n ';' | string collect) | string collect)
+            test -n "$bvc"; and set check "$check"\n"$bvc"
+        end
+        if test (string length -- "$check") -gt 30000
+            # Too long to pass as one argument: checked through stdin, no prompt.
+            printf '%s' $check | command shellfirm check --stdin --exit-code >/dev/null 2>&1
+            set -l rc $status
+            if test $rc -eq 0
+                __shellfirm_run_enter
+                return
+            end
+            echo >&2
+            echo "shellfirm: blocked: this line is too long to confirm interactively and it matches a risky pattern (or could not be checked, exit $rc). Run it from a script file instead." >&2
+            builtin commandline -f repaint
+            return
+        end
+        set -l line
+        test "$shown" != "$check"; and set line --line="$shown"
+        __shellfirm_probe_notes
+        if test "$__shellfirm_notes" = 1
+            # Dry run first (quietly): the notes only show for risky lines.
+            set -l out (__shellfirm_pc pre-command --test --command="$check" 2>/dev/null)
+            set -l rc $status
+            if test $rc -eq 0; and not string match -q '*skipped (below*' -- $out
+                __shellfirm_run_enter
+                return
+            end
+            echo >&2
+        end
+        # Exit 3: allowed after a passed challenge; the approved line is
+        # printed by __shellfirm_approved_notice once fish has moved below
+        # the line. (Set here for this call only, so a value exported by
+        # the user changes nothing.)
+        begin
+            set -lx SHELLFIRM_SIGNAL_PROMPTED 1
+            set -lx SHELLFIRM_DEFER_APPROVED 1
+            __shellfirm_pc pre-command --command="$check" $line
+        end
+        switch $status
+            case 0
+                __shellfirm_run_enter
+            case 3
+                set -g __shellfirm_approved "$shown"
+                set -e __shellfirm_approved_mark
+                if isatty stderr; and test -n "$TERM"; and test "$TERM" != dumb
+                    # fish redraws the line before it runs, starting as
+                    # many rows up as the line takes (a long or wide line
+                    # wraps). Keep room below the answer (no scrolling
+                    # later), mark the row after it for the approved line,
+                    # and move down so the redraw starts on that row, not
+                    # over the answered challenge.
+                    set -l n (__shellfirm_line_rows)
+                    for i in (seq (math $n + 1))
+                        echo >&2
+                    end
+                    printf '\e[%dA\e7' (math $n + 1) >&2
+                    set -g __shellfirm_approved_mark 1
+                    if test $n -gt 1
+                        for i in (seq (math $n - 1))
+                            echo >&2
+                        end
+                    end
+                end
+                __shellfirm_run_enter
+            case 127
+                echo >&2
+                echo "shellfirm: warning: "(command -s shellfirm)" is installed but could not run (exit 127); this command was NOT checked. Run `shellfirm doctor`." >&2
+                __shellfirm_run_enter
+            case '*'
+                # Blocked: keep the buffer so it can be edited. fish redraws
+                # a multi-line buffer from where it starts: make room so the
+                # messages above it stay visible.
+                echo "shellfirm: the line is kept for editing (Ctrl-U clears it)." >&2
+                set -l n (count (builtin commandline))
+                if test $n -gt 1
+                    for i in (seq $n)
+                        echo >&2
+                    end
+                end
+                builtin commandline -f repaint
+        end
+    end
+
+    # The terminal rows the prompt and the buffer take (display columns:
+    # CJK characters and emoji count two).
+    function __shellfirm_line_rows
+        set -l pw (string length --visible -- (fish_prompt 2>/dev/null)[-1] 2>/dev/null)
+        test -n "$pw"; or set pw 0
+        set -l cols $COLUMNS
+        test -n "$cols"; and test "$cols" -gt 0 2>/dev/null; or set cols 80
+        set -l rows 0
+        for l in (builtin commandline)
+            set -l w (math $pw + (string length --visible -- "$l"))
+            set rows (math $rows + "max(1, ceil($w / $cols))")
+        end
+        test $rows -gt 0; or set rows 1
+        echo $rows
+    end
+
+    # After a passed challenge: "approved, running ..." on the row after
+    # the answer (in place of the line fish redrew there), right before the
+    # command runs.
+    function __shellfirm_approved_notice --on-event fish_preexec
+        set -q __shellfirm_approved[1]; or return
+        set -l a $__shellfirm_approved
+        set -e __shellfirm_approved
+        if set -q __shellfirm_approved_mark[1]
+            set -e __shellfirm_approved_mark
+            printf '\e8\r\e[J' >&2
+        end
+        if test "$__shellfirm_notes" = 0
+            command shellfirm pre-command --approved-notice --command="$a"
+        else
+            command shellfirm pre-command --approved-notice --command="$a" 2>/dev/null
+        end
+    end
+
+    # Plugins that run the line themselves with `commandline -f execute`
+    # (atuin enter_accept, transient-prompt Enter bindings, ...) go through
+    # the same check.
+    if not functions -q commandline; or functions commandline | string match -q '*__shellfirm_check*'
+        function commandline --description 'shellfirm: check the line before `commandline -f execute`'
+            if contains -- execute $argv; and begin; contains -- -f $argv; or contains -- --function $argv; end
+                set -l rest
+                set -l changes 0
+                # An earlier call in the same binding queued a function that
+                # changes the line (`commandline -f accept-autosuggestion;
+                # commandline -f execute`): it has not run yet.
+                if set -q __shellfirm_pending_change; and test "$__shellfirm_pending_change" = (builtin commandline | string collect)
+                    set changes 1
+                end
+                set -e __shellfirm_pending_change
+                for a in $argv
+                    switch $a
+                        case execute
+                        case -f --function repaint force-repaint repaint-mode expand-abbr suppress-autosuggestion beginning-of-line beginning-of-buffer backward-char cancel
+                            set -a rest $a
+                        case '*'
+                            set -a rest $a
+                            set changes 1
+                    end
+                end
+                if test $changes = 1
+                    # The other functions (accept-autosuggestion, history
+                    # search, ...) only run after this binding returns and can
+                    # change the line, so it cannot be checked now: run them
+                    # and leave running the line to Enter (which is checked).
+                    test (count $rest) -gt 1; and builtin commandline $rest
+                    echo >&2
+                    echo "shellfirm: press Enter to run the line (it is checked first)." >&2
+                    builtin commandline -f repaint
+                    return
+                end
+                if test (count $rest) -gt 1
+                    builtin commandline $rest
+                end
+                # Already checked (shellfirm ran the previous Enter binding).
+                if set -q __shellfirm_allowed; and test "$__shellfirm_allowed" = (builtin commandline | string collect)
+                    set -e __shellfirm_allowed
+                    builtin commandline -f execute
+                    return
+                end
+                __shellfirm_check
+                return
+            end
+            if begin; contains -- -f $argv; or contains -- --function $argv; end
+                for a in $argv
+                    switch $a
+                        case -f --function repaint force-repaint repaint-mode expand-abbr suppress-autosuggestion beginning-of-line beginning-of-buffer end-of-line end-of-buffer backward-char forward-char cancel
+                        case '*'
+                            set -g __shellfirm_pending_change (builtin commandline | string collect)
+                    end
+                end
+            end
+            builtin commandline $argv
+        end
+    end
+
+    # A command ran without passing through shellfirm (Enter rebound to
+    # `execute` directly, ...): warn once.
+    function __shellfirm_preexec --on-event fish_preexec
+        set -e __shellfirm_allowed
+        set -e __shellfirm_pending_change
+        if test $__shellfirm_seen = 0; and test $__shellfirm_bypass_warned = 0
+            set -g __shellfirm_bypass_warned 1
+            set -l b (bind \r | string join '; ')
+            echo "shellfirm: warning: this command did not pass through shellfirm (Enter was rebound: $b); commands are NOT being checked. Run `shellfirm doctor`." >&2
+        end
+        set -g __shellfirm_seen 0
+    end
+
+    # What key $argv[2] runs in bind mode $argv[1]: the user binding, else
+    # the preset one (`bind` prints both), without the `bind ... KEY` part.
+    function __shellfirm_binding
+        set -l lines (builtin bind -M $argv[1] $argv[2] 2>/dev/null)
+        set -l user (string match -v -- 'bind --preset*' $lines)
+        set -q user[1]; or set user $lines
+        string replace -r -- '^bind( -M \S+| -m \S+| --preset| --user)* \S+ ' '' $user
+    end
+
+    # Enter / Ctrl-J run the check. An Enter binding to a fish function that
+    # was there before (transient prompts, ...) runs after the check.
+    function __shellfirm_bind
+        for mode in default insert
+            set -l cur (__shellfirm_binding $mode \r)
+            if set -q cur[1]; and not string match -q '*__shellfirm_check*' -- $cur
+                set -l first (string split ' ' -- $cur[1])[1]
+                if functions -q -- $first
+                    eval set -g __shellfirm_enter_$mode $cur[1]
+                end
+            end
+            builtin bind -M $mode \r __shellfirm_check 2>/dev/null
+            builtin bind -M $mode \n __shellfirm_check 2>/dev/null
+        end
+    end
+    __shellfirm_bind
+    # `bind` that rebinds Enter / Ctrl-J (`bind \r execute`, typed or from a
+    # plugin, also one that does it from a fish_prompt handler at every
+    # prompt, loaded before or after shellfirm) does not take the check
+    # away: the new binding runs after the check, as one that was there
+    # before shellfirm loaded does.
+    if not functions -q bind; or functions bind | string match -q '*__shellfirm_enter_*'
+        function bind --description 'shellfirm: Enter stays checked when it is rebound'
+            set -l mode default
+            set -l a $argv
+            set -l plain 1
+            while set -q a[1]
+                switch $a[1]
+                    case -M --mode
+                        set -e a[1]
+                        set mode $a[1]
+                    case --user
+                    case --
+                        set -e a[1]
+                        break
+                    case '-*'
+                        # --preset, -e, -k, -m, -s, listing...: as it is.
+                        set plain 0
+                    case '*'
+                        break
+                end
+                set -e a[1]
+            end
+            if test $plain = 1; and set -q a[2]; and contains -- $mode default insert; \
+                and contains -- $a[1] \r \n enter ctrl-m ctrl-j; and not contains -- __shellfirm_check $a[2..-1]
+                if contains -- $a[1] \r enter ctrl-m
+                    set -g __shellfirm_enter_$mode $a[2..-1]
+                end
+                builtin bind -M $mode \r __shellfirm_check 2>/dev/null
+                builtin bind -M $mode \n __shellfirm_check 2>/dev/null
+                return 0
+            end
+            builtin bind $argv
+        end
+    end
+    # Re-apply after fish_vi_key_bindings / fish_default_key_bindings.
+    function __shellfirm_rebind --on-variable fish_key_bindings
+        __shellfirm_bind
+    end
+
+    # `shellfirm doctor` runs this in a fresh interactive shell; run it in
+    # this shell to check the live state: `__shellfirm_doctor_probe | shellfirm doctor --stdin`
+    function __shellfirm_doctor_probe
+        echo shell=fish
+        echo shell_version=$version
+        echo hook_version=$__shellfirm_hook_version
+        echo pid=$fish_pid
+        set -l bad
+        set -l chained
+        for mode in default insert
+            set -l b (__shellfirm_binding $mode \r)
+            # fish 4 names the key `enter`.
+            set -q b[1]; or set b (__shellfirm_binding $mode enter)
+            if set -q b[1]; and not string match -q '*__shellfirm_check*' -- $b
+                # A function (a transient prompt plugin loaded after
+                # shellfirm) that runs the line with the wrapped
+                # `commandline -f execute` is still checked.
+                set -l f (string split ' ' -- $b[1])[1]
+                set -l body (functions --no-details -- $f 2>/dev/null | string collect)
+                if test (count $b) = 1; and functions -q -- $f; and functions commandline | string match -q '*__shellfirm_check*'; \
+                    and string match -qr 'commandline\s+(-f|--function)\s+(\S+\s+)*execute' -- $body; \
+                    and not string match -qr 'builtin\s+commandline\s+(-f|--function)\s+(\S+\s+)*execute' -- $body
+                    contains -- $f $chained; or set -a chained $f
+                else
+                    set -a bad "$mode:\\r="(string join ',' -- $b)
+                end
+            end
+            set b (__shellfirm_binding $mode \n)
+            if set -q b[1]; and not string match -q '*__shellfirm_check*' -- $b
+                set -a bad "$mode:\\n="(string join ',' -- $b)
+            end
+        end
+        if set -q bad[1]
+            echo "enter="(string join ' ' -- $bad)
+        else if set -q chained[1]
+            echo "enter=chained:"(string join ',' -- $chained)
+        else
+            echo enter=ok
+        end
+        set -q __shellfirm_enter_default; and echo "enter_chain="(string join ' ' -- $__shellfirm_enter_default)
+        if functions -q commandline; and functions commandline | string match -q '*__shellfirm_check*'
+            echo execute_wrapper=ok
+        else
+            echo execute_wrapper=missing
+        end
+        test $__shellfirm_bypass_warned = 1; and echo bypass_seen=yes
+        functions -q _shellfirm_check; and echo legacy_hook=active
+        set -l pl
+        functions -q _atuin_search; and set -a pl atuin
+        functions -q _fzf_search_directory; and set -a pl fzf.fish
+        functions -q _tide_prompt; or set -q tide_prompt_add_newline_before; and set -a pl tide
+        if functions -q transient_execute
+            if contains -- transient_execute $__shellfirm_enter_default $__shellfirm_enter_insert
+                set -a pl transient:chained
+            else
+                set -a pl transient:wrapped
+            end
+        end
+        set -l pls (string join ' ' -- $pl)
+        echo "plugins=$pls"
+    end
+end

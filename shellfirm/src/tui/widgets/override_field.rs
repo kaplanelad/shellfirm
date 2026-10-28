@@ -43,13 +43,24 @@ impl<'a> Widget for OverrideField<'a> {
         let header = format!("{}", self.label);
         buf.set_string(area.x, area.y, header, header_style);
 
-        let inherit_bullet = if matches!(self.state, OverrideState::Inherit) { "(•)" } else { "( )" };
-        let custom_bullet = if matches!(self.state, OverrideState::Custom) { "(•)" } else { "( )" };
+        let inherit_bullet = if matches!(self.state, OverrideState::Inherit) {
+            "(•)"
+        } else {
+            "( )"
+        };
+        let custom_bullet = if matches!(self.state, OverrideState::Custom) {
+            "(•)"
+        } else {
+            "( )"
+        };
 
         buf.set_string(
             area.x + 2,
             area.y + 1,
-            format!("{inherit_bullet} Inherit global  →  {}", self.inherited_display),
+            format!(
+                "{inherit_bullet} Inherit global  →  {}",
+                self.inherited_display
+            ),
             Style::default(),
         );
         buf.set_string(
@@ -91,12 +102,21 @@ mod tests {
 
     #[test]
     fn tab_toggles_state() {
-        assert_eq!(handle_override_key(key(KeyCode::Tab), &OverrideState::Inherit), Some(OverrideState::Custom));
-        assert_eq!(handle_override_key(key(KeyCode::Tab), &OverrideState::Custom), Some(OverrideState::Inherit));
+        assert_eq!(
+            handle_override_key(key(KeyCode::Tab), &OverrideState::Inherit),
+            Some(OverrideState::Custom)
+        );
+        assert_eq!(
+            handle_override_key(key(KeyCode::Tab), &OverrideState::Custom),
+            Some(OverrideState::Inherit)
+        );
     }
 
     #[test]
     fn unrelated_key_returns_none() {
-        assert_eq!(handle_override_key(key(KeyCode::Char('x')), &OverrideState::Inherit), None);
+        assert_eq!(
+            handle_override_key(key(KeyCode::Char('x')), &OverrideState::Inherit),
+            None
+        );
     }
 }

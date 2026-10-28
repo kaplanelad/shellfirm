@@ -83,6 +83,7 @@
     clippy::unnecessary_min_or_max
 )]
 
+pub mod a11y;
 pub mod app;
 pub mod badges;
 pub mod check_form;
@@ -118,22 +119,85 @@ pub use validate::{validate, ValidationError, ValidationReport};
 /// Returns an error if the terminal cannot be put into raw mode, if config
 /// I/O fails, or if any internal invariant is violated.
 pub fn run(config: &Config) -> Result<crate::CmdExit> {
+    // A full-screen UI cannot work on a dumb terminal; point to the
+    // line-oriented commands instead.
+    if let Some(msg) = a11y::refusal_for_term(std::env::var("TERM").ok().as_deref()) {
+        return Ok(crate::CmdExit {
+            code: exitcode::USAGE,
+            message: Some(msg),
+        });
+    }
+    // Build the app (and validate the settings file) before touching the
+    // terminal, so errors are printed normally instead of inside the
+    // alternate screen.
+    let mut app = app::App::new(config)?;
     let mut stdout = io::stdout();
     enable_raw_mode().map_err(|e| Error::Other(e.to_string()))?;
+    // From here on the terminal must be restored on every exit path: a
+    // normal return, an error, and a panic. The guard covers unwinding and
+    // early returns; the panic hook restores the terminal *before* the
+    // panic message is printed, so it is readable and the user's next
+    // keystrokes go to a cooked-mode shell, not a raw one.
+    let guard = TerminalGuard::install();
     execute!(stdout, EnterAlternateScreen).map_err(|e| Error::Other(e.to_string()))?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).map_err(|e| Error::Other(e.to_string()))?;
 
-    let mut app = app::App::new(config)?;
     let res = run_loop(&mut terminal, &mut app);
-
-    disable_raw_mode().ok();
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).ok();
+    drop(guard);
     res?;
     Ok(crate::CmdExit {
         code: exitcode::OK,
         message: None,
     })
+}
+
+/// Put the terminal back the way the shell expects it: cooked mode, main
+/// screen, visible cursor. Safe to call more than once.
+pub fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, crossterm::cursor::Show);
+}
+
+type PanicHook = Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+/// Restores the terminal when dropped and, while alive, from a panic hook.
+/// The previous panic hook is chained (it prints the message after the
+/// terminal is restored) and put back on drop.
+struct TerminalGuard {
+    previous: std::sync::Arc<std::sync::Mutex<Option<PanicHook>>>,
+}
+
+impl TerminalGuard {
+    fn install() -> Self {
+        let previous: std::sync::Arc<std::sync::Mutex<Option<PanicHook>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Some(std::panic::take_hook())));
+        let chained = std::sync::Arc::clone(&previous);
+        std::panic::set_hook(Box::new(move |info| {
+            restore_terminal();
+            if let Ok(guard) = chained.lock() {
+                if let Some(hook) = guard.as_ref() {
+                    hook(info);
+                }
+            }
+        }));
+        Self { previous }
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+        // Put the original hook back (not while panicking: `set_hook`
+        // itself panics then, and our hook is harmless to leave).
+        if !std::thread::panicking() {
+            let _ = std::panic::take_hook();
+            let previous = self.previous.lock().ok().and_then(|mut p| p.take());
+            if let Some(hook) = previous {
+                std::panic::set_hook(hook);
+            }
+        }
+    }
 }
 
 fn run_loop<B: ratatui::backend::Backend>(
@@ -145,9 +209,7 @@ fn run_loop<B: ratatui::backend::Backend>(
         terminal
             .draw(|f| render::draw(f, app))
             .map_err(|e| Error::Other(e.to_string()))?;
-        if let Event::Key(key) =
-            event::read().map_err(|e| Error::Other(e.to_string()))?
-        {
+        if let Event::Key(key) = event::read().map_err(|e| Error::Other(e.to_string()))? {
             app.handle_key(key);
         }
     }

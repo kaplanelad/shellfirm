@@ -1,0 +1,384 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for xonsh
+import ast as _sf_ast
+import builtins as _sf_builtins
+import inspect as _sf_inspect
+import os as _sf_os
+import re as _sf_re
+import shlex as _sf_shlex
+import shutil as _sf_shutil
+import subprocess as _sf_subprocess
+import sys as _sf_sys
+
+_sf_state = {"warned": False, "pending": None}
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
+__xonsh__.env["SHELLFIRM_HOOK_PID"] = str(_sf_os.getpid())
+
+
+def _sf_keep_for_editing(cmd):
+    """Put a blocked line back into the next prompt so it can be edited."""
+    _sf_state["pending"] = cmd
+    shell = getattr(__xonsh__.shell, "shell", None)
+    prompter = getattr(shell, "prompter", None)
+    if prompter is None:
+        # readline backend: a queued line without a newline is put into the
+        # next prompt for editing.
+        queue = getattr(shell, "cmdqueue", None)
+        if queue is not None:
+            _sf_state["pending"] = None
+            queue.append(cmd)
+        return
+    if getattr(prompter, "_sf_wrapped", False):
+        return
+    orig_prompt = prompter.prompt
+
+    def _sf_prompt(*args, **kwargs):
+        pending = _sf_state["pending"]
+        if pending:
+            _sf_state["pending"] = None
+            kwargs["default"] = pending
+        return orig_prompt(*args, **kwargs)
+
+    prompter.prompt = _sf_prompt
+    prompter._sf_wrapped = True
+
+
+def _sf_code_words(code, out, depth=0):
+    """The string constants of a function: the commands a callable alias
+    runs (`git push --force ...` compiles to a list of its words)."""
+    for c in code.co_consts:
+        if isinstance(c, str):
+            out.append(c)
+        elif isinstance(c, (tuple, frozenset)):
+            # `['kubectl', 'delete'] + a` keeps its words in a tuple.
+            out.extend(w for w in c if isinstance(w, str))
+        elif hasattr(c, "co_consts") and depth < 3:
+            _sf_code_words(c, out, depth + 1)
+
+
+def _sf_expand(line):
+    """The line with aliases replaced by what they run, plus the commands
+    of callable aliases and literal `@([...])` / `subprocess.run([...])`."""
+    extra = []
+    try:
+        aliases = __xonsh__.aliases
+    except Exception:
+        aliases = {}
+    parts = _sf_re.split(r"(\|\||&&|[;|\n]|\band\b|\bor\b)", line)
+    out = []
+    for seg in parts[:64]:
+        # An alias can name another alias (`nk2` -> `rmr` -> `rm -rf`):
+        # follow the chain, each alias once, at most 10 deep.
+        seen = set()
+        while len(seen) < 10:
+            m = _sf_re.match(r"^(\s*)([^\s()]+)(.*)$", seg, _sf_re.S)
+            name = m.group(2) if m else None
+            if not name or name in seen or name not in aliases:
+                break
+            seen.add(name)
+            try:
+                value = aliases[name]
+            except Exception:
+                break
+            if isinstance(value, (list, tuple)):
+                seg = m.group(1) + " ".join(_sf_shlex.quote(str(w)) for w in value) + m.group(3)
+            elif hasattr(value, "src") and isinstance(getattr(value, "src"), str):
+                seg = m.group(1) + value.src + m.group(3)
+            elif callable(value):
+                try:
+                    src = _sf_inspect.getsource(value)
+                except Exception:
+                    words = []
+                    code = getattr(value, "__code__", None)
+                    if code is not None:
+                        _sf_code_words(code, words)
+                    src = " ".join(words)
+                if len(src) <= 2000:
+                    extra.append(src)
+                break
+            else:
+                break
+        out.append(seg)
+    text = "".join(out) + "".join(parts[64:])
+    for m in _sf_re.finditer(r"(?:@\(|subprocess\.(?:run|call|check_call|check_output|Popen)\()\s*(\[[^\]]*\])", "\n".join([line] + extra)):
+        try:
+            words = _sf_ast.literal_eval(m.group(1))
+            extra.append(" ".join(_sf_shlex.quote(str(w)) for w in words))
+        except Exception:
+            pass
+    # `@($K) delete ...` / `@(cmd)`: the command named by an environment or
+    # Python variable, set on this line or earlier in the session.
+    if "@(" in line:
+        env_set = dict(_sf_re.findall(r"\$([A-Za-z_]\w*)\s*=\s*['\"]([^'\"]*)['\"]", line))
+        py_set = {}
+        for name, value in _sf_re.findall(r"(?:^|[;\n])\s*([A-Za-z_]\w*)\s*=\s*(\[[^\]]*\]|'[^']*'|\"[^\"]*\")", line):
+            try:
+                py_set[name] = _sf_ast.literal_eval(value)
+            except Exception:
+                pass
+        for m in _sf_re.finditer(r"@\(\s*(\$?)([A-Za-z_]\w*)\s*\)([^\n;|]*)", line):
+            name = m.group(2)
+            value = None
+            try:
+                if m.group(1):
+                    value = env_set[name] if name in env_set else __xonsh__.env.get(name)
+                elif name in py_set:
+                    value = py_set[name]
+                else:
+                    value = (getattr(__xonsh__, "ctx", None) or {}).get(name)
+            except Exception:
+                value = None
+            if isinstance(value, str):
+                words = [value]
+            elif isinstance(value, (list, tuple)) and all(isinstance(w, (str, int, float)) for w in value):
+                words = [str(w) for w in value]
+            else:
+                continue
+            if words and len(" ".join(words)) <= 4000:
+                extra.append(" ".join(_sf_shlex.quote(w) for w in words) + m.group(3))
+    # xonsh's own subprocess forms (`![...]`, `$[...]`, `!(...)`, `$(...)`),
+    # shell strings handed to Python (`os.system('...')`, `subprocess.run(
+    # '...', shell=True)`, `evalx('...')`) and `$K ...` (an environment
+    # variable as the command): the commands they run.
+    try:
+        extra.extend(_sf_hidden_commands("\n".join([line] + extra), line))
+    except Exception:
+        pass
+    return "\n".join([text] + extra)
+
+
+def _sf_env_value(name, line):
+    """The value of $name: set on this line (`$K = 'kubectl'`), else in the session."""
+    m = _sf_re.search(r"\$" + _sf_re.escape(name) + r"\s*=\s*(['\"])([^'\"]*)\1", line)
+    if m:
+        return m.group(2)
+    try:
+        v = __xonsh__.env.get(name)
+    except Exception:
+        return None
+    if isinstance(v, (list, tuple)) and all(isinstance(w, str) for w in v):
+        return " ".join(v)
+    return v if isinstance(v, str) else None
+
+
+_SF_OPENERS = {"![": "]", "$[": "]", "!(": ")", "$(": ")"}
+_SF_SHELL_CALL = _sf_re.compile(
+    r"\b(os\.system|os\.popen|evalx|execx|subprocess\.(?:run|call|check_call|check_output|Popen|getoutput|getstatusoutput))\s*\("
+)
+_SF_STRING = _sf_re.compile(
+    r"\s*([rRbBuU]?)('{3}[\s\S]*?'{3}|\"{3}[\s\S]*?\"{3}|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")"
+)
+
+
+def _sf_closing(text, start, close):
+    """Index of the bracket that closes the one before `start` (quotes and
+    nested brackets skipped), or -1."""
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    stack = [close]
+    i, n, q = start, len(text), None
+    while i < n:
+        c = text[i]
+        if q:
+            if c == "\\":
+                i += 2
+                continue
+            if c == q:
+                q = None
+        elif c in "'\"":
+            q = c
+        elif c in pairs:
+            stack.append(pairs[c])
+        elif c in ")]}":
+            if c != stack[-1]:
+                return -1
+            stack.pop()
+            if not stack:
+                return i
+        i += 1
+    return -1
+
+
+def _sf_literal_or_name(args):
+    """The first argument of a call: a string literal, or a Python variable
+    holding a string or a list of words; None when it is not known."""
+    lit = _SF_STRING.match(args)
+    if lit:
+        try:
+            value = _sf_ast.literal_eval(lit.group(1) + lit.group(2))
+        except Exception:
+            return None
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        return value if isinstance(value, str) else None
+    name = _sf_re.match(r"\s*([A-Za-z_]\w*)\s*[,)]", args + ")")
+    if not name:
+        return None
+    try:
+        v = (getattr(__xonsh__, "ctx", None) or {}).get(name.group(1))
+    except Exception:
+        return None
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (list, tuple)) and all(isinstance(w, str) for w in v):
+        return " ".join(_sf_shlex.quote(w) for w in v)
+    return None
+
+
+def _sf_hidden_commands(src, line):
+    out = []
+    todo = [src]
+    rounds = 0
+    while todo and rounds < 32:
+        text = todo.pop()
+        rounds += 1
+        i = 0
+        while i < len(text) - 1:
+            op = text[i:i + 2]
+            if op in _SF_OPENERS and not (i > 0 and text[i - 1] == "\\"):
+                end = _sf_closing(text, i + 2, _SF_OPENERS[op])
+                if end < 0:
+                    break
+                inner = text[i + 2:end]
+                if inner.strip():
+                    out.append(inner)
+                    todo.append(inner)
+                i = end + 1
+                continue
+            i += 1
+        for m in _SF_SHELL_CALL.finditer(text):
+            func = m.group(1)
+            end = _sf_closing(text, m.end(), ")")
+            args = text[m.end():end] if end >= 0 else text[m.end():]
+            if _sf_re.match(r"\s*[\[(]", args):
+                continue  # a literal list of words: read above
+            shell_text = not func.startswith("subprocess.") or func.endswith("output") \
+                or _sf_re.search(r"\bshell\s*=\s*True\b", args)
+            value = _sf_literal_or_name(args)
+            if value is not None:
+                if value.strip():
+                    out.append(value)
+                    todo.append(value)
+            elif shell_text:
+                # A shell string that is only known when it runs.
+                out.append("shellfirm-unknown-shell-payload " + func)
+        # `$K delete ...`: the program named by an environment variable.
+        for m in _sf_re.finditer(r"(?:^|[;\n|&(]|\band\b|\bor\b)[ \t]*\$([A-Za-z_]\w*)(?![\w\[(])(?![ \t]*=)([^\n;|&)]*)", text):
+            v = _sf_env_value(m.group(1), line)
+            if v and v.strip() and len(v) <= 4000:
+                out.append(v + m.group(2))
+    return out
+
+
+def _sf_only_alias_def(line):
+    """True when the line only defines an alias (`aliases['k'] = 'rm -rf'`,
+    a list of words, or a lambda): that runs nothing, and calling the alias
+    is what gets checked. A value that runs something now is not skipped."""
+    try:
+        tree = _sf_ast.parse(line)
+    except Exception:
+        return False
+    if len(tree.body) != 1:
+        return False
+    node = tree.body[0]
+    if isinstance(node, _sf_ast.Assign):
+        targets = node.targets
+    elif isinstance(node, (_sf_ast.AnnAssign, _sf_ast.AugAssign)):
+        targets = [node.target]
+    else:
+        return False
+    for t in targets:
+        if not (isinstance(t, _sf_ast.Subscript) and isinstance(t.value, _sf_ast.Name) and t.value.id == "aliases"):
+            return False
+        if not isinstance(t.slice, _sf_ast.Constant):
+            return False
+    v = node.value
+    if v is None:
+        return False
+    if isinstance(v, _sf_ast.Lambda):
+        # Default values are evaluated when the lambda is made.
+        return all(d is None or isinstance(d, _sf_ast.Constant) for d in v.args.defaults + v.args.kw_defaults)
+    try:
+        _sf_ast.literal_eval(v)
+        return True
+    except Exception:
+        return False
+
+
+def _sf_check_line(cmd):
+    if not cmd or not cmd.strip():
+        return cmd
+    if _sf_shutil.which("shellfirm") is None:
+        if not _sf_state["warned"]:
+            _sf_state["warned"] = True
+            print("shellfirm: binary not found in PATH; commands are NOT being checked")
+        return cmd
+    line = cmd.rstrip("\n")
+    # Defining a function runs nothing (calling it, or the alias that
+    # names it, is what gets checked).
+    rows = line.split("\n")
+    if _sf_re.match(r"def\s+\w+\s*\(", rows[0]) and all(not r.strip() or r[:1].isspace() for r in rows[1:]):
+        return cmd
+    if "aliases" in line and _sf_only_alias_def(line):
+        return cmd
+    try:
+        check = _sf_expand(line)
+    except Exception:
+        check = line
+    try:
+        if len(check.encode("utf-8", "surrogateescape")) > 100000:
+            # Too long to pass as one argument: checked through stdin, no prompt.
+            rc = _sf_subprocess.run(
+                ["shellfirm", "check", "--stdin", "--exit-code"],
+                input=check.encode("utf-8", "surrogateescape"),
+                stdout=_sf_subprocess.DEVNULL,
+                stderr=_sf_subprocess.DEVNULL,
+            ).returncode
+            if rc != 0:
+                print("shellfirm: blocked: this line is too long to confirm interactively and it matches a risky pattern (or could not be checked). Run it from a script file instead.")
+        else:
+            # The banner and the audit log show the line as typed, not
+            # the expansion checked with it.
+            argv = ["shellfirm", "pre-command", "--direct-tty", "--command=" + check]
+            if check != line:
+                argv.append("--line=" + line)
+            rc = _sf_subprocess.call(argv)
+    except FileNotFoundError as e:
+        # Found on PATH but it does not start (missing interpreter/library).
+        print("shellfirm: warning: shellfirm is installed but could not run ({}); this command was NOT checked. Run `shellfirm doctor`.".format(e))
+        return cmd
+    except OSError as e:
+        # Fail closed: the binary exists but could not be run.
+        print("shellfirm: could not run shellfirm ({}); command not run".format(e))
+        rc = 1
+    if rc == 127:
+        print("shellfirm: warning: shellfirm is installed but could not run (exit 127); this command was NOT checked. Run `shellfirm doctor`.")
+    # 3: allowed after a passed challenge (SHELLFIRM_SIGNAL_PROMPTED=1 in
+    # the environment).
+    if rc in (0, 3, 127):
+        return cmd
+    print("shellfirm: the line is kept for editing.")
+    _sf_keep_for_editing(line)
+    return ""
+
+
+# Load once: sourcing this file again (reloading the rc) only updates the
+# functions above; the handler is registered a single time.
+if not getattr(_sf_builtins, "_shellfirm_xonsh_loaded", False):
+    _sf_builtins._shellfirm_xonsh_loaded = True
+
+    @events.on_transform_command
+    def _shellfirm_transform(cmd, **kwargs):
+        # prompt_toolkit's Enter asks whether the line compiles
+        # (`can_compile` runs the transform too): nothing runs there, and
+        # the line is checked once, when it is run.
+        f = _sf_sys._getframe(1)
+        for _ in range(6):
+            if f is None:
+                break
+            if f.f_code.co_name == "can_compile":
+                return cmd
+            f = f.f_back
+        return _sf_check_line(cmd)

@@ -9,7 +9,7 @@
   id: npm:deprecate
   severity: High
 - from: npm
-  test: yarn\s+npm\s+unpublish(\s|$)
+  test: (?:^|\s)yarn\s+npm\s+unpublish(\s|$)
   description: "Unpublishing a package removes it from the registry, breaking all downstream dependents."
   id: npm:yarn_unpublish
   severity: Critical

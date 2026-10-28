@@ -8,16 +8,106 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Widget;
 use ratatui::Frame;
 
+/// Smallest terminal the TUI lays out in. Tabs taller than the body scroll.
+pub const MIN_WIDTH: u16 = 60;
+pub const MIN_HEIGHT: u16 = 16;
+
 pub fn draw(f: &mut Frame, app: &App) {
+    crate::tui::a11y::reset_cursor();
+    draw_frame(f, app);
+    crate::tui::a11y::finalize(f.buffer_mut(), crate::tui::a11y::caps());
+    if let Some(pos) = crate::tui::a11y::requested_cursor() {
+        f.set_cursor_position(pos);
+    }
+}
+
+/// Cut `text` to `width` characters, ending with `…` when it was longer.
+fn clip(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+/// Greedy word wrap to `width` columns (character count).
+pub fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in text.split_whitespace() {
+        let wlen = word.chars().count();
+        let clen = cur.chars().count();
+        if clen > 0 && clen + 1 + wlen > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        if wlen > width {
+            // Hard-split a word that can never fit.
+            let mut chars: Vec<char> = word.chars().collect();
+            while chars.len() > width {
+                let rest = chars.split_off(width);
+                lines.push(chars.iter().collect());
+                chars = rest;
+            }
+            cur.push_str(&chars.iter().collect::<String>());
+        } else {
+            cur.push_str(word);
+        }
+    }
+    if !cur.is_empty() {
+        lines.push(cur);
+    }
+    lines
+}
+
+fn draw_too_small(f: &mut Frame, app: &App) {
     let area = f.area();
-    if area.width < 60 || area.height < 16 {
-        // Render a "too small" message
-        f.buffer_mut().set_string(
+    // The action comes first so it survives in the tiniest window; keys
+    // other than these do nothing here (the editor is hidden).
+    let text = if matches!(app.modal, Some(crate::tui::app::Modal::Quit(_))) {
+        format!(
+            "Unsaved changes: {}. Press s to save and quit, d to discard them and quit, Esc to go back. \
+             (Terminal too small: {}x{}; the editor needs {MIN_WIDTH}x{MIN_HEIGHT}.)",
+            app.unsaved_items().join("; "),
+            area.width,
+            area.height
+        )
+    } else {
+        format!(
+            "Press q to quit. Terminal too small: {}x{}. shellfirm config needs at least \
+             {MIN_WIDTH} columns x {MIN_HEIGHT} rows; other keys do nothing until the window is \
+             larger. Or use `shellfirm config show` and `shellfirm config --help`.",
+            area.width, area.height
+        )
+    };
+    let mut lines = wrap_words(&text, area.width as usize);
+    if let Some(msg) = &app.status_message {
+        lines.insert(0, format!("Note: {msg}"));
+    }
+    for (i, line) in lines.iter().enumerate() {
+        if i as u16 >= area.height {
+            break;
+        }
+        f.buffer_mut().set_stringn(
             0,
-            0,
-            "Terminal too small — needs at least 60 cols × 16 rows.",
+            i as u16,
+            line,
+            area.width as usize,
             Style::default().fg(Color::Yellow),
         );
+    }
+}
+
+fn draw_frame(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let too_small = area.width < MIN_WIDTH || area.height < MIN_HEIGHT;
+    app.too_small.set(too_small);
+    if too_small {
+        draw_too_small(f, app);
         return;
     }
 
@@ -57,11 +147,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_field_strip(f, app, chunks[2]);
     draw_hint_bar(f, app, chunks[3]);
 
-    // Modal overlays drawn last
-    if let Some(modal) = &app.modal {
-        draw_modal(f, app, modal);
-    }
-    // Form overlay also drawn last (mutually exclusive with modal in practice)
+    // Form overlay, then modal overlays on top (a quit dialog can sit over
+    // an open form).
     if let Some(form) = &app.form {
         let outer = centered_rect(80, 90, area);
         // Clear background of the modal frame so the underlying tab doesn't bleed through.
@@ -75,13 +162,21 @@ pub fn draw(f: &mut Frame, app: &App) {
         let border_style = Style::default().fg(Color::DarkGray).bg(Color::Black);
         for x in outer.x..outer.x + outer.width {
             f.buffer_mut().set_string(x, outer.y, "─", border_style);
-            f.buffer_mut()
-                .set_string(x, outer.y + outer.height.saturating_sub(1), "─", border_style);
+            f.buffer_mut().set_string(
+                x,
+                outer.y + outer.height.saturating_sub(1),
+                "─",
+                border_style,
+            );
         }
         for y in outer.y..outer.y + outer.height {
             f.buffer_mut().set_string(outer.x, y, "│", border_style);
-            f.buffer_mut()
-                .set_string(outer.x + outer.width.saturating_sub(1), y, "│", border_style);
+            f.buffer_mut().set_string(
+                outer.x + outer.width.saturating_sub(1),
+                y,
+                "│",
+                border_style,
+            );
         }
         // Inner content area, inset by the border.
         let inner = Rect {
@@ -91,6 +186,12 @@ pub fn draw(f: &mut Frame, app: &App) {
             height: outer.height.saturating_sub(2),
         };
         Widget::render(form, inner, f.buffer_mut());
+    }
+    if let Some(modal) = &app.modal {
+        // A dialog has the focus: no caret may stay in a text box behind
+        // it (screen magnifiers and readers follow the caret).
+        crate::tui::a11y::reset_cursor();
+        draw_modal(f, app, modal);
     }
 }
 
@@ -109,46 +210,119 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         ("LLM", None),
         ("Custom", None),
     ];
+    // The active tab is bracketed (`[Groups]`) so it is visible without
+    // colour. When the labels don't fit, the bar scrolls to keep the active
+    // tab visible and shows `‹` / `›` for hidden tabs.
+    let dirty_label = "● unsaved";
+    let reserve = if app.draft.is_dirty() {
+        dirty_label.chars().count() as u16 + 2
+    } else {
+        0
+    };
+    let avail = area.width.saturating_sub(reserve + 2);
+    let labels: Vec<String> = titles
+        .iter()
+        .enumerate()
+        .map(|(i, (l, _))| {
+            if i == app.current_tab {
+                format!("[{l}]")
+            } else {
+                format!(" {l} ")
+            }
+        })
+        .collect();
+    let widths: Vec<u16> = labels.iter().map(|l| l.chars().count() as u16).collect();
+    // First visible tab: the smallest index such that tabs first..=current fit.
+    let mut first = 0usize;
+    while first < app.current_tab && widths[first..=app.current_tab].iter().sum::<u16>() > avail {
+        first += 1;
+    }
     let mut x = area.x + 1;
-    for (i, (label, mode_color)) in titles.iter().enumerate() {
+    if first > 0 {
+        f.buffer_mut()
+            .set_string(area.x, area.y, "‹", Style::default().fg(Color::Yellow));
+    }
+    let mut last_shown = first;
+    for i in first..titles.len() {
+        if x + widths[i] > area.x + 1 + avail {
+            break;
+        }
         let active = i == app.current_tab;
         let style = if active {
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::Green)
                 .add_modifier(Modifier::BOLD)
-        } else if let Some(c) = mode_color {
-            Style::default().fg(*c).add_modifier(Modifier::BOLD)
+        } else if let Some(c) = titles[i].1 {
+            // The tint is colour-only information; without colour the
+            // name must look like every other inactive tab (not bold).
+            if crate::tui::a11y::caps().color {
+                Style::default().fg(c).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            }
         } else {
             Style::default()
         };
-        let label_s = format!(" {label} ");
-        f.buffer_mut().set_string(x, area.y, &label_s, style);
-        x += label_s.chars().count() as u16;
+        f.buffer_mut().set_string(x, area.y, &labels[i], style);
+        x += widths[i];
+        last_shown = i;
     }
-    // Dirty marker on the right
+    if last_shown + 1 < titles.len() {
+        f.buffer_mut()
+            .set_string(x, area.y, "›", Style::default().fg(Color::Yellow));
+    }
+    // Dirty marker on the right (space for it is reserved above).
     if app.draft.is_dirty() {
-        let label = "● unsaved";
         let label_x = area
             .x
             .saturating_add(area.width)
-            .saturating_sub(label.chars().count() as u16 + 1);
-        f.buffer_mut()
-            .set_string(label_x, area.y, label, Style::default().fg(Color::Yellow));
+            .saturating_sub(dirty_label.chars().count() as u16 + 1);
+        f.buffer_mut().set_string(
+            label_x,
+            area.y,
+            dirty_label,
+            Style::default().fg(Color::Yellow),
+        );
+    }
+}
+
+/// Rows a tab's layout needs. When the body is shorter, the tab is drawn
+/// into a taller off-screen buffer and scrolled to the focused row.
+const fn tab_min_height(tab: usize) -> u16 {
+    match tab {
+        0 => 16,
+        1 => 8,
+        2 | 6 | 7 => 14,
+        3 | 5 => 18,
+        4 => 12,
+        _ => 6,
     }
 }
 
 fn draw_active_tab(f: &mut Frame, app: &App, area: Rect) {
+    // Always draw through the off-screen viewport: a tab whose content
+    // grows while editing (a list with an open "New entry" field) can need
+    // more rows than the body has. Drawing it straight into the frame wrote
+    // past the last row (a panic at 80x24) or under the footer; the
+    // viewport clips it and scrolls to the focused row instead.
+    let min = tab_min_height(app.current_tab).max(area.height);
+    crate::tui::a11y::render_scrolled(f.buffer_mut(), area, min, |a, b| {
+        render_tab(app, a, b);
+    });
+}
+
+fn render_tab(app: &App, area: Rect, buf: &mut ratatui::buffer::Buffer) {
     match app.current_tab {
-        0 => app.general.render(area, f.buffer_mut(), &app.draft),
-        1 => app.groups.render(area, f.buffer_mut(), &app.draft),
-        2 => app.escalation.render(area, f.buffer_mut(), &app.draft),
-        3 => app.context.render(area, f.buffer_mut(), &app.draft),
-        4 => app.ignore_deny.render(area, f.buffer_mut(), &app.draft),
-        5 => app.ai.render(area, f.buffer_mut(), &app.draft),
-        6 => app.wrap.render(area, f.buffer_mut(), &app.draft),
-        7 => app.llm.render(area, f.buffer_mut(), &app.draft),
-        8 => app.custom.render(area, f.buffer_mut(), &app.draft),
+        0 => app.general.render(area, buf, &app.draft),
+        1 => app.groups.render(area, buf, &app.draft),
+        2 => app.escalation.render(area, buf, &app.draft),
+        3 => app.context.render(area, buf, &app.draft),
+        4 => app.ignore_deny.render(area, buf, &app.draft),
+        5 => app.ai.render(area, buf, &app.draft),
+        6 => app.wrap.render(area, buf, &app.draft),
+        7 => app.llm.render(area, buf, &app.draft),
+        8 => app.custom.render(area, buf, &app.draft),
         _ => {}
     }
 }
@@ -211,15 +385,15 @@ fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
             break;
         }
         let (prefix, style, text) = match line {
-            crate::tui::preview::DiffLine::Same(s) => (
-                "  ", Style::default().fg(Color::Gray), s.clone(),
-            ),
-            crate::tui::preview::DiffLine::Added(s) => (
-                "+ ", Style::default().fg(Color::Green), s.clone(),
-            ),
-            crate::tui::preview::DiffLine::Removed(s) => (
-                "- ", Style::default().fg(Color::Red), s.clone(),
-            ),
+            crate::tui::preview::DiffLine::Same(s) => {
+                ("  ", Style::default().fg(Color::Gray), s.clone())
+            }
+            crate::tui::preview::DiffLine::Added(s) => {
+                ("+ ", Style::default().fg(Color::Green), s.clone())
+            }
+            crate::tui::preview::DiffLine::Removed(s) => {
+                ("- ", Style::default().fg(Color::Red), s.clone())
+            }
         };
         // Truncate to body width so we don't overwrite the scrollbar column.
         let mut full = format!("{prefix}{text}");
@@ -240,34 +414,37 @@ fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
         if track_height >= 2 {
             // Render the track (dim vertical line).
             for ty in track_top..track_top + track_height {
-                f.buffer_mut().set_string(
-                    col,
-                    ty,
-                    "│",
-                    Style::default().fg(Color::DarkGray),
-                );
+                f.buffer_mut()
+                    .set_string(col, ty, "│", Style::default().fg(Color::DarkGray));
             }
             // Up/down caps showing direction of more content.
             if offset > 0 {
                 f.buffer_mut().set_string(
-                    col, track_top, "▲",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    col,
+                    track_top,
+                    "▲",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 );
             }
             if end < total {
                 f.buffer_mut().set_string(
-                    col, track_top + track_height - 1, "▼",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    col,
+                    track_top + track_height - 1,
+                    "▼",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 );
             }
             // Thumb size is proportional to the visible fraction of total
             // content; clamped to ≥ 1.
             let inner_height = track_height.saturating_sub(2).max(1);
-            let thumb_size = (((visible_height as f64 / total as f64)
-                * inner_height as f64)
-                .round() as u16)
-                .max(1)
-                .min(inner_height);
+            let thumb_size =
+                (((visible_height as f64 / total as f64) * inner_height as f64).round() as u16)
+                    .max(1)
+                    .min(inner_height);
             // Thumb position: 0..(inner_height - thumb_size).
             let scroll_range = max_offset.max(1) as f64;
             let thumb_top_offset = ((offset as f64 / scroll_range)
@@ -276,10 +453,8 @@ fn draw_preview(f: &mut Frame, app: &App, area: Rect) {
             let thumb_top = track_top + 1 + thumb_top_offset;
             for ty in thumb_top..thumb_top + thumb_size {
                 if ty < track_top + track_height - 1 {
-                    f.buffer_mut().set_string(
-                        col, ty, "█",
-                        Style::default().fg(Color::Cyan),
-                    );
+                    f.buffer_mut()
+                        .set_string(col, ty, "█", Style::default().fg(Color::Cyan));
                 }
             }
         }
@@ -292,23 +467,41 @@ fn draw_field_strip(f: &mut Frame, app: &App, area: Rect) {
     for badge in &focus.badges {
         header.push_str(&format!("  [{badge}]"));
     }
-    f.buffer_mut()
-        .set_string(area.x, area.y, &header, Style::default().fg(Color::White));
+    // Cut with `…` (not mid-word without a cue) when the window is narrow.
+    let width = area.width as usize;
+    f.buffer_mut().set_string(
+        area.x,
+        area.y,
+        clip(&header, width),
+        Style::default().fg(Color::White),
+    );
     if !focus.help.is_empty() {
         f.buffer_mut().set_string(
             area.x,
             area.y + 1,
-            &focus.help,
+            clip(&focus.help, width),
             Style::default().fg(Color::DarkGray),
         );
     }
+    // A status message (cleared on the next key) is labelled in words, so
+    // it does not depend on its colour. It goes right of the header when
+    // both fit, otherwise it replaces the help line; it never overwrites
+    // the header.
     if let Some(msg) = &app.status_message {
-        let pos_x = area
-            .x
-            .saturating_add(area.width)
-            .saturating_sub(msg.chars().count() as u16 + 1);
-        f.buffer_mut()
-            .set_string(pos_x, area.y, msg, Style::default().fg(Color::Cyan));
+        let note = format!("Note: {msg}");
+        let note_w = note.chars().count();
+        let header_w = header.chars().count().min(width);
+        let style = Style::default().fg(Color::Cyan);
+        if header_w + 3 + note_w <= width {
+            let pos_x = area.x + (width - note_w) as u16;
+            f.buffer_mut().set_string(pos_x, area.y, &note, style);
+        } else if area.height > 1 {
+            let row = " ".repeat(width);
+            f.buffer_mut()
+                .set_string(area.x, area.y + 1, row, Style::default());
+            f.buffer_mut()
+                .set_string(area.x, area.y + 1, clip(&note, width), style);
+        }
     }
 }
 
@@ -319,12 +512,53 @@ fn draw_hint_bar(f: &mut Frame, app: &App, area: Rect) {
         PreviewMode::Open => "p close preview · Shift+↑/↓ or PgUp/PgDn to scroll",
     };
     let hint = format!(" {preview_indicator} · s save · q quit · ? help");
-    f.buffer_mut()
-        .set_string(area.x, area.y, hint, Style::default().fg(Color::DarkGray));
+    f.buffer_mut().set_string(
+        area.x,
+        area.y,
+        clip(&hint, area.width as usize),
+        Style::default().fg(Color::DarkGray),
+    );
 }
 
 fn draw_modal(f: &mut Frame, app: &App, modal: &crate::tui::app::Modal) {
-    let area = centered_rect(70, 60, f.area());
+    let area = match modal {
+        crate::tui::app::Modal::Help => centered_rect(94, 92, f.area()),
+        // The Save dialog carries a diff or an error list: use most of a
+        // small window instead of 70% x 60% of it.
+        crate::tui::app::Modal::Save(_) => {
+            let full = f.area();
+            let w = (full.width * 70 / 100)
+                .max(56)
+                .min(full.width.saturating_sub(2));
+            let h = (full.height * 60 / 100)
+                .max(14)
+                .min(full.height.saturating_sub(2));
+            Rect {
+                x: full.x + (full.width - w) / 2,
+                y: full.y + (full.height - h) / 2,
+                width: w,
+                height: h,
+            }
+        }
+        // The quit dialog lists what is unsaved and three keyed buttons:
+        // at the editor's 60x16 minimum it takes nearly the whole window.
+        crate::tui::app::Modal::Quit(_) => {
+            let full = f.area();
+            let w = (full.width * 70 / 100)
+                .max(58)
+                .min(full.width.saturating_sub(2));
+            let h = (full.height * 60 / 100)
+                .max(12)
+                .min(full.height.saturating_sub(2));
+            Rect {
+                x: full.x + (full.width - w) / 2,
+                y: full.y + (full.height - h) / 2,
+                width: w,
+                height: h,
+            }
+        }
+        _ => centered_rect(70, 60, f.area()),
+    };
     // Clear background
     for y in area.y..area.y + area.height {
         for x in area.x..area.x + area.width {
@@ -339,10 +573,18 @@ fn draw_modal(f: &mut Frame, app: &App, modal: &crate::tui::app::Modal) {
         f.buffer_mut()
             .set_string(x, area.y + area.height.saturating_sub(1), "─", border);
     }
-    for y in area.y..area.y + area.height {
+    for y in area.y + 1..area.y + area.height.saturating_sub(1) {
         f.buffer_mut().set_string(area.x, y, "│", border);
         f.buffer_mut()
             .set_string(area.x + area.width.saturating_sub(1), y, "│", border);
+    }
+    if area.width >= 2 && area.height >= 2 {
+        let right = area.x + area.width - 1;
+        let bottom = area.y + area.height - 1;
+        f.buffer_mut().set_string(area.x, area.y, "┌", border);
+        f.buffer_mut().set_string(right, area.y, "┐", border);
+        f.buffer_mut().set_string(area.x, bottom, "└", border);
+        f.buffer_mut().set_string(right, bottom, "┘", border);
     }
 
     let inner = Rect {
@@ -354,9 +596,9 @@ fn draw_modal(f: &mut Frame, app: &App, modal: &crate::tui::app::Modal) {
 
     match modal {
         crate::tui::app::Modal::Save(state) => draw_save_dialog(f, app, state, inner),
-        crate::tui::app::Modal::Quit(state) => draw_quit_dialog(f, state, inner),
+        crate::tui::app::Modal::Quit(state) => draw_quit_dialog(f, app, state, inner),
         crate::tui::app::Modal::Reset(state) => draw_reset_dialog(f, state, inner),
-        crate::tui::app::Modal::Help => draw_help_overlay(f, inner),
+        crate::tui::app::Modal::Help => draw_help_overlay(f, app, inner),
         crate::tui::app::Modal::DeleteCustom(state) => {
             draw_delete_custom_dialog(f, state, inner);
         }
@@ -370,51 +612,132 @@ fn draw_save_dialog(
     area: Rect,
 ) {
     use crate::tui::app::SaveStage;
-    f.buffer_mut().set_string(
+    f.buffer_mut().set_stringn(
         area.x,
         area.y,
         "Save",
+        area.width as usize,
         Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     );
+    let width = area.width as usize;
 
+    // The body (verdict + diff or errors) is built as lines first, then a
+    // window of it is drawn between the title and the button row. When it
+    // does not fit, Up/Down/PgUp/PgDn/Home/End scroll it and `▲ more` /
+    // `▼ more` say so.
+    let mut body: Vec<(String, Style)> = Vec::new();
     match &state.stage {
         SaveStage::Confirm => {
-            f.buffer_mut().set_string(
-                area.x,
-                area.y + 2,
-                "✓ Valid configuration",
+            body.push((
+                crate::tui::a11y::sym("✓ Valid configuration", "OK: Valid configuration")
+                    .to_string(),
                 Style::default().fg(Color::Green),
-            );
-            f.buffer_mut().set_string(
-                area.x,
-                area.y + 4,
-                "Diff vs disk:",
+            ));
+            body.push((String::new(), Style::default()));
+            body.push((
+                "Diff vs disk:".to_string(),
                 Style::default().fg(Color::DarkGray),
-            );
-            // render diff — only changed lines (Added/Removed) in this
-            // confirm dialog; user wants the at-a-glance summary.
-            let yaml = crate::tui::preview::render_yaml(&app.draft.current);
-            let diff = crate::tui::preview::line_diff(&app.on_disk_yaml, &yaml);
-            let mut y = area.y + 5;
-            for line in diff {
-                if y >= area.y + area.height.saturating_sub(2) {
-                    break;
+            ));
+            // The exact change to the settings file (what will be on disk,
+            // against what is there now), with context lines and the
+            // enclosing keys of nested changes.
+            match &state.planned {
+                Some(Ok((old, new))) => {
+                    let diff = crate::tui::preview::diff_with_context(old, new, 2);
+                    let mut any = false;
+                    let gap = "...".to_string();
+                    for line in &diff {
+                        let (prefix, color, text) = match line {
+                            None => ("  ", Color::DarkGray, &gap),
+                            Some(crate::tui::preview::DiffLine::Same(s)) => ("  ", Color::Gray, s),
+                            Some(crate::tui::preview::DiffLine::Added(s)) => {
+                                any = true;
+                                ("+ ", Color::Green, s)
+                            }
+                            Some(crate::tui::preview::DiffLine::Removed(s)) => {
+                                any = true;
+                                ("- ", Color::Red, s)
+                            }
+                        };
+                        body.push((
+                            clip(&format!("{prefix}{text}"), width),
+                            Style::default().fg(color),
+                        ));
+                    }
+                    if !any {
+                        body.push((
+                            "No changes to the file".to_string(),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                    }
                 }
-                let (prefix, color, text) = match &line {
-                    crate::tui::preview::DiffLine::Same(_) => continue,
-                    crate::tui::preview::DiffLine::Added(s) => ("+ ", Color::Green, s.clone()),
-                    crate::tui::preview::DiffLine::Removed(s) => ("- ", Color::Red, s.clone()),
-                };
-                f.buffer_mut().set_string(
-                    area.x,
-                    y,
-                    format!("{prefix}{text}"),
-                    Style::default().fg(color),
-                );
-                y += 1;
+                Some(Err(e)) => body.push((
+                    clip(&format!("(could not preview the file: {e})"), width),
+                    Style::default().fg(Color::Yellow),
+                )),
+                None => body.push((
+                    "No changes".to_string(),
+                    Style::default().fg(Color::DarkGray),
+                )),
             }
+        }
+        SaveStage::Errors(errors) => {
+            body.push((
+                crate::tui::a11y::sym("✗ Invalid configuration", "Error: Invalid configuration")
+                    .to_string(),
+                Style::default().fg(Color::Red),
+            ));
+            body.push((String::new(), Style::default()));
+            // Wrapped to the dialog width (with a hanging indent) so the
+            // useful end of each message ("Did you mean …") stays visible.
+            for e in errors {
+                let text = format!("{}: {}", e.path, e.message);
+                for (i, line) in wrap_words(&text, width.saturating_sub(4))
+                    .iter()
+                    .enumerate()
+                {
+                    let indent = if i == 0 { "  " } else { "    " };
+                    body.push((format!("{indent}{line}"), Style::default().fg(Color::Red)));
+                }
+            }
+        }
+    }
+
+    // Rows between the title (+1 blank) and the button row (-1 blank).
+    let top = area.y.saturating_add(2);
+    let bottom = area.y.saturating_add(area.height.saturating_sub(2));
+    let visible = bottom.saturating_sub(top) as usize;
+    let max_scroll = body.len().saturating_sub(visible);
+    app.save_max_scroll.set(max_scroll as u16);
+    let offset = (state.scroll as usize).min(max_scroll);
+    for (i, (text, style)) in body.iter().skip(offset).take(visible).enumerate() {
+        f.buffer_mut()
+            .set_stringn(area.x, top + i as u16, text, width, *style);
+    }
+    let marker = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    if visible > 0 && offset > 0 {
+        let m = format!("▲ {offset} more");
+        let x = area.x + area.width.saturating_sub(m.chars().count() as u16);
+        // On the blank row under the title, so it never covers text.
+        f.buffer_mut()
+            .set_stringn(x, top.saturating_sub(1), &m, width, marker);
+    }
+    let hidden_below = body.len().saturating_sub(offset + visible);
+    if visible > 0 && hidden_below > 0 {
+        let m = format!("▼ {hidden_below} more (↑↓ scroll)");
+        let m = clip(&m, width);
+        let x = area.x + area.width.saturating_sub(m.chars().count() as u16);
+        // On the blank row above the buttons, so it never covers text.
+        f.buffer_mut().set_stringn(x, bottom, &m, width, marker);
+    }
+
+    let btn_y = area.y + area.height.saturating_sub(1);
+    match &state.stage {
+        SaveStage::Confirm => {
             // Buttons — centered, with distinct selected colors per button
             // (green for Save, yellow for Cancel). Inline because the shared
             // helper assumes a single highlight color.
@@ -427,7 +750,6 @@ fn draw_save_dialog(
             } else {
                 area.x
             };
-            let btn_y = area.y + area.height.saturating_sub(1);
             let mut x = start_x;
             for (i, button) in buttons.iter().enumerate() {
                 let style = if i == state.button {
@@ -443,26 +765,7 @@ fn draw_save_dialog(
                 x += widths[i] + GAP;
             }
         }
-        SaveStage::Errors(errors) => {
-            f.buffer_mut().set_string(
-                area.x,
-                area.y + 2,
-                "✗ Invalid configuration",
-                Style::default().fg(Color::Red),
-            );
-            let mut y = area.y + 4;
-            for e in errors
-                .iter()
-                .take(area.height.saturating_sub(6) as usize)
-            {
-                f.buffer_mut().set_string(
-                    area.x,
-                    y,
-                    format!("  {}: {}", e.path, e.message),
-                    Style::default().fg(Color::Red),
-                );
-                y += 1;
-            }
+        SaveStage::Errors(_) => {
             let ok = "[ OK ]";
             let ok_w = ok.chars().count() as u16;
             let ok_x = if ok_w <= area.width {
@@ -472,7 +775,7 @@ fn draw_save_dialog(
             };
             f.buffer_mut().set_string(
                 ok_x,
-                area.y + area.height.saturating_sub(1),
+                btn_y,
                 ok,
                 Style::default()
                     .fg(Color::Black)
@@ -485,25 +788,49 @@ fn draw_save_dialog(
 
 fn draw_quit_dialog(
     f: &mut Frame,
+    app: &App,
     state: &crate::tui::app::QuitDialogState,
     area: Rect,
 ) {
-    f.buffer_mut().set_string(
+    let width = area.width as usize;
+    f.buffer_mut().set_stringn(
         area.x,
         area.y,
         "You have unsaved changes",
+        width,
         Style::default()
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     );
-    f.buffer_mut().set_string(
-        area.x,
-        area.y + 2,
-        "What would you like to do?",
-        Style::default().fg(Color::Gray),
-    );
+    // Name what would be lost, then what the buttons do with it.
+    let items = app.unsaved_items();
+    let mut lines: Vec<String> = Vec::new();
+    for item in &items {
+        lines.extend(wrap_words(&format!("- {item}"), width));
+    }
+    let form_open = items
+        .iter()
+        .any(|i| i.starts_with("an unfinished custom check"));
+    let what = if form_open {
+        "s saves and quits (an incomplete check stays open to finish), d discards everything \
+         and quits, Esc goes back."
+    } else {
+        "s saves and quits, d discards the changes and quits, Esc goes back."
+    };
+    lines.push(String::new());
+    lines.extend(wrap_words(what, width));
+    let max_rows = area.height.saturating_sub(3) as usize;
+    for (i, line) in lines.iter().take(max_rows).enumerate() {
+        f.buffer_mut().set_stringn(
+            area.x,
+            area.y + 2 + i as u16,
+            line,
+            width,
+            Style::default().fg(Color::Gray),
+        );
+    }
 
-    let labels = ["Save & quit", "Discard & quit", "Cancel"];
+    let labels = ["s Save & quit", "d Discard & quit", "Esc Cancel"];
     draw_button_row(f, area, &labels, state.button, Color::Green);
 }
 
@@ -517,11 +844,18 @@ fn draw_button_row(
     selected: usize,
     selected_bg: Color,
 ) {
-    const GAP: u16 = 3;
     // Pre-render to know each button's real width.
     let buttons: Vec<String> = labels.iter().map(|l| format!("[ {l} ]")).collect();
     let widths: Vec<u16> = buttons.iter().map(|b| b.chars().count() as u16).collect();
-    let total: u16 = widths.iter().sum::<u16>() + GAP * (labels.len().saturating_sub(1) as u16);
+    let gaps = labels.len().saturating_sub(1) as u16;
+    // Three spaces between buttons; one in a narrow dialog, so the row
+    // still fits inside the border.
+    let gap: u16 = if widths.iter().sum::<u16>() + 3 * gaps <= area.width {
+        3
+    } else {
+        1
+    };
+    let total: u16 = widths.iter().sum::<u16>() + gap * gaps;
 
     // Center the row; if the row is wider than the area, fall back to the
     // left edge so we don't underflow.
@@ -543,15 +877,11 @@ fn draw_button_row(
             Style::default()
         };
         f.buffer_mut().set_string(x, row_y, button, style);
-        x += widths[i] + GAP;
+        x += widths[i] + gap;
     }
 }
 
-fn draw_reset_dialog(
-    f: &mut Frame,
-    state: &crate::tui::app::ResetDialogState,
-    area: Rect,
-) {
+fn draw_reset_dialog(f: &mut Frame, state: &crate::tui::app::ResetDialogState, area: Rect) {
     f.buffer_mut().set_string(
         area.x,
         area.y,
@@ -580,20 +910,18 @@ fn draw_delete_custom_dialog(
         area.x,
         area.y,
         "Delete custom check?",
-        Style::default()
-            .fg(Color::Red)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
     );
     f.buffer_mut().set_string(
         area.x,
         area.y + 2,
-        format!("ID:    {}", state.id),
+        format!("Check id: {}", state.id),
         Style::default().fg(Color::White),
     );
     f.buffer_mut().set_string(
         area.x,
         area.y + 3,
-        format!("Group: {}", state.from),
+        format!("Group:    {}", state.from),
         Style::default().fg(Color::Gray),
     );
     f.buffer_mut().set_string(
@@ -639,7 +967,74 @@ fn draw_delete_custom_dialog(
     }
 }
 
-fn draw_help_overlay(f: &mut Frame, area: Rect) {
+/// Help overlay content: key bindings, then what the badges mean.
+const HELP_KEYS: &[(&str, &str)] = &[
+    (
+        "Up/Down, j/k",
+        "move between sections (browsing) or rows (editing)",
+    ),
+    (
+        "Left/Right",
+        "switch tabs (General, Groups, Escalation, ...); in a text field or \
+         filter they move the caret instead",
+    ),
+    (
+        "Tab/Shift-Tab",
+        "also switch tabs; in an open Ignore/Deny list they move between the \
+         picker and the entries",
+    ),
+    ("Enter", "edit the selected section, or activate a button"),
+    ("Esc", "stop editing; close a dialog"),
+    (
+        "Space",
+        "select the highlighted option or toggle a checkbox",
+    ),
+    ("o", "override toggle (AI/Wrap tabs)"),
+    ("+", "add a row (lists, custom checks)"),
+    ("e", "edit the selected custom check"),
+    ("d", "delete the selected row"),
+    ("/", "filter (in pickers); type a check id to search"),
+    ("p", "show or hide the settings-file preview"),
+    ("s", "save (validates and shows the changes first)"),
+    ("r", "reset the draft to what is on disk"),
+    ("q", "quit (asks first if there are unsaved changes)"),
+    (
+        "Ctrl-C",
+        "quit from anywhere, also while typing (asks first if there are unsaved changes)",
+    ),
+    ("?", "show or hide this help"),
+];
+
+const HELP_NOTES: &[&str] = &[
+    "Badges: [all] = applies everywhere (shell hooks, AI agents, wrap). \
+     [ai] = only for AI agents (shellfirm check / MCP). [wrap] = only inside \
+     `shellfirm wrap`. [shell] = only the interactive shell hooks.",
+    "Focus: the active tab is shown as [Name]; the selected row is marked with > \
+     and highlighted. With NO_COLOR set, highlights use reverse video.",
+    "Too short a window? Tabs scroll to the selected row; \"more\" marks hidden rows.",
+];
+
+/// Build the wrapped help lines for a given width.
+fn help_lines(width: u16) -> Vec<(String, bool)> {
+    const KEY_W: usize = 15;
+    let mut out = Vec::new();
+    let desc_w = (width as usize).saturating_sub(KEY_W + 2).max(10);
+    for (key, desc) in HELP_KEYS {
+        for (i, part) in wrap_words(desc, desc_w).into_iter().enumerate() {
+            let k = if i == 0 { *key } else { "" };
+            out.push((format!("  {k:<KEY_W$}{part}"), false));
+        }
+    }
+    out.push((String::new(), false));
+    for note in HELP_NOTES {
+        for part in wrap_words(note, (width as usize).saturating_sub(2).max(10)) {
+            out.push((format!("  {part}"), true));
+        }
+    }
+    out
+}
+
+fn draw_help_overlay(f: &mut Frame, app: &App, area: Rect) {
     f.buffer_mut().set_string(
         area.x,
         area.y,
@@ -648,43 +1043,38 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
             .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     );
-
-    let help: &[(&str, &str)] = &[
-        ("↑↓ / j k", "navigate sections (browsing) · navigate within a section (editing)"),
-        ("←→", "switch top-level tabs (e.g. General → Groups → Escalation)"),
-        ("Enter", "drill into the selected section · activate a button"),
-        ("Esc", "back out of editing to section browsing"),
-        ("Tab / Shift-Tab", "also switches top-level tabs"),
-        ("Space", "select the highlighted row · toggle a checkbox"),
-        ("o", "override toggle (AI/Wrap) / switch panel (Ignore/Deny)"),
-        ("+", "add a row (lists, custom checks)"),
-        ("e", "edit selected"),
-        ("d", "delete selected"),
-        ("/", "filter (in pickers)"),
-        ("p", "toggle preview pane"),
-        ("s", "save (with validate + diff)"),
-        ("r", "reset to on-disk state"),
-        ("q", "quit"),
-        ("?", "this help"),
-        ("Esc", "cancel/close current dialog"),
-    ];
+    let lines = help_lines(area.width);
+    // Rows between the title (+1 blank) and the footer.
+    let visible = area.height.saturating_sub(3) as usize;
+    let max_scroll = lines.len().saturating_sub(visible);
+    app.help_max_scroll.set(max_scroll as u16);
+    let offset = (app.help_scroll as usize).min(max_scroll);
     let mut y = area.y + 2;
-    for (key, desc) in help {
-        if y >= area.y + area.height {
-            break;
-        }
-        f.buffer_mut().set_string(
-            area.x,
-            y,
-            format!("  {key:<24}{desc}"),
-            Style::default(),
-        );
+    for (text, note) in lines.iter().skip(offset).take(visible) {
+        let truncated: String = text.chars().take(area.width as usize).collect();
+        let style = if *note {
+            Style::default().fg(Color::Gray)
+        } else {
+            Style::default()
+        };
+        f.buffer_mut().set_string(area.x, y, truncated, style);
         y += 1;
     }
+    let footer = if max_scroll > 0 {
+        format!(
+            "Up/Down/PgUp/PgDn scroll ({}-{} of {}) - Esc or ? to close",
+            offset + 1,
+            (offset + visible).min(lines.len()),
+            lines.len()
+        )
+    } else {
+        "Esc or ? to close".to_string()
+    };
+    let footer: String = footer.chars().take(area.width as usize).collect();
     f.buffer_mut().set_string(
         area.x,
         area.y + area.height.saturating_sub(1),
-        "Esc / ? to close",
+        footer,
         Style::default().fg(Color::DarkGray),
     );
 }

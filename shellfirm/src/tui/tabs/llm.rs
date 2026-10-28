@@ -51,14 +51,24 @@ pub enum EditState {
 
 fn provider_items() -> Vec<PickerItem> {
     vec![
-        PickerItem { value: "anthropic".into(), badge: Some("known") },
-        PickerItem { value: "openai-compatible".into(), badge: Some("known") },
+        PickerItem {
+            value: "anthropic".into(),
+            badge: Some("known"),
+            description: None,
+        },
+        PickerItem {
+            value: "openai-compatible".into(),
+            badge: Some("known"),
+            description: None,
+        },
     ]
 }
 
 impl LLMTab {
     fn ensure_initialized(&mut self, draft: &DraftSettings) {
-        if self.initialized { return; }
+        if self.initialized {
+            return;
+        }
         if let Some(llm) = &draft.current.llm {
             self.model_input = TextInput::with_value(&llm.model);
             self.base_url_input = TextInput::with_value(llm.base_url.as_deref().unwrap_or(""));
@@ -75,7 +85,11 @@ impl LLMTab {
     }
 
     fn num_sections(draft: &DraftSettings) -> usize {
-        if draft.current.llm.is_some() { NUM_SECTIONS_FULL } else { 1 }
+        if draft.current.llm.is_some() {
+            NUM_SECTIONS_FULL
+        } else {
+            1
+        }
     }
 
     fn section_title(s: usize) -> &'static str {
@@ -92,7 +106,9 @@ impl LLMTab {
 
     fn section_blurb(s: usize) -> &'static str {
         match s {
-            SECTION_ENABLE => "Optional. When enabled, shellfirm asks an LLM to analyse risky commands.",
+            SECTION_ENABLE => {
+                "Optional. When enabled, shellfirm asks an LLM to analyse risky commands."
+            }
             SECTION_PROVIDER => "Which LLM service to call.",
             SECTION_MODEL => "Specific model identifier (e.g. claude-sonnet-4-20250514).",
             SECTION_BASE_URL => "Custom base URL (only for openai-compatible providers).",
@@ -104,35 +120,62 @@ impl LLMTab {
 }
 
 impl Tab for LLMTab {
-    fn title(&self) -> &str { "LLM" }
+    fn is_editing(&self) -> bool {
+        self.edit.is_some()
+    }
+
+    fn claims_key(&self, key: &KeyEvent) -> bool {
+        matches!(key.code, KeyCode::Char(_))
+            && matches!(
+                self.edit,
+                Some(EditState::Provider | EditState::Model | EditState::BaseUrl)
+            )
+    }
+
+    fn title(&self) -> &str {
+        "LLM"
+    }
 
     fn render(&self, area: Rect, buf: &mut Buffer, draft: &DraftSettings) {
-        if area.height < 14 || area.width < 60 { return; }
+        if area.height < 14 || area.width < 60 {
+            return;
+        }
         let n = Self::num_sections(draft);
         let mut y = area.y;
         for section in 0..n {
             let is_focused = section == self.cursor;
             let is_editing_this = is_focused && self.edit.is_some();
-            let bar_color = if is_editing_this { Color::Green }
-                else if is_focused { Color::Yellow }
-                else { Color::DarkGray };
+            let bar_color = if is_editing_this {
+                Color::Green
+            } else if is_focused {
+                Color::Yellow
+            } else {
+                Color::DarkGray
+            };
             buf.set_string(area.x, y, "▌", Style::default().fg(bar_color));
             let title_style = if is_focused {
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Gray)
+                    .add_modifier(Modifier::BOLD)
             };
             buf.set_string(area.x + 2, y, Self::section_title(section), title_style);
             let badge = "[shell + ai]";
             buf.set_string(
                 area.x + area.width.saturating_sub(badge.chars().count() as u16),
-                y, badge, Style::default().fg(Color::DarkGray),
+                y,
+                badge,
+                Style::default().fg(Color::DarkGray),
             );
             y += 1;
             if is_editing_this {
                 y = self.render_editing_body(buf, area.x, y, area.width, draft, section);
             } else {
-                y = self.render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
+                y = self
+                    .render_summary_body(buf, area.x, y, area.width, draft, section, is_focused);
             }
             y += 1;
         }
@@ -180,15 +223,25 @@ impl Tab for LLMTab {
         let (name, help) = if self.edit.is_some() {
             (format!("Editing: {title}"), "Esc to go back".to_string())
         } else {
-            (title.to_string(), "↑↓ select section · Enter to edit.".to_string())
+            (
+                title.to_string(),
+                "↑↓ select section · Enter to edit.".to_string(),
+            )
         };
-        FieldFocus { name, badges: vec!["shell", "ai"], help }
+        FieldFocus {
+            name,
+            badges: vec!["shell", "ai"],
+            help,
+        }
     }
 }
 
 impl LLMTab {
     fn handle_editing(
-        &mut self, key: KeyEvent, draft: &mut DraftSettings, state: EditState,
+        &mut self,
+        key: KeyEvent,
+        draft: &mut DraftSettings,
+        state: EditState,
     ) -> TabOutcome {
         // Esc and Left back out of edit mode (except in Model/BaseUrl where
         // the user is typing — there Left goes to the text input handler).
@@ -260,8 +313,13 @@ impl LLMTab {
             }
             EditState::Model => {
                 let outcome = self.model_input.handle(key);
-                let mutated = matches!(outcome, TextInputOutcome::Changed | TextInputOutcome::Submitted(_));
-                if mutated { self.flush_inputs_to_draft(draft); }
+                let mutated = matches!(
+                    outcome,
+                    TextInputOutcome::Changed | TextInputOutcome::Submitted(_)
+                );
+                if mutated {
+                    self.flush_inputs_to_draft(draft);
+                }
                 if matches!(outcome, TextInputOutcome::Submitted(_)) {
                     // Enter commits typed value + exits.
                     self.edit = None;
@@ -272,12 +330,21 @@ impl LLMTab {
                     };
                 }
                 self.edit = Some(EditState::Model);
-                if mutated { TabOutcome::Mutated } else { TabOutcome::None }
+                if mutated {
+                    TabOutcome::Mutated
+                } else {
+                    TabOutcome::None
+                }
             }
             EditState::BaseUrl => {
                 let outcome = self.base_url_input.handle(key);
-                let mutated = matches!(outcome, TextInputOutcome::Changed | TextInputOutcome::Submitted(_));
-                if mutated { self.flush_inputs_to_draft(draft); }
+                let mutated = matches!(
+                    outcome,
+                    TextInputOutcome::Changed | TextInputOutcome::Submitted(_)
+                );
+                if mutated {
+                    self.flush_inputs_to_draft(draft);
+                }
                 if matches!(outcome, TextInputOutcome::Submitted(_)) {
                     self.edit = None;
                     return if mutated {
@@ -287,7 +354,11 @@ impl LLMTab {
                     };
                 }
                 self.edit = Some(EditState::BaseUrl);
-                if mutated { TabOutcome::Mutated } else { TabOutcome::None }
+                if mutated {
+                    TabOutcome::Mutated
+                } else {
+                    TabOutcome::None
+                }
             }
             EditState::Timeout => {
                 if matches!(key.code, KeyCode::Enter) {
@@ -325,12 +396,22 @@ impl LLMTab {
     }
 
     fn render_summary_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize, is_focused: bool,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
+        is_focused: bool,
     ) -> u16 {
         let indent = area_x + 2;
-        buf.set_string(indent, y, Self::section_blurb(section),
-            Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            indent,
+            y,
+            Self::section_blurb(section),
+            Style::default().fg(Color::DarkGray),
+        );
         let y = y + 1;
 
         let (summary, color) = match section {
@@ -369,31 +450,62 @@ impl LLMTab {
         if is_focused {
             let hint = "Enter to edit";
             let hint_x = area_x + area_width.saturating_sub(hint.chars().count() as u16);
-            buf.set_string(hint_x, y, hint,
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+            buf.set_string(
+                hint_x,
+                y,
+                hint,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            );
         }
         y + 1
     }
 
     fn render_editing_body(
-        &self, buf: &mut Buffer, area_x: u16, y: u16, area_width: u16,
-        draft: &DraftSettings, section: usize,
+        &self,
+        buf: &mut Buffer,
+        area_x: u16,
+        y: u16,
+        area_width: u16,
+        draft: &DraftSettings,
+        section: usize,
     ) -> u16 {
         let indent = area_x + 2;
         let inner_w = area_width.saturating_sub(2);
-        buf.set_string(indent, y,
+        buf.set_string(
+            indent,
+            y,
             "─".repeat(inner_w as usize),
-            Style::default().fg(Color::DarkGray));
+            Style::default().fg(Color::DarkGray),
+        );
         let mut y = y + 1;
 
         match section {
             SECTION_ENABLE => {
                 let on = draft.current.llm.is_some();
-                let value = if on { "[ ✓ enabled  ]" } else { "[   disabled ]" };
-                buf.set_string(indent, y, "LLM analysis",
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
-                buf.set_string(indent + 16, y, value,
-                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD));
+                let value = if on {
+                    "[ ✓ enabled  ]"
+                } else {
+                    "[   disabled ]"
+                };
+                buf.set_string(
+                    indent,
+                    y,
+                    "LLM analysis",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
+                buf.set_string(
+                    indent + 16,
+                    y,
+                    value,
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                );
                 y += 1;
             }
             SECTION_PROVIDER => {
@@ -401,35 +513,82 @@ impl LLMTab {
                     Some(l) => l,
                     None => return y,
                 };
-                buf.set_string(indent, y,
+                buf.set_string(
+                    indent,
+                    y,
                     format!("Currently: {}", llm.provider),
-                    Style::default().fg(Color::Cyan));
+                    Style::default().fg(Color::Cyan),
+                );
                 y += 2;
                 let items = provider_items();
-                Picker { items: &items, state: &self.provider_picker, focused: true }
-                    .render(Rect { x: indent, y, width: inner_w, height: 6 }, buf);
+                Picker {
+                    items: &items,
+                    state: &self.provider_picker,
+                    focused: true,
+                    allow_create: true,
+                }
+                .render(
+                    Rect {
+                        x: indent,
+                        y,
+                        width: inner_w,
+                        height: 6,
+                    },
+                    buf,
+                );
                 y += 7;
             }
             SECTION_MODEL => {
-                buf.set_string(indent, y, "Model ID:",
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+                buf.set_string(
+                    indent,
+                    y,
+                    "Model ID:",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
                 y += 1;
-                let value = self.model_input.value();
-                buf.set_string(indent, y, format!(" {value}_"),
-                    Style::default().fg(Color::Cyan));
+                crate::tui::a11y::draw_text_with_caret(
+                    buf,
+                    indent + 1,
+                    y,
+                    inner_w.saturating_sub(1),
+                    self.model_input.value(),
+                    self.model_input.cursor(),
+                    true,
+                    Style::default().fg(Color::Cyan),
+                );
                 y += 1;
             }
             SECTION_BASE_URL => {
-                buf.set_string(indent, y, "Base URL (optional):",
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+                buf.set_string(
+                    indent,
+                    y,
+                    "Base URL (optional):",
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                );
                 y += 1;
                 let value = self.base_url_input.value();
-                let display = if value.is_empty() {
-                    " (default)_".to_string()
-                } else {
-                    format!(" {value}_")
-                };
-                buf.set_string(indent, y, display, Style::default().fg(Color::Cyan));
+                if value.is_empty() {
+                    buf.set_string(
+                        indent + 3,
+                        y,
+                        "(default)",
+                        Style::default().fg(Color::DarkGray),
+                    );
+                }
+                crate::tui::a11y::draw_text_with_caret(
+                    buf,
+                    indent + 1,
+                    y,
+                    inner_w.saturating_sub(1),
+                    value,
+                    self.base_url_input.cursor(),
+                    true,
+                    Style::default().fg(Color::Cyan),
+                );
                 y += 1;
             }
             SECTION_TIMEOUT => {
@@ -437,9 +596,12 @@ impl LLMTab {
                     Some(l) => l,
                     None => return y,
                 };
-                buf.set_string(indent, y,
+                buf.set_string(
+                    indent,
+                    y,
                     format!("Currently: {} ms  (range 100–60000)", llm.timeout_ms),
-                    Style::default().fg(Color::Cyan));
+                    Style::default().fg(Color::Cyan),
+                );
                 y += 1;
             }
             SECTION_MAX_TOKENS => {
@@ -447,9 +609,12 @@ impl LLMTab {
                     Some(l) => l,
                     None => return y,
                 };
-                buf.set_string(indent, y,
+                buf.set_string(
+                    indent,
+                    y,
                     format!("Currently: {}  (range 1–8192)", llm.max_tokens),
-                    Style::default().fg(Color::Cyan));
+                    Style::default().fg(Color::Cyan),
+                );
                 y += 1;
             }
             _ => {}
@@ -468,7 +633,10 @@ mod tests {
         KeyEvent::new(code, KeyModifiers::empty())
     }
     fn fresh() -> (LLMTab, DraftSettings) {
-        (LLMTab::default(), DraftSettings::from_settings(Settings::default()))
+        (
+            LLMTab::default(),
+            DraftSettings::from_settings(Settings::default()),
+        )
     }
 
     #[test]
@@ -517,7 +685,9 @@ mod tests {
         tab.handle_key(key(KeyCode::Enter), &mut draft);
         let initial_model = draft.current.llm.as_ref().unwrap().model.clone();
         tab.handle_key(key(KeyCode::Char('x')), &mut draft);
-        assert_eq!(draft.current.llm.as_ref().unwrap().model, format!("{initial_model}x"));
+        assert_eq!(
+            draft.current.llm.as_ref().unwrap().model,
+            format!("{initial_model}x")
+        );
     }
-
 }

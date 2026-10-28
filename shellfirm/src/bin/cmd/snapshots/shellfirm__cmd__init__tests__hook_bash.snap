@@ -1,0 +1,1746 @@
+---
+source: shellfirm/src/bin/cmd/init.rs
+expression: shell.hook()
+---
+# shellfirm hook for bash
+if [[ $- == *i* && -z ${__shellfirm_hook_loaded:-} ]]; then
+__shellfirm_hook_loaded=1
+__shellfirm_hook_version=14
+# Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
+# (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec bash`).
+builtin export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM
+__shellfirm_pending=""
+__shellfirm_pending_x=""
+__shellfirm_cont=""
+__shellfirm_warned=""
+__shellfirm_bypass_warned=""
+__shellfirm_seen=""
+__shellfirm_histcmd=""
+__shellfirm_expanded=""
+__shellfirm_line=""
+__shellfirm_fc_ok=""
+__shellfirm_block_msg=""
+__shellfirm_notes=""
+__shellfirm_rows=0
+__shellfirm_traps=""
+# Longer lines cannot be passed as one argument (Linux MAX_ARG_STRLEN is
+# 128 KiB); they are checked through stdin instead and never prompt.
+__shellfirm_max_arg=100000
+
+__shellfirm_warn_missing() {
+    if [[ -z $__shellfirm_warned ]]; then
+        __shellfirm_warned=1
+        builtin printf '%s\n' "shellfirm: binary not found in PATH; commands are NOT being checked" >&2
+    fi
+}
+
+# shellfirm is on PATH but did not start (exit 127: a missing interpreter or
+# library). The command runs unchecked, so say so every time.
+__shellfirm_warn_broken() {
+    builtin printf '%s\n' "shellfirm: warning: $(builtin type -P shellfirm) is installed but could not run (exit $1); this command was NOT checked. Run \`shellfirm doctor\`." >&2
+}
+
+# Byte length of $1 in __sf_len.
+__shellfirm_len() { local LC_ALL=C; __sf_len=${#1}; }
+
+# shellfirm prints settings, policy and custom-check problems on every call.
+# Look once per session (and again when SHELLFIRM_CONFIG_DIR changes), show
+# them once, and from then on keep them away from safe lines (they would
+# otherwise be mixed into the line editor).
+__shellfirm_probe_notes() {
+    [[ -n $__shellfirm_notes && $__shellfirm_notes_key == "${SHELLFIRM_CONFIG_DIR-}" ]] && return
+    __shellfirm_notes_key=${SHELLFIRM_CONFIG_DIR-}
+    local __sf_w
+    __sf_w=$(builtin command shellfirm pre-command --test --command=: 2>&1 >/dev/null)
+    # Not runnable: the check itself reports it.
+    (( $? >= 126 )) && return
+    [[ -n $__sf_w ]] && builtin printf '%s\n' "$__sf_w" >&2
+    # A SHELLFIRM_CONFIG_DIR that is not a directory: said once (above);
+    # the checks then use the default directory, as shellfirm itself does,
+    # without saying it again on every line.
+    if [[ -n $__sf_w ]] && __shellfirm_stale_dir; then
+        __sf_w=$(SHELLFIRM_CONFIG_DIR= builtin command shellfirm pre-command --test --command=: 2>&1 >/dev/null)
+    fi
+    if [[ -n $__sf_w ]]; then
+        __shellfirm_notes=1
+    else
+        __shellfirm_notes=0
+    fi
+}
+__shellfirm_stale_dir() { [[ -n ${SHELLFIRM_CONFIG_DIR//[[:space:]]/} && ! -d ${SHELLFIRM_CONFIG_DIR} ]]; }
+
+# bash erases the edited line before running a `bind -x` function: put it
+# back on the screen (it stays above a challenge). __shellfirm_rows is the
+# number of screen rows it takes, so a safe line can be erased again.
+# $1 = 1: a continuation line (PS2).
+__shellfirm_show_line() {
+    __shellfirm_rows=0 __shellfirm_line_rows=0
+    # A dumb terminal (Emacs M-x shell) cannot move the cursor: plain text
+    # only, so the line is not reprinted (the banner names it).
+    [[ -t 2 && ${TERM-} != dumb ]] || return
+    local __sf_p __sf_l __sf_w __sf_n=0 __sf_cols=${COLUMNS:-80} __sf_i
+    if [[ ${1:-} == 1 ]]; then
+        __sf_p=$PS2
+    else
+        __sf_p=$PS1
+    fi
+    # Expanding a prompt with $(...) would run its commands again.
+    if [[ $__sf_p == *'$('* || $__sf_p == *'`'* ]]; then
+        __sf_p=""
+    else
+        __sf_p=${__sf_p@P}
+    fi
+    __sf_p=${__sf_p//[$'\001\002']/}
+    __sf_p=${__sf_p##*$'\n'}
+    local __sf_t=$__sf_p${READLINE_LINE//[$'\001'-$'\010\013'-$'\037\177']/?}
+    # A line that ends in a newline (pasted with it): readline leaves the
+    # cursor on the row of its last text, not on a row of its own.
+    __sf_t=${__sf_t%$'\n'}
+    builtin printf '%s\n' "$__sf_t" >&2
+    # Screen width of what was printed (colours and other escapes take none).
+    local __sf_re=$'\e(\\[[0-9;?]*[ -/]*[@-~]|\\][^\a\e]*(\a|\e\\\\)|.)'
+    for (( __sf_i = 0; __sf_i < 64; __sf_i++ )); do
+        [[ $__sf_t =~ $__sf_re ]] || break
+        __sf_t=${__sf_t/"${BASH_REMATCH[0]}"/}
+    done
+    (( __sf_cols > 0 )) || __sf_cols=80
+    while IFS= builtin read -r __sf_l; do
+        __shellfirm_width "$__sf_l"
+        (( __sf_n += __sf_w > 0 ? (__sf_w + __sf_cols - 1) / __sf_cols : 1 ))
+    done <<< "$__sf_t"
+    __shellfirm_rows=$__sf_n __shellfirm_line_rows=$__sf_n
+}
+__shellfirm_line_rows=0
+# Screen columns of $1 in __sf_w: double-width (CJK, emoji) characters take
+# two, combining marks and zero-width characters none.
+__shellfirm_width() {
+    __sf_w=${#1}
+    [[ $1 == *[!\ -~]* ]] || return 0
+    local __sf_c __sf_i __sf_o __sf_s=$1
+    (( ${#__sf_s} > 4000 )) && return 0
+    __sf_w=0
+    for (( __sf_i = 0; __sf_i < ${#__sf_s}; __sf_i++ )); do
+        __sf_c=${__sf_s:__sf_i:1}
+        if [[ $__sf_c == [\ -~] ]]; then
+            (( __sf_w++ ))
+            continue
+        fi
+        builtin printf -v __sf_o '%d' "'$__sf_c" 2>/dev/null || __sf_o=0
+        if (( (__sf_o >= 0x300 && __sf_o <= 0x36F) || (__sf_o >= 0x200B && __sf_o <= 0x200F) \
+            || (__sf_o >= 0xFE00 && __sf_o <= 0xFE0F) || __sf_o == 0x2060 || __sf_o == 0xFEFF )); then
+            continue
+        elif (( (__sf_o >= 0x1100 && __sf_o <= 0x115F) || (__sf_o >= 0x2E80 && __sf_o <= 0x303E) \
+            || (__sf_o >= 0x3041 && __sf_o <= 0x33FF) || (__sf_o >= 0x3400 && __sf_o <= 0x4DBF) \
+            || (__sf_o >= 0x4E00 && __sf_o <= 0x9FFF) || (__sf_o >= 0xA000 && __sf_o <= 0xA4CF) \
+            || (__sf_o >= 0xAC00 && __sf_o <= 0xD7A3) || (__sf_o >= 0xF900 && __sf_o <= 0xFAFF) \
+            || (__sf_o >= 0xFE30 && __sf_o <= 0xFE4F) || (__sf_o >= 0xFF00 && __sf_o <= 0xFF60) \
+            || (__sf_o >= 0xFFE0 && __sf_o <= 0xFFE6) || (__sf_o >= 0x1F300 && __sf_o <= 0x1F64F) \
+            || (__sf_o >= 0x1F900 && __sf_o <= 0x1F9FF) || (__sf_o >= 0x20000 && __sf_o <= 0x3FFFD) )); then
+            (( __sf_w += 2 ))
+        else
+            (( __sf_w++ ))
+        fi
+    done
+}
+# Printed by bash before each command it runs (PS0, bash 4.4+): after a
+# passed challenge, bash redraws the prompt and the line below the approved
+# line; the first PS0 of that line erases this copy. Later commands of the
+# same line (a pasted block, `a` newline `b`) get nothing: the subscript
+# counts the expansions, so their output is never erased.
+__shellfirm_ps0=()
+__shellfirm_ps0n=0
+__shellfirm_sync_ps0() {
+    __shellfirm_ps0=() __shellfirm_ps0n=0
+    local __sf_p='${__shellfirm_ps0[__shellfirm_ps0n++]-}'
+    # Older hooks (a re-sourced rc file) put `${__shellfirm_ps0}` there.
+    [[ ${PS0-} == *'${__shellfirm_ps0}'* ]] && PS0=${PS0//'${__shellfirm_ps0}'/}
+    if builtin shopt -q promptvars; then
+        [[ ${PS0-} == *"$__sf_p"* ]] || PS0=$__sf_p${PS0-}
+    elif [[ ${PS0-} == *"$__sf_p"* ]]; then
+        PS0=${PS0//"$__sf_p"/}
+    fi
+}
+
+# A safe line: erase the reprinted line again (readline redraws it in the
+# same place). Only called when pre-command showed nothing: after a
+# challenge it exits 3 (SHELLFIRM_SIGNAL_PROMPTED), and the line, the
+# challenge and the approved line stay on screen.
+__shellfirm_unshow() {
+    (( __shellfirm_rows > 0 )) || return
+    builtin printf '\e[%dA\r\e[J' "$__shellfirm_rows" >&2
+    __shellfirm_rows=0
+}
+
+# Reads the input waiting on the terminal into __shellfirm_rest (Enter as a
+# newline; control characters and bracketed-paste marks left out).
+__shellfirm_rest=""
+__shellfirm_drain() {
+    local __sf_c __sf_i
+    __shellfirm_rest=""
+    for (( __sf_i = 0; __sf_i < 64; __sf_i++ )); do
+        builtin read -t 0 2>/dev/null || break
+        __sf_c=""
+        IFS= builtin read -r -s -d '' -t 0.02 __sf_c 2>/dev/null
+        [[ -z $__sf_c ]] && break
+        __shellfirm_rest+=$__sf_c
+        (( ${#__shellfirm_rest} > 65536 )) && break
+    done
+    __shellfirm_rest=${__shellfirm_rest//$'\e[200~'/}
+    __shellfirm_rest=${__shellfirm_rest//$'\e[201~'/}
+    __shellfirm_rest=${__shellfirm_rest//$'\r'/$'\n'}
+    __shellfirm_rest=${__shellfirm_rest//[$'\001'-$'\010\013'-$'\037\177']/}
+    while [[ $__shellfirm_rest == *$'\n' ]]; do
+        __shellfirm_rest=${__shellfirm_rest%$'\n'}
+    done
+    [[ -n ${__shellfirm_rest//[[:space:]]/} ]] || __shellfirm_rest=""
+}
+# "1 line" / "N lines" (in __sf_rn), "was" / "were" (in __sf_rv) and "it" /
+# "them" (in __sf_rp) for __shellfirm_rest.
+__shellfirm_rest_count() {
+    local __sf_l __sf_k=0
+    while IFS= builtin read -r __sf_l; do
+        [[ -n ${__sf_l//[[:space:]]/} ]] && (( __sf_k++ ))
+    done <<< "$__shellfirm_rest"
+    (( __sf_k )) || __sf_k=1
+    if (( __sf_k == 1 )); then
+        __sf_rn="1 line" __sf_rv=was __sf_rp=it
+    else
+        __sf_rn="$__sf_k lines" __sf_rv=were __sf_rp=them
+    fi
+}
+
+# Returns 0 to allow, 1 to block. A missing binary fails open; anything else
+# that goes wrong (exit 126, a line too long to pass) fails closed.
+# $2 = 1: called from the line editor (one shellfirm process per line: the
+# line is reprinted first and erased again when nothing was shown);
+# $3 = 1: the line is a continuation line.
+__shellfirm_check() {
+    if [[ -n ${BASH_CMDS[shellfirm]:-} && ! -x ${BASH_CMDS[shellfirm]} ]]; then
+        builtin hash -d shellfirm 2>/dev/null
+    fi
+    if ! builtin type -P shellfirm >/dev/null 2>&1; then
+        __shellfirm_warn_missing
+        return 0
+    fi
+    local __sf_len __sf_rc __sf_out __sf_shown=""
+    # Without interactive_comments `#` starts no comment: `rm -rf a # b`
+    # removes b too.
+    builtin shopt -q interactive_comments || local -x SHELLFIRM_NO_COMMENTS=1
+    __shellfirm_rows=0
+    __shellfirm_len "$1"
+    (( __sf_len > __shellfirm_max_arg )) && __shellfirm_line=""
+    if (( __sf_len > __shellfirm_max_arg )); then
+        builtin printf '%s' "$1" | builtin command shellfirm check --stdin --exit-code >/dev/null 2>&1
+        __sf_rc=$?
+        (( __sf_rc == 0 )) && return 0
+        if (( __sf_rc == 127 )); then
+            __shellfirm_warn_broken 127
+            return 0
+        fi
+        if (( __sf_rc == 10 || __sf_rc == 11 )); then
+            builtin printf '\n%s\n' "shellfirm: blocked: this line is too long to confirm interactively ($__sf_len bytes) and it matches a risky pattern. Run it from a script file instead." >&2
+        else
+            builtin printf '\n%s\n' "shellfirm: blocked: this line ($__sf_len bytes) could not be checked (exit $__sf_rc). Run it from a script file instead." >&2
+        fi
+        return 1
+    fi
+    if [[ ${2:-} == 1 ]]; then
+        __shellfirm_probe_notes
+        # The stale SHELLFIRM_CONFIG_DIR was reported: not again (see above).
+        if [[ -n $__shellfirm_notes && $__shellfirm_notes_key == "${SHELLFIRM_CONFIG_DIR-}" ]] && __shellfirm_stale_dir; then
+            local -x SHELLFIRM_CONFIG_DIR=
+        fi
+        if [[ $__shellfirm_notes == 1 ]]; then
+            # Dry run first, so warnings and the line only show for risky lines.
+            __sf_out=$(builtin command shellfirm pre-command --test --command="$1" 2>/dev/null)
+            __sf_rc=$?
+            case $__sf_rc in
+                0) [[ $__sf_out == *"skipped (below"* ]] || return 0 ;;
+                65|77) __shellfirm_show_line "${3:-}"; __shellfirm_rows=0 ;;
+            esac
+        else
+            __shellfirm_show_line "${3:-}"
+            __sf_shown=1
+        fi
+        # Input typed or pasted after this line (not as one bracketed
+        # paste) that bash has not read yet: a challenge discards it (it
+        # could answer the challenge). Unless the line is plainly safe, it is
+        # read first, so it can be named, and kept when the line is not run.
+        if builtin read -t 0 2>/dev/null; then
+            if [[ $__shellfirm_notes != 1 ]]; then
+                builtin command shellfirm pre-command --test --command="$1" >/dev/null 2>&1
+                __sf_rc=$?
+            fi
+            # 65: a challenge, 77: denied.
+            (( __sf_rc == 65 || __sf_rc == 77 )) && __shellfirm_drain
+        fi
+    fi
+    # The banner and the audit log show the line as typed, not the function
+    # bodies checked with it.
+    local -a __sf_la=()
+    [[ -n $__shellfirm_line && $__shellfirm_line != "$1" ]] && __sf_la=(--line="$__shellfirm_line")
+    __shellfirm_line=""
+    SHELLFIRM_SIGNAL_PROMPTED=1 builtin command shellfirm pre-command --command="$1" "${__sf_la[@]}"
+    __sf_rc=$?
+    # The line runs: what was read ahead of it does not.
+    if [[ -n $__shellfirm_rest ]] && (( __sf_rc == 0 || __sf_rc == 3 || __sf_rc == 127 )); then
+        local __sf_rn __sf_rv __sf_rp
+        __shellfirm_rest_count
+        builtin printf '%s\n' "shellfirm: $__sf_rn typed or pasted after this command $__sf_rv not run (a challenge discards waiting input); run $__sf_rp again." >&2
+        __shellfirm_rest=""
+        __sf_shown=""
+    fi
+    case $__sf_rc in
+        0) [[ -n $__sf_shown ]] && __shellfirm_unshow; return 0 ;;
+        3)
+            __shellfirm_rows=0
+            [[ ${2:-} == 1 ]] && (( __shellfirm_line_rows > 0 )) && __shellfirm_ps0=($'\e['"$__shellfirm_line_rows"$'A\r\e[J') __shellfirm_ps0n=0
+            return 0 ;;
+        127) [[ -n $__sf_shown ]] && __shellfirm_unshow; __shellfirm_warn_broken 127; return 0 ;;
+        126) builtin printf '%s\n' "shellfirm: could not run shellfirm (exit 126); command not run" >&2; return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+# A body (`declare -f` text without its header) as one line, which is how
+# the check reads a definition. A here-document cannot be joined: that body
+# stays as it is (its commands are then read as written, `$1` unknown).
+# Sets __sf_ol.
+__shellfirm_one_line() {
+    local __sf_l __sf_o=""
+    __sf_ol=$1
+    [[ ${1//<<</} == *'<<'* ]] && return
+    while IFS= builtin read -r __sf_l; do
+        __sf_l=${__sf_l#"${__sf_l%%[![:space:]]*}"}
+        __sf_l=${__sf_l%"${__sf_l##*[![:space:]]}"}
+        [[ -z $__sf_l ]] && continue
+        case $__sf_o in
+            ''|*'{'|*'('|*';'|*'|'|*'&'|then|*[[:space:]]then|do|*[[:space:]]do|else|*[[:space:]]else|*[[:space:]]in) __sf_o+=" $__sf_l" ;;
+            *) __sf_o+="; $__sf_l" ;;
+        esac
+    done <<< "$1"
+    __sf_ol=${__sf_o# }
+}
+
+# What separates the words that can name a function: blanks, control
+# characters and ASCII punctuation other than `_ : . @ + -`. Any other
+# character (`nettoyé`, `日本`) can be part of a function name.
+__shellfirm_nonname='[]!#"$%&'\''()*,/;<=>?[\\^`{|}~[:space:][:cntrl:]]'
+# The same as an extended regular expression for one function name.
+__shellfirm_namere='[^][:space:][:cntrl:]!#"$%&'\''()*,/;<=>?\^`{|}~0-9-][^][:space:][:cntrl:]!#"$%&'\''()*,/;<=>?\^`{|}~]*'
+
+# The functions named in $1 (and those their bodies name, and so on), each
+# once, are sent ahead of the line as definitions (`name() { body; }`): the
+# check binds every call's arguments itself (`shift`, `"$@"`, any depth),
+# so what it reads is what runs. A body that rewrites its arguments in a way
+# the check does not follow (`set --`, `getopts`, `shift` in a loop) is
+# also added as written, where its `$1` counts as unknown. Past the budget
+# (64 functions, 64 KB, 16 KB for one body) the rest is not read: a marker
+# says so (shell:function_depth_limit), so nothing is skipped silently. A
+# function over 16 KB that was loaded from a file (nvm, sdkman, conda) is
+# treated like a program on PATH: its arguments are checked, its body is not
+# read (and gets no marker); one typed or pasted into the session gets it.
+# Appends to the caller's __sf_defs, __sf_fx, __sf_fnames / __sf_fbodies
+# and __sf_fseen (names already looked at).
+__shellfirm_fn_defs() {
+    local IFS=$' \t\n' __sf_todo=$1 __sf_w __sf_all __sf_b __sf_hdr __sf_ol __sf_i __sf_n __sf_src
+    local -a __sf_ws __sf_new
+    while [[ -n $__sf_todo ]]; do
+        __sf_ws=(${__sf_todo//$__shellfirm_nonname/ })
+        __sf_todo="" __sf_new=()
+        for __sf_w in "${__sf_ws[@]}"; do
+            [[ $__sf_w == __shellfirm_* || $__sf_w == [0-9.+-]* || " $__sf_fseen " == *" $__sf_w "* ]] && continue
+            builtin declare -F -- "$__sf_w" >/dev/null 2>&1 || continue
+            __sf_fseen+=" $__sf_w"
+            __sf_new+=("$__sf_w")
+        done
+        __sf_n=${#__sf_new[@]}
+        (( __sf_n )) || return 0
+        __sf_all=$'\n'$(builtin declare -f -- "${__sf_new[@]}" 2>/dev/null)
+        for (( __sf_i = 0; __sf_i < __sf_n; __sf_i++ )); do
+            __sf_w=${__sf_new[__sf_i]}
+            __sf_hdr=$'\n'"$__sf_w () "$'\n'
+            [[ $__sf_all == *"$__sf_hdr"* ]] || continue
+            __sf_all=${__sf_all#*"$__sf_hdr"}
+            if (( __sf_i + 1 < __sf_n )); then
+                __sf_b=${__sf_all%%$'\n'"${__sf_new[__sf_i+1]} () "$'\n'*}
+            else
+                __sf_b=$__sf_all
+            fi
+            # shellfirm's own functions (and those that wrap a plugin).
+            [[ $__sf_b == *__shellfirm_* ]] && continue
+            if (( ${#__sf_b} > 16000 )); then
+                __sf_src=$(builtin shopt -s extdebug; builtin declare -F -- "$__sf_w" 2>/dev/null)
+                __sf_src=${__sf_src#"$__sf_w "} __sf_src=${__sf_src#* }
+                __shellfirm_from_file "$__sf_w" "$__sf_src" || __sf_fx+=$'\n'"shellfirm-function-depth-limit $__sf_w # a function too large for the hook to read ahead"
+                continue
+            fi
+            if (( ${#__sf_fnames[@]} >= 64 || __sf_fbytes + ${#__sf_b} > 64000 )); then
+                __sf_fx+=$'\n'"shellfirm-function-depth-limit $__sf_w # calls more functions than the hook reads ahead"
+                return 0
+            fi
+            (( __sf_fbytes += ${#__sf_b} ))
+            __sf_fnames+=("$__sf_w") __sf_fbodies+=("$__sf_b")
+            # `$K delete ...` in the body, with K set in this session.
+            if [[ $__sf_b =~ (^|[\;\&\|\({]|$'\n')[[:space:]]*\$\{?[A-Za-z_] ]]; then
+                local __sf_ax __sf_nd __sf_defnames="" __sf_segmark=""
+                local -a __sf_fcseg __sf_calls=()
+                __shellfirm_segments "$__sf_b"
+            fi
+            __shellfirm_one_line "$__sf_b"
+            __sf_defs+=$'\n'"$__sf_w() $__sf_ol"
+            if [[ $__sf_b =~ (^|[[:space:]\;\&\|\({])(set[[:space:]]+(--|[^-+[:space:]])|getopts[[:space:]]|OPTIND) ]] \
+                || [[ $__sf_b == *shift* && $__sf_b =~ (^|[[:space:]\;\&\|\({])(while|until|for|select)[[:space:]] ]]; then
+                __sf_fx+=$'\n'$__sf_b
+            fi
+            __sf_todo+=" $__sf_b"
+        done
+    done
+}
+
+# Returns 0 when the function $1 (bash names its source $2) was loaded from
+# a file: an absolute path to a regular file, a relative one that named a
+# regular file when it was sourced (see __shellfirm_note_relsrc), or
+# `source <(cat FILE)` (see __shellfirm_note_catsrc). A function typed or
+# pasted at the prompt has the source `main` (and so has one from `eval
+# "$(cat FILE)"`), whatever files the current directory holds; process
+# substitution is /dev/fd/N.
+__shellfirm_from_file() {
+    case $2 in
+        /dev/fd/*|/proc/*)
+            [[ -n $__shellfirm_catfns && " $__shellfirm_catfns " == *" $1:"* ]] || return 1
+            local __sf_k
+            __sf_k=$(builtin declare -f -- "$1" 2>/dev/null | builtin command cksum 2>/dev/null)
+            [[ " $__shellfirm_catfns " == *" $1:${__sf_k%% *} "* ]] ;;
+        /*) [[ -f $2 ]] ;;
+        main|environment|'') return 1 ;;
+        *) [[ " $__shellfirm_relfns " == *" $1|$2 "* ]] ;;
+    esac
+}
+# After a line that sources a file (and at the first prompt, after the rc
+# files): the functions whose source is a relative path (`source ./nvm.sh`,
+# `. nvm.sh`) that names a regular file from the current directory (or the
+# one the line left, `cd d; . ./f; cd -`) are remembered as loaded from that
+# file (bash keeps the path as written, which no longer resolves after a
+# `cd`).
+__shellfirm_relsrc=""
+__shellfirm_relfns=""
+__shellfirm_note_relsrc() {
+    local __sf_l __sf_n __sf_s __sf_all
+    __shellfirm_relsrc=""
+    __sf_all=$(builtin shopt -s extdebug; builtin declare -F $(builtin compgen -A function) 2>/dev/null)
+    while IFS= builtin read -r __sf_l; do
+        __sf_n=${__sf_l%% *} __sf_s=${__sf_l#* } __sf_s=${__sf_s#* }
+        case $__sf_s in main|environment|''|/*) continue ;; esac
+        [[ $__sf_n == __shellfirm_* || " $__shellfirm_relfns " == *" $__sf_n|$__sf_s "* ]] && continue
+        [[ -f $__sf_s || ( -n ${OLDPWD-} && -f $OLDPWD/$__sf_s ) ]] || continue
+        (( ${#__shellfirm_relfns} < 64000 )) && __shellfirm_relfns+=" $__sf_n|$__sf_s"
+    done <<< "$__sf_all"
+}
+# After a line that was exactly `source <(cat FILE)` (or `.`), FILE a
+# regular file: the large functions it defined (source /dev/fd/N) count as
+# loaded from FILE. Each is remembered with a checksum of its definition,
+# so the same name defined again from another process substitution is not.
+__shellfirm_catsrc=""
+__shellfirm_catfns=""
+__shellfirm_note_catsrc() {
+    local __sf_f=$__shellfirm_catsrc __sf_l __sf_n __sf_s __sf_k __sf_all
+    __shellfirm_catsrc=""
+    [[ -f $__sf_f ]] || return
+    __sf_all=$(builtin shopt -s extdebug; builtin declare -F $(builtin compgen -A function) 2>/dev/null)
+    while IFS= builtin read -r __sf_l; do
+        __sf_n=${__sf_l%% *} __sf_s=${__sf_l#* } __sf_s=${__sf_s#* }
+        [[ $__sf_s == /dev/fd/* || $__sf_s == /proc/* ]] || continue
+        [[ $__sf_n == __shellfirm_* ]] && continue
+        __sf_k=$(builtin declare -f -- "$__sf_n" 2>/dev/null | builtin command cksum 2>/dev/null)
+        (( ${#__shellfirm_catfns} < 64000 )) && __shellfirm_catfns+=" $__sf_n:${__sf_k%% *}"
+    done <<< "$__sf_all"
+}
+
+# `fc` / `eval` in the body of a function the line calls (`rr() { command
+# fc -s "$@"; }`) are resolved like typed ones, with the call's arguments in
+# place. Appends to the caller's __sf_bfcseg / __sf_bnd.
+__shellfirm_body_fc() {
+    local __sf_k __sf_j __sf_i __sf_b __sf_args
+    local -a __sf_av
+    for (( __sf_k = 0; __sf_k < ${#__sf_calls[@]}; __sf_k += 2 )); do
+        __sf_b="" __sf_args=${__sf_calls[__sf_k+1]}
+        for (( __sf_j = 0; __sf_j < ${#__sf_fnames[@]}; __sf_j++ )); do
+            [[ ${__sf_fnames[__sf_j]} == "${__sf_calls[__sf_k]}" ]] && { __sf_b=${__sf_fbodies[__sf_j]}; break; }
+        done
+        [[ $__sf_b == *fc* || $__sf_b == *eval* ]] || continue
+        builtin read -r -a __sf_av <<< "$__sf_args"
+        for __sf_i in '"$@"' '"${@}"' '"$*"' '"${*}"' '$@' '${@}' '$*' '${*}'; do
+            __sf_b=${__sf_b//"$__sf_i"/$__sf_args}
+        done
+        for __sf_i in 9 8 7 6 5 4 3 2 1; do
+            __sf_b=${__sf_b//"\"\${$__sf_i}\""/${__sf_av[__sf_i-1]}}
+            __sf_b=${__sf_b//"\"\$$__sf_i\""/${__sf_av[__sf_i-1]}}
+            __sf_b=${__sf_b//"\${$__sf_i}"/${__sf_av[__sf_i-1]}}
+            __sf_b=${__sf_b//"\$$__sf_i"/${__sf_av[__sf_i-1]}}
+        done
+        local __sf_ax __sf_nd __sf_defnames="" __sf_segmark=""
+        local -a __sf_fcseg __sf_calls=()
+        __shellfirm_segments "$__sf_b"
+        __sf_bfcseg+=("${__sf_fcseg[@]}")
+        [[ $__sf_nd == *fc* ]] && __sf_bnd+=$'\n'$__sf_nd
+    done
+}
+
+# Functions that run by themselves (PROMPT_COMMAND, traps, `bind -x` keys,
+# PS0..PS4, bash-preexec's arrays) and the functions they name, however
+# deep: a line that (re)defines one of them is checked as if it called it.
+# Sets the caller's __sf_reach (names).
+__shellfirm_hook_reach() {
+    local __sf_roots="${PROMPT_COMMAND[*]} ${precmd_functions[*]} ${preexec_functions[*]} ${PS0-} ${PS1-} ${PS2-} ${PS4-}"
+    __sf_roots+=" $(builtin trap -p 2>/dev/null) ${__shellfirm_traps-} $(builtin bind -X 2>/dev/null)"
+    local __sf_fseen="" __sf_defs="" __sf_fx="" __sf_fbytes=0
+    local -a __sf_fnames=() __sf_fbodies=()
+    __shellfirm_fn_defs "$__sf_roots"
+    __sf_reach=$__sf_fseen
+}
+
+# Splits $1 into the caller's __sf_lead (blanks), __sf_w (first word, quotes
+# kept: `x='a b'` is one word) and __sf_after (the rest).
+__shellfirm_word() {
+    local __sf_wre="^([[:space:]]*)(([^[:space:]'\"\\\\]|\\\\.|'[^']*'|\"([^\"\\\\]|\\\\.)*\")*)"
+    [[ $1 =~ $__sf_wre ]]
+    __sf_lead=${BASH_REMATCH[1]} __sf_w=${BASH_REMATCH[2]}
+    __sf_after=${1:${#BASH_REMATCH[0]}}
+    # An unterminated quote: the rest of the text is that word.
+    if [[ -z $__sf_w && -n $__sf_after && $__sf_after != [[:space:]]* ]]; then
+        __sf_w=$__sf_after __sf_after=""
+    fi
+}
+
+# The words of $1 with quotes and backslashes removed, in __sf_tw. Returns 1
+# when they are not certain: an expansion (`$`, a backtick) or an open quote.
+__shellfirm_words() {
+    __sf_tw=()
+    local __sf_s=$1 __sf_c __sf_q="" __sf_t="" __sf_have="" __sf_i __sf_n=${#1}
+    (( __sf_n <= 4000 )) || return 1
+    for (( __sf_i = 0; __sf_i < __sf_n; __sf_i++ )); do
+        __sf_c=${__sf_s:__sf_i:1}
+        if [[ $__sf_q == "'" ]]; then
+            if [[ $__sf_c == "'" ]]; then __sf_q=""; else __sf_t+=$__sf_c; fi
+            continue
+        fi
+        if [[ $__sf_q == '"' ]]; then
+            case $__sf_c in
+                '"') __sf_q="" ;;
+                '\')
+                    __sf_c=${__sf_s:__sf_i+1:1}
+                    case $__sf_c in
+                        '$'|'`'|'"'|'\') __sf_t+=$__sf_c; (( __sf_i++ )) ;;
+                        $'\n') (( __sf_i++ )) ;;
+                        *) __sf_t+='\' ;;
+                    esac ;;
+                '$'|'`') return 1 ;;
+                *) __sf_t+=$__sf_c ;;
+            esac
+            continue
+        fi
+        case $__sf_c in
+            [[:space:]])
+                [[ -n $__sf_have ]] && __sf_tw+=("$__sf_t")
+                __sf_t="" __sf_have="" ;;
+            "'"|'"') __sf_q=$__sf_c __sf_have=1 ;;
+            '\')
+                (( __sf_i++ ))
+                __sf_c=${__sf_s:__sf_i:1}
+                [[ $__sf_c == $'\n' ]] || { __sf_t+=$__sf_c; __sf_have=1; } ;;
+            '$'|'`') return 1 ;;
+            *) __sf_t+=$__sf_c __sf_have=1 ;;
+        esac
+    done
+    [[ -z $__sf_q ]] || return 1
+    [[ -n $__sf_have ]] && __sf_tw+=("$__sf_t")
+    return 0
+}
+
+# `fc` arguments (in "$@", quotes removed): re-run (`-s`, `-e -`) or edit.
+# Sets the caller's __sf_rerun, __sf_list, __sf_edit_kw, __sf_old (the
+# commands a re-run runs, after old=new).
+__shellfirm_fc_parse() {
+    local __sf_a __sf_next="" __sf_pat="" __sf_rep="" __sf_sel=-1 __sf_set=""
+    __sf_rerun="" __sf_list="" __sf_old=""
+    for __sf_a in "$@"; do
+        if [[ -n $__sf_next ]]; then
+            __sf_next=""
+            [[ $__sf_a == - ]] && __sf_rerun=1
+            continue
+        fi
+        case $__sf_a in
+            -e) __sf_next=1 ;;
+            -[0-9]*) __sf_sel=$__sf_a ;;
+            -*l*) __sf_list=1 ;;
+            -*s*) __sf_rerun=1 ;;
+            -*) ;;
+            *=*)
+                if [[ -z $__sf_set ]]; then
+                    __sf_set=1; __sf_pat=${__sf_a%%=*}; __sf_rep=${__sf_a#*=}
+                else
+                    __sf_sel=$__sf_a
+                fi ;;
+            *) __sf_sel=$__sf_a ;;
+        esac
+    done
+    [[ -n $__sf_list || -z $__sf_rerun ]] && return
+    # In a subshell fc skips the newest entry (taken to be the fc command
+    # itself); push a dummy entry so it skips that instead.
+    __sf_old=$(builtin enable fc 2>/dev/null; builtin history -s :; builtin fc -ln "$__sf_sel" "$__sf_sel" 2>/dev/null)
+    __sf_old=${__sf_old#"${__sf_old%%[![:space:]]*}"}
+    [[ -n $__sf_old && -n $__sf_pat ]] && __sf_old=${__sf_old//"$__sf_pat"/$__sf_rep}
+}
+
+# One command (with `fc` or `eval` in it), word by word after removing
+# quotes: `command fc -s 'a=b' x`, `builtin fc -s a\=b x`, and the text
+# `eval` runs (expanded and checked like a typed line). Appends to the
+# caller's __sf_fx; sets __shellfirm_block_msg for an unsafe `fc`.
+__shellfirm_fc_eval() {
+    local __sf_seg=$1 __sf_i=0 __sf_kw="" __sf_w __sf_rerun __sf_list __sf_old
+    local -a __sf_tw
+    # $2 = 1: a command in the body of a function the line calls.
+    if ! __shellfirm_words "$__sf_seg"; then
+        # Not certain what `command fc` / `builtin fc` would re-run or edit
+        # (they skip the checked `fc`): refuse.
+        if [[ $__sf_seg =~ (command|builtin)[[:space:]\'\"\\]+[\'\"\\]?f[\'\"\\]?c([[:space:]\'\"]|$) ]]; then
+            __shellfirm_block_msg="shellfirm: cannot tell what this \`${BASH_REMATCH[1]} fc\` runs (quotes or expansions in its arguments): it skips the check. Use \`fc\` instead. Command not run."
+        fi
+        return
+    fi
+    while (( __sf_i < ${#__sf_tw[@]} )); do
+        __sf_w=${__sf_tw[__sf_i]}
+        case $__sf_w in
+            time|-p|'!'|then|do|else|elif|if|while|until|coproc|[A-Za-z_]*=*) ;;
+            [0-9]*[\<\>]*|[\<\>]*|'&>'*)
+                # A redirection; a bare operator takes the next word.
+                [[ $__sf_w =~ ^[0-9]*(\<|\>|\>\>|\<\<\<|\<\<|\>\||\<\>|\&\>|\&\>\>|\>\&|\<\&)$ ]] && (( __sf_i++ )) ;;
+            command|builtin)
+                [[ -n $__sf_kw ]] && break
+                __sf_kw=$__sf_w ;;
+            -*) [[ $__sf_kw == command ]] || break ;;
+            *) break ;;
+        esac
+        (( __sf_i++ ))
+    done
+    __sf_w=${__sf_tw[__sf_i]:-}
+    if [[ $__sf_w == fc ]]; then
+        # A typed `command fc` / `builtin fc` read for certain: it may use
+        # the builtin while this line runs.
+        [[ -n $__sf_kw && -z ${2:-} ]] && __shellfirm_fc_typed=1
+        __shellfirm_fc_parse "${__sf_tw[@]:__sf_i+1}"
+        [[ -n $__sf_list ]] && return
+        if [[ -z $__sf_rerun ]]; then
+            [[ -n $__sf_kw ]] && __shellfirm_block_msg="shellfirm: \`$__sf_kw fc\` runs the edited commands without a check; use \`fc\` instead. Command not run."
+            return
+        fi
+        if [[ -n $__sf_old && $'\n'$__shellfirm_fc_ok$'\n' != *$'\n'"$__sf_old"$'\n'* ]]; then
+            __shellfirm_fc_ok+=$'\n'$__sf_old
+            # The whole line is the re-run: check (and show) just that.
+            if [[ ${__sf_cmd//[[:space:]]/} == "${__sf_seg//[[:space:]]/}" ]]; then
+                __sf_cmd=$__sf_old
+            else
+                __sf_fx+=$'\n'$__sf_old
+            fi
+        fi
+    elif [[ $__sf_w == eval && -z $__sf_kw ]] && (( ${#__sf_tw[@]} > __sf_i + 1 && __shellfirm_eval_depth < 3 )); then
+        local __sf_saved=$__shellfirm_expanded
+        (( __shellfirm_eval_depth++ ))
+        __shellfirm_expand "${__sf_tw[*]:__sf_i+1}"
+        (( __shellfirm_eval_depth-- ))
+        [[ -n $__shellfirm_expanded ]] && __sf_fx+=$'\n'$__shellfirm_expanded
+        __shellfirm_expanded=$__sf_saved
+    fi
+}
+__shellfirm_eval_depth=0
+
+# One command of a line (no control operators in it): expand the alias at
+# its command position (after reserved words such as `time` / `!` and
+# variable assignments) and collect the body of a small function it calls.
+# Sets __sf_sx; appends to the caller's __sf_fx.
+# The value of alias $1 in the caller's __sf_v; 1 when $1 is not an alias.
+# bash 3.2 (macOS /bin/bash) has no BASH_ALIASES: the names are the ones
+# __shellfirm_segments read (__sf_alnames) and the value comes from
+# `alias NAME`, which prints it quoted for reuse as shell input.
+__shellfirm_alias() {
+    [[ -n $1 ]] || return 1
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        [[ -n ${BASH_ALIASES[$1]+set} ]] || return 1
+        __sf_v=${BASH_ALIASES[$1]}
+        return 0
+    fi
+    [[ ${__sf_alnames-} == *" $1 "* ]] || return 1
+    local __sf_d
+    __sf_d=$(builtin alias -- "$1" 2>/dev/null) || return 1
+    builtin eval "__sf_v=${__sf_d#*=}"
+}
+__shellfirm_segment() {
+    local __sf_s=$1 __sf_pre="" __sf_w __sf_v __sf_i __sf_lead __sf_after="" __sf_trail="" __sf_tail=""
+    __sf_sx=$1
+    for (( __sf_i = 0; __sf_i <= 64; __sf_i++ )); do
+        if (( __sf_i == 64 )); then
+            # More leading words (`A=1 B=2 ... cmd`) than are read ahead.
+            __sf_segmark=1
+            break
+        fi
+        __shellfirm_word "$__sf_s"
+        case $__sf_w in
+            '') return ;;
+            time|-p|'!'|then|do|else|elif|if|while|until|coproc|eval|[A-Za-z_]*=*)
+                __sf_pre+=$__sf_lead$__sf_w
+                __sf_s=$__sf_after ;;
+            [0-9]*[\<\>]*|[\<\>]*|'&>'*)
+                # A leading redirection (`>/dev/null kd ...`); a bare
+                # operator takes the next word with it.
+                __sf_pre+=$__sf_lead$__sf_w
+                __sf_s=$__sf_after
+                if [[ $__sf_w =~ ^[0-9]*(\<|\>|\>\>|\<\<\<|\<\<|\>\||\<\>|\&\>|\&\>\>|\>\&|\<\&)$ ]]; then
+                    __shellfirm_word "$__sf_s"
+                    __sf_pre+=$__sf_lead$__sf_w
+                    __sf_s=$__sf_after
+                fi ;;
+            *) break ;;
+        esac
+    done
+    if [[ -n ${2:-} ]]; then
+        for (( __sf_i = 0; __sf_i < 5; __sf_i++ )); do
+            __shellfirm_word "$__sf_s"
+            __shellfirm_alias "$__sf_w" || break
+            __sf_trail=$__sf_v __sf_tail=$__sf_after
+            __sf_s=$__sf_lead$__sf_v$__sf_after
+            # `alias ls='ls -l'`: bash does not expand an alias inside itself.
+            __sf_v=${__sf_v#"${__sf_v%%[![:space:]]*}"}
+            [[ ${__sf_v%%[[:space:]]*} == "$__sf_w" ]] && break
+        done
+        # An alias ending in a space also expands the next word (`sudo `).
+        if [[ $__sf_trail == *[[:space:]] ]]; then
+            __shellfirm_word "$__sf_tail"
+            if __shellfirm_alias "$__sf_w"; then
+                __sf_s=${__sf_s%"$__sf_tail"}$__sf_v$__sf_after
+            fi
+        fi
+    fi
+    __shellfirm_word "$__sf_s"
+    # A command named by a variable set on an earlier line (`$K delete ...`,
+    # `${K}`, `$f` naming a function): its value in this session. (One set
+    # on the same line is read by the check itself.)
+    if (( ! __sf_indef && ${__sf_vdepth:-0} < 2 )) && [[ $__sf_w =~ ^\$([A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})$ ]]; then
+        local __sf_vn=${BASH_REMATCH[1]#\{}
+        __sf_vn=${__sf_vn%\}}
+        if [[ $__sf_vn != __sf_* && -n ${!__sf_vn:+set} ]]; then
+            local __sf_vv=${!__sf_vn} __sf_sxs=$__sf_sx __sf_vdepth=$(( ${__sf_vdepth:-0} + 1 ))
+            if (( ${#__sf_vv} <= 4000 )) && [[ $__sf_vv != *__shellfirm_* ]]; then
+                __shellfirm_segment "$__sf_vv$__sf_after" "${2:-}"
+                __sf_fx+=$'\n'$__sf_sx
+                __sf_sx=$__sf_sxs
+                __shellfirm_word "$__sf_s"
+            fi
+        fi
+    fi
+    # A call of a function: its definition is sent with the line (see
+    # __shellfirm_fn_defs); the arguments are kept for `fc` in its body.
+    if (( ! __sf_indef && ${#__sf_calls[@]} < 16 )) && [[ -n $__sf_w && $__sf_w != __shellfirm_* ]] && builtin declare -F -- "$__sf_w" >/dev/null 2>&1; then
+        [[ $__sf_after =~ ^[[:space:]]*(.*)$ ]]
+        __sf_calls+=("$__sf_w" "${BASH_REMATCH[1]}")
+        # After assignments / redirections (`A=1 f x`): the bare call too,
+        # which the check binds to the definition.
+        [[ -n $__sf_pre ]] && __sf_fx+=$'\n'"$__sf_w ${BASH_REMATCH[1]}"
+    fi
+    __sf_sx=$__sf_pre$__sf_s
+}
+
+# Expand every command of the line (after ; & | && || ( { and newlines).
+# Sets __sf_ax; appends to the caller's __sf_calls (function calls),
+# __sf_defnames (functions the line defines) and __sf_segmark (aliases past
+# the read-ahead limit). $2 = 1: a huge line, only the first commands are
+# expanded.
+__shellfirm_segments() {
+    local __sf_in=$1 __sf_seg __sf_op __sf_n=0 __sf_cap=512 __sf_al="" __sf_sx __sf_b
+    local -i __sf_indef=0 __sf_defnext=0
+    [[ ${2:-} == 1 ]] && __sf_cap=16
+    local __sf_alnames=""
+    if (( BASH_VERSINFO[0] >= 4 )); then
+        builtin shopt -q expand_aliases && (( ${#BASH_ALIASES[@]} )) && __sf_al=1
+    elif builtin shopt -q expand_aliases; then
+        # bash 3.2: no BASH_ALIASES (see __shellfirm_alias).
+        __sf_alnames=$(builtin compgen -a 2>/dev/null)
+        [[ -n $__sf_alnames ]] && __sf_al=1
+        __sf_alnames=" ${__sf_alnames//$'\n'/ } "
+    fi
+    __sf_ax=""
+    # __sf_nd: the line without the bodies of the functions it defines.
+    __sf_nd=""
+    __sf_fcseg=()
+    local __sf_re='^([^;&|(){}`'$'\n'']*)([;&|(){}`'$'\n'']*)'
+    local __sf_defre='^[[:space:]]*(function[[:space:]]+[^[:space:]]+|'$__shellfirm_namere')[[:space:]]*$'
+    while [[ -n $__sf_in ]]; do
+        if (( ++__sf_n > __sf_cap )); then
+            __sf_ax+=$__sf_in
+            # Aliases further on are not expanded: say so (functions are
+            # found anywhere on the line).
+            [[ -n $__sf_al ]] && __sf_segmark=1
+            break
+        fi
+        [[ $__sf_in =~ $__sf_re ]]
+        __sf_seg=${BASH_REMATCH[1]} __sf_op=${BASH_REMATCH[2]}
+        __sf_in=${__sf_in:${#BASH_REMATCH[0]}}
+        __shellfirm_segment "$__sf_seg" "$__sf_al"
+        __sf_ax+=$__sf_sx$__sf_op
+        # A definition runs nothing: its `fc` / `eval` are looked at when
+        # the function is called.
+        if (( ! __sf_indef && ! __sf_defnext )); then
+            __sf_nd+=$__sf_sx
+            [[ $__sf_sx == *fc* || $__sf_sx == *eval* ]] && __sf_fcseg+=("$__sf_sx")
+        fi
+        __sf_nd+=$__sf_op
+        # `name() {` / `function name {`: the body is a definition.
+        if (( ! __sf_indef && ! __sf_defnext )) && [[ $__sf_seg =~ $__sf_defre ]] \
+            && [[ $__sf_op == '('* || ( $__sf_seg == *function* && $__sf_op == '{'* ) || ( $__sf_seg == *function* && -z $__sf_op ) ]]; then
+            __sf_defnext=1
+            __sf_b=${BASH_REMATCH[1]#function}
+            __sf_defnames+=" ${__sf_b//[[:space:]]/}"
+        fi
+        if (( __sf_defnext || __sf_indef )); then
+            __sf_b=${__sf_op//[!\{]/}
+            (( __sf_indef += ${#__sf_b} ))
+            (( ${#__sf_b} )) && __sf_defnext=0
+            __sf_b=${__sf_op//[!\}]/}
+            (( __sf_indef -= ${#__sf_b} ))
+            (( __sf_indef < 0 )) && __sf_indef=0
+        fi
+    done
+}
+
+# `fc -s [old=new] [cmd]` / `fc -e - ...` re-run a history entry: resolve
+# what will run, wherever it appears on the line and however it is spelled
+# (`command fc`, `builtin fc`, `\fc`, `eval fc ...`). `command fc` and
+# `builtin fc` with an editor skip the checked `fc` wrapper: refused.
+# Edits the caller's __sf_cmd / __sf_fx.
+__shellfirm_resolve_fc() {
+    local __sf_s=$1 __sf_i __sf_kw __sf_args __sf_whole __sf_old __sf_rerun __sf_list
+    local -a __sf_fa
+    local __sf_re='(^|[[:space:];&|(){}`"\])((command|builtin)[[:space:]]+|\\)?fc(([[:space:]][^;&|()`'$'\n'']*)?)([;&|()`'$'\n'']|$)'
+    local __sf_one='^[[:space:]]*((command|builtin)[[:space:]]+|\\)?fc([[:space:]][^;&|()`'$'\n'']*)?$'
+    for (( __sf_i = 0; __sf_i < 8; __sf_i++ )); do
+        [[ $__sf_s =~ $__sf_re ]] || break
+        __sf_kw=${BASH_REMATCH[3]} __sf_args=${BASH_REMATCH[4]}
+        __sf_s=${__sf_s#*"${BASH_REMATCH[0]}"}
+        # Quoted or escaped arguments are resolved word by word (__shellfirm_fc_eval).
+        [[ $__sf_args == *[\'\"\\]* ]] && continue
+        __sf_whole=""
+        [[ $__sf_i == 0 && -z ${2:-} && $1 =~ $__sf_one ]] && __sf_whole=1
+        __sf_fa=()
+        builtin read -r -a __sf_fa <<< "$__sf_args"
+        __shellfirm_fc_parse "${__sf_fa[@]}"
+        [[ -n $__sf_list ]] && continue
+        if [[ -z $__sf_rerun ]]; then
+            [[ -n $__sf_kw ]] && __shellfirm_block_msg="shellfirm: \`$__sf_kw fc\` runs the edited commands without a check; use \`fc\` instead. Command not run."
+            continue
+        fi
+        [[ -z $__sf_old ]] && continue
+        __shellfirm_fc_ok+=$'\n'$__sf_old
+        if [[ -n $__sf_whole ]]; then
+            __sf_cmd=$__sf_old
+        else
+            __sf_fx+=$'\n'$__sf_old
+        fi
+    done
+}
+
+# The commands an assignment to PROMPT_COMMAND adds ($1 = `[n]` or "", $2 =
+# `=` or `+=`, $3 = the value as written), in __sf_v: the new value is
+# worked out in a subshell, and the value it had before is left out.
+# Returns 1 (the value is then read as text) when the value could run
+# something by itself (a command substitution, arithmetic, `${x@P}`) or
+# cannot be worked out.
+__shellfirm_pc_added() {
+    local __sf_t=$3 __sf_ov __sf_nv __sf_re='\[[0-9@*]+\]' __sf_are='\$\{[^}]*:[^-+=?]'
+    __sf_v=""
+    [[ -z $1 || $1 =~ ^\[[0-9]+\]$ ]] || return 1
+    (( BASH_VERSINFO[0] > 4 || ( BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4 ) )) || return 1
+    # A PROMPT_COMMAND with the integer or nameref attribute evaluates what
+    # is assigned.
+    [[ ${PROMPT_COMMAND@a} == *[in]* ]] && return 1
+    # Plain subscripts (`${PROMPT_COMMAND[@]}`, `${a[1]}`) only.
+    while [[ $__sf_t =~ $__sf_re ]]; do
+        __sf_t=${__sf_t/"${BASH_REMATCH[0]}"/}
+    done
+    [[ $__sf_t == *[\`\[]* || $__sf_t == *'$('* || $__sf_t == *[\<\>]\(* || $__sf_t == *@P* || $__sf_t == *'${!'* ]] && return 1
+    [[ $__sf_t =~ $__sf_are ]] && return 1
+    [[ $3 == \(* && $3 == *[\;\&\|\<\>$'\n']* ]] && return 1
+    local IFS=$'\n'
+    __sf_ov="${PROMPT_COMMAND[*]}"
+    __sf_nv=$(builtin eval "PROMPT_COMMAND$1$2$3" 2>/dev/null || builtin exit 1; builtin printf '%s' "${PROMPT_COMMAND[*]}") || return 1
+    [[ -n $__sf_ov && $__sf_nv == *"$__sf_ov"* ]] && __sf_nv=${__sf_nv/"$__sf_ov"/}
+    __sf_v=${__sf_nv#"${__sf_nv%%[![:space:];&|]*}"}
+    return 0
+}
+
+# Code the line installs to run by itself later is checked now, like a
+# PROMPT_COMMAND or a trap: the command of a `bind -x` key binding, and the
+# body of a command_not_found_handle defined on the line (as a `{ ... }`
+# group). Sets the caller's __sf_auto.
+__shellfirm_autorun() {
+    local __sf_s=$1 __sf_v __sf_i
+    local __sf_re=$'(^|[;&|({[:space:]])bind[[:space:]]+([^;&|]*[[:space:]])?-[A-Za-z]*x[[:space:]]*(\'([^\']*)\'|"(([^"\\\\]|\\\\.)*)")'
+    local __sf_kre=$'^[[:space:]]*("([^"\\\\]|\\\\.)*"|[^:[:space:]]+)[[:space:]]*:[[:space:]]*(.*)$'
+    for (( __sf_i = 0; __sf_i < 8; __sf_i++ )); do
+        [[ $__sf_s =~ $__sf_re ]] || break
+        __sf_s=${__sf_s#*"${BASH_REMATCH[0]}"}
+        if [[ -n ${BASH_REMATCH[4]} ]]; then
+            __sf_v=${BASH_REMATCH[4]}
+        else
+            __sf_v=${BASH_REMATCH[5]//\\\"/\"}
+            __sf_v=${__sf_v//\\\\/\\}
+        fi
+        [[ $__sf_v =~ $__sf_kre ]] || continue
+        __sf_v=${BASH_REMATCH[3]}
+        [[ $__sf_v == \"*\" ]] && __sf_v=${__sf_v:1:${#__sf_v}-2}
+        [[ -n ${__sf_v//[[:space:]]/} ]] && __sf_auto+=$'\n'$__sf_v
+    done
+    # PROMPT_COMMAND (string or array, `=f` naming a function, one element
+    # `[1]=`, `+=`) and the command substitutions of PS0..PS4 run at every
+    # prompt; a trap's command runs on its signal (`trap f DEBUG`).
+    local __sf_wd=$'((\'[^\']*\'|"([^"\\\\]|\\\\.)*"|\\$\\{([^{}]|\\{[^{}]*\\})*\\}|\\\\.|[^][:space:];&|()<>\'"\\\\])+)'
+    local __sf_pre=$'(^|[;&|({[:space:]])(PROMPT_COMMAND|PS[0-4])(\\[[^]]*\\])?(\\+?=)(\\(([^)]*)\\)|'"$__sf_wd)"
+    local __sf_ere=$'\'[^\']*\'|"([^"\\\\]|\\\\.)*"|[^[:space:]]+'
+    local __sf_sre=$'\\$\\{PROMPT_COMMAND(\\[[^]]*\\])?(:?[-+=])?(([^{}]|\\{[^{}]*\\})*)\\}'
+    local __sf_q1=$'^\'([^\']*)\'$' __sf_q2='^"(([^"\\]|\\.)*)"$'
+    local __sf_n __sf_ix __sf_op __sf_val __sf_arr __sf_w __sf_e __sf_j
+    __sf_s=$1
+    for (( __sf_i = 0; __sf_i < 8; __sf_i++ )); do
+        [[ $__sf_s =~ $__sf_pre ]] || break
+        __sf_s=${__sf_s#*"${BASH_REMATCH[0]}"}
+        __sf_n=${BASH_REMATCH[2]} __sf_ix=${BASH_REMATCH[3]} __sf_op=${BASH_REMATCH[4]}
+        __sf_val=${BASH_REMATCH[5]} __sf_arr=${BASH_REMATCH[6]} __sf_w=${BASH_REMATCH[7]}
+        # What the assignment adds to PROMPT_COMMAND, however it is spelled
+        # (`"${PROMPT_COMMAND:+$PROMPT_COMMAND; }x"`, `[1]=x`, `+=(x)`).
+        if [[ $__sf_n == PROMPT_COMMAND ]] && __shellfirm_pc_added "$__sf_ix" "$__sf_op" "$__sf_val"; then
+            [[ -n ${__sf_v//[[:space:]]/} ]] && __sf_auto+=$'\n'$__sf_v
+            continue
+        fi
+        if [[ $__sf_val == \(* ]]; then
+            # An array: each element is a command.
+            __sf_v=""
+            while [[ $__sf_arr =~ $__sf_ere ]]; do
+                __sf_arr=${__sf_arr#*"${BASH_REMATCH[0]}"}
+                __sf_e=${BASH_REMATCH[0]}
+                [[ $__sf_e == [\'\"]* ]] && __sf_e=${__sf_e:1:${#__sf_e}-2}
+                __sf_v+=$'\n'$__sf_e
+            done
+        elif [[ $__sf_w =~ $__sf_q1 ]]; then
+            __sf_v=${BASH_REMATCH[1]}
+        elif [[ $__sf_w =~ $__sf_q2 ]]; then
+            __sf_v=${BASH_REMATCH[1]//\\\"/\"}
+            __sf_v=${__sf_v//\\\$/\$}
+            __sf_v=${__sf_v//\\\`/\`}
+        else
+            __sf_v=${__sf_w//[\'\"]/}
+        fi
+        # A prompt string only runs its command substitutions.
+        [[ $__sf_n == PS* && $__sf_v != *'$('* && $__sf_v != *'`'* ]] && continue
+        if [[ $__sf_n == PROMPT_COMMAND ]]; then
+            # Read as text: the earlier value is not part of what it adds.
+            for (( __sf_j = 0; __sf_j < 4; __sf_j++ )); do
+                [[ $__sf_v =~ $__sf_sre ]] || break
+                __sf_v=${__sf_v/"${BASH_REMATCH[0]}"/${BASH_REMATCH[3]}}
+            done
+            __sf_v=${__sf_v//'$PROMPT_COMMAND'/}
+            __sf_v=${__sf_v#"${__sf_v%%[![:space:];&|]*}"}
+        fi
+        [[ -n ${__sf_v//[[:space:]]/} ]] && __sf_auto+=$'\n'$__sf_v
+    done
+    local __sf_tre=$'(^|[;&|({[:space:]])trap[[:space:]]+(--[[:space:]]+)?(\'([^\']*)\'|"(([^"\\\\]|\\\\.)*)"|('$__shellfirm_namere'))[[:space:]]+[A-Za-z0-9]'
+    __sf_s=$1
+    for (( __sf_i = 0; __sf_i < 8; __sf_i++ )); do
+        [[ $__sf_s =~ $__sf_tre ]] || break
+        __sf_s=${__sf_s#*"${BASH_REMATCH[0]}"}
+        __sf_v=${BASH_REMATCH[4]}${BASH_REMATCH[5]}${BASH_REMATCH[7]}
+        [[ -n ${__sf_v//[[:space:]]/} && $__sf_v != - ]] && __sf_auto+=$'\n'$__sf_v
+    done
+    local __sf_dre='(^|[;&|({[:space:]])(function[[:space:]]+)?command_not_found_handle[[:space:]]*(\([[:space:]]*\))?[[:space:]]*\{'
+    if [[ $1 =~ $__sf_dre ]]; then
+        __sf_auto+=$'\n'${1/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}{"}
+    fi
+    # `${K} delete ...` (the braces would split the command): the session
+    # value of K in its place, like `$K` (see __shellfirm_segment).
+    local __sf_vre='(^|[;&|(]|'$'\n'')[[:space:]]*\$\{([A-Za-z_][A-Za-z0-9_]*)\}([^;&|'$'\n'']*)'
+    __sf_s=$1
+    for (( __sf_i = 0; __sf_i < 8; __sf_i++ )); do
+        [[ $__sf_s =~ $__sf_vre ]] || break
+        __sf_s=${__sf_s#*"${BASH_REMATCH[0]}"}
+        __sf_v=${BASH_REMATCH[2]}
+        [[ $__sf_v != __sf_* && -n ${!__sf_v:+set} ]] || continue
+        __sf_v=${!__sf_v}
+        (( ${#__sf_v} <= 4000 )) && [[ $__sf_v != *__shellfirm_* ]] && __sf_auto+=$'\n'$__sf_v${BASH_REMATCH[3]}
+    done
+}
+
+# Join continuation lines and expand aliases (in every command of the line)
+# and `fc -s`, and add the definitions of the functions the line calls, so
+# the check sees what bash will actually run (history references are
+# expanded by the caller). Sets __shellfirm_expanded ("" = nothing to
+# check). $2 = 1: a huge line (the work is capped).
+__shellfirm_expand() {
+    # Byte-wise matching is enough here and much faster.
+    local LC_ALL=C
+    local __sf_cmd=${1//$'\\\n'/} __sf_ax __sf_nd __sf_bnd="" __sf_fx="" __sf_seg __sf_fseen="" __sf_shown=""
+    local __sf_defs="" __sf_defnames="" __sf_segmark="" __sf_fbytes=0 __sf_n
+    local -a __sf_fcseg __sf_bfcseg=() __sf_calls=() __sf_fnames=() __sf_fbodies=()
+    if [[ $__sf_cmd == *bind* || $__sf_cmd == *command_not_found_handle* || $__sf_cmd == *'${'[A-Za-z_]* \
+        || $__sf_cmd == *PROMPT_COMMAND* || $__sf_cmd == *PS[0-4]* || $__sf_cmd == *trap* ]]; then
+        local __sf_auto=""
+        __shellfirm_autorun "$__sf_cmd"
+        [[ -n $__sf_auto ]] && __sf_shown=$__sf_cmd
+        __sf_cmd+=$__sf_auto
+    fi
+    __shellfirm_segments "$__sf_cmd" "${2:-}"
+    __sf_cmd=$__sf_ax
+    __shellfirm_expanded=""
+    # Only adds text to history: nothing runs.
+    if [[ $__sf_cmd =~ ^[[:space:]]*(builtin[[:space:]]+)?history[[:space:]]+-s[[:space:]] && $__sf_cmd != *[\;\|\&\`\$\(\)\<\>]* && $__sf_cmd != *$'\n'* ]]; then
+        return
+    fi
+    [[ -n $__sf_segmark ]] && __sf_fx+=$'\n'"shellfirm-function-depth-limit line # more commands than the hook reads ahead"
+    # A function that runs by itself (a hook, a trap, a key binding),
+    # redefined on this line: checked as if it was called.
+    if [[ -n $__sf_defnames ]]; then
+        local __sf_reach=""
+        __shellfirm_hook_reach
+        for __sf_n in $__sf_defnames; do
+            [[ " $__sf_reach " == *" $__sf_n "* ]] && __sf_fx+=$'\n'$__sf_n
+        done
+    fi
+    __shellfirm_fn_defs "$__sf_cmd$__sf_fx"
+    (( ${#__sf_calls[@]} )) && __shellfirm_body_fc
+    local __sf_fx0=$__sf_fx __sf_cmd0=$__sf_cmd
+    [[ $__sf_nd == *fc* ]] && __shellfirm_resolve_fc "$__sf_nd"
+    [[ -n $__sf_bnd ]] && __shellfirm_resolve_fc "$__sf_bnd" 1
+    for __sf_seg in "${__sf_fcseg[@]:0:8}"; do
+        __shellfirm_fc_eval "$__sf_seg"
+    done
+    for __sf_seg in "${__sf_bfcseg[@]:0:8}"; do
+        __shellfirm_fc_eval "$__sf_seg" 1
+    done
+    # Re-runs and `eval` text added just now can call functions too.
+    if [[ $__sf_fx != "$__sf_fx0" || $__sf_cmd != "$__sf_cmd0" ]]; then
+        __shellfirm_fn_defs "$__sf_cmd ${__sf_fx#"$__sf_fx0"}"
+    fi
+    __shellfirm_expanded=${__sf_defs#$'\n'}${__sf_defs:+$'\n'}$__sf_cmd$__sf_fx
+    __shellfirm_line=${__sf_shown:-$__sf_cmd}
+}
+
+# `fc` and Ctrl-X Ctrl-E / vi `v` (edit-and-execute-command, which runs
+# `fc`): the edited text is checked before bash runs it. A blocked edit is
+# discarded (fc runs nothing when the editor fails).
+__shellfirm_fcedit() {
+    local __sf_f=${!#}
+    builtin eval "$__shellfirm_fc_editor"' "$__sf_f"' || return
+    local __sf_c
+    __sf_c=$(<"$__sf_f")
+    [[ -z ${__sf_c//[[:space:]]/} ]] && return 0
+    __shellfirm_expand "$__sf_c"
+    [[ -z $__shellfirm_expanded ]] && return 0
+    __shellfirm_check "$__shellfirm_expanded" && return 0
+    : > "$__sf_f"
+    return 1
+}
+# `fc -s` / `fc -e -` (re-run) are checked here too, whatever the line looks
+# like (`\fc`, `eval fc ...`, `x=1 fc ...`); lines checked on Enter are not
+# asked about twice.
+if ! builtin declare -F fc >/dev/null; then
+fc() {
+    local __sf_a __sf_ed="" __sf_next="" __sf_edit=1 __sf_rerun="" __sf_list=""
+    local -a __sf_args=()
+    for __sf_a in "$@"; do
+        if [[ -n $__sf_next ]]; then
+            __sf_ed=$__sf_a; __sf_next=""
+            [[ $__sf_a == - ]] && { __sf_edit=""; __sf_rerun=1; }
+            continue
+        fi
+        case $__sf_a in
+            -e) __sf_next=1; continue ;;
+            -[0-9]*) ;;
+            -*l*) __sf_edit=""; __sf_list=1 ;;
+            -*s*) __sf_edit=""; __sf_rerun=1 ;;
+        esac
+        __sf_args+=("$__sf_a")
+    done
+    if [[ -n $__sf_rerun && -z $__sf_list ]]; then
+        local __sf_pat="" __sf_rep="" __sf_sel=-1 __sf_old __sf_set=""
+        for __sf_a in "${__sf_args[@]}"; do
+            [[ $__sf_a == -* && $__sf_a != -[0-9]* ]] && continue
+            if [[ -z $__sf_set && $__sf_a == *=* ]]; then
+                __sf_set=1; __sf_pat=${__sf_a%%=*}; __sf_rep=${__sf_a#*=}
+            else
+                __sf_sel=$__sf_a
+            fi
+        done
+        __sf_old=$(builtin enable fc 2>/dev/null; builtin fc -ln "$__sf_sel" "$__sf_sel" 2>/dev/null)
+        __sf_old=${__sf_old#"${__sf_old%%[![:space:]]*}"}
+        [[ -n $__sf_pat ]] && __sf_old=${__sf_old//"$__sf_pat"/$__sf_rep}
+        if [[ -n ${__sf_old//[[:space:]]/} && $'\n'$__shellfirm_fc_ok$'\n' != *$'\n'"$__sf_old"$'\n'* ]]; then
+            __shellfirm_expand "$__sf_old"
+            if [[ -n $__shellfirm_expanded ]] && ! __shellfirm_check "$__shellfirm_expanded"; then
+                return 1
+            fi
+        fi
+    fi
+    if [[ -z $__sf_edit ]]; then
+        __shellfirm_bfc "$@"
+        return
+    fi
+    local __shellfirm_fc_editor=${__sf_ed:-${FCEDIT:-${EDITOR:-vi}}}
+    __shellfirm_bfc -e __shellfirm_fcedit "${__sf_args[@]}"
+}
+# The fc builtin, which shellfirm keeps turned off (see below).
+__shellfirm_bfc() {
+    builtin enable fc 2>/dev/null
+    builtin fc "$@"
+    local __sf_r=$?
+    [[ -n $__shellfirm_fc_off ]] && builtin enable -n fc 2>/dev/null
+    return $__sf_r
+}
+__shellfirm_fc_off=""
+fi
+
+# atuin's enter_accept runs the chosen command with `eval` inside its own
+# `bind -x` widget; check it first (atuin is usually loaded after shellfirm).
+__shellfirm_wrap_plugins() {
+    if [[ -z ${__shellfirm_atuin_wrapped:-} ]] && builtin declare -F __atuin_accept_line >/dev/null; then
+        __shellfirm_atuin_wrapped=1
+        local __sf_f
+        __sf_f=$(builtin declare -f __atuin_accept_line)
+        builtin eval "__shellfirm_orig_atuin_accept_line ${__sf_f#__atuin_accept_line}"
+        __atuin_accept_line() {
+            builtin export -n READLINE_LINE READLINE_POINT READLINE_MARK 2>/dev/null
+            __shellfirm_seen=1
+            __shellfirm_fc_ok=""
+            __shellfirm_expand "$1"
+            if [[ -n $__shellfirm_expanded ]] && ! __shellfirm_check "$__shellfirm_expanded"; then
+                return 1
+            fi
+            __shellfirm_orig_atuin_accept_line "$@"
+        }
+    fi
+}
+
+# Removes a DEBUG-trap hook pasted from shellfirm <= 0.3.10, which would
+# prompt a second time and can leave the shell unusable after a cancel.
+__shellfirm_disable_legacy() {
+    if [[ $(builtin trap -p DEBUG) == *_shellfirm_hook* ]]; then
+        builtin trap - DEBUG
+        builtin shopt -u extdebug
+        if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) != "declare -a"* ]]; then
+            PROMPT_COMMAND=${PROMPT_COMMAND//_shellfirm_prompt;/}
+            PROMPT_COMMAND=${PROMPT_COMMAND//_shellfirm_prompt/}
+        fi
+        builtin printf '%s\n' "shellfirm: disabled an old shellfirm hook (DEBUG trap) found in your shell startup files; remove it (run \`shellfirm init bash\` to see where)." >&2
+    fi
+}
+
+__shellfirm_precmd() {
+    __shellfirm_sync_ps0
+    __shellfirm_pending=""
+    __shellfirm_pending_x=""
+    __shellfirm_cont=""
+    # The fc builtin stays off (a checked line may have turned it on).
+    [[ -n $__shellfirm_fc_off ]] && builtin enable -n fc 2>/dev/null
+    __shellfirm_wrap_plugins
+    # Enter is looked at by __shellfirm_postcmd, after the other
+    # PROMPT_COMMAND entries (a plugin may rebind Enter in one); here only
+    # when that is not in place yet.
+    if ! __shellfirm_install_postcmd; then
+        __shellfirm_postcmd
+    fi
+}
+
+# Last before the prompt: Enter (or Ctrl-J) rebound since the last look is
+# bound to the check again, so the next command is checked.
+__shellfirm_postcmd() {
+    if [[ -z $__shellfirm_legacy_checked ]]; then
+        __shellfirm_legacy_checked=1
+        __shellfirm_disable_legacy
+        __shellfirm_check_bindings
+        __shellfirm_relsrc=1
+    elif [[ -n $__shellfirm_histcmd && $HISTCMD != "$__shellfirm_histcmd" && -z $__shellfirm_seen ]]; then
+        # A command ran (new history entry) without passing through the
+        # Enter binding: something rebound Enter. Say so every time.
+        builtin printf '%s\n' "shellfirm: warning: the last command did not pass through shellfirm (Enter was rebound) and was NOT checked; shellfirm bound Enter to the check again." >&2
+        __shellfirm_unchecked_seen=1
+        __shellfirm_rw_every=1
+        __shellfirm_check_bindings
+    elif [[ -n $__shellfirm_rebind_maybe || -n $__shellfirm_rw_every ]]; then
+        # The line could have rebound Enter (`bind`, `source`), or something
+        # rebinds it again and again (a plugin's PROMPT_COMMAND): look now,
+        # before the next command runs.
+        __shellfirm_check_bindings
+    fi
+    __shellfirm_rebind_maybe=""
+    __shellfirm_seen=""
+    __shellfirm_histcmd=$HISTCMD
+    [[ -n $__shellfirm_catsrc ]] && __shellfirm_note_catsrc
+    [[ -n $__shellfirm_relsrc ]] && __shellfirm_note_relsrc
+}
+__shellfirm_legacy_checked=""
+__shellfirm_rebind_maybe=""
+__shellfirm_rw_every=""
+# Returns 1 when __shellfirm_postcmd was not the last PROMPT_COMMAND entry
+# (it is then made the last one, from the next prompt on).
+__shellfirm_install_postcmd() { return 1; }
+
+if [[ ( -o emacs || -o vi ) && ${BASH_VERSINFO[0]:-0} -ge 4 ]]; then
+
+# Prints the keys whose binding no longer goes through shellfirm.
+__shellfirm_unbound_keys() {
+    local __sf_km __sf_s __sf_k __sf_l __sf_out=""
+    for __sf_km in emacs vi-insert vi-command; do
+        __sf_s=$'\n'$(builtin bind -m "$__sf_km" -s 2>/dev/null)$'\n'
+        for __sf_k in '\C-m' '\C-j'; do
+            # The key's own line: the check, then accept-line or the wrapped
+            # binding; or a macro that ends in the check (see
+            # __shellfirm_fuse_macro).
+            __sf_l=${__sf_s#*$'\n'"\"$__sf_k\": \""}
+            if [[ $__sf_l == "$__sf_s" ]]; then
+                __sf_out+=" $__sf_km:$__sf_k"
+                continue
+            fi
+            __sf_l=${__sf_l%%$'\n'*}
+            [[ $__sf_l == '\e[9900~\e[990'[156]'~"' || $__sf_l == *'\e[9900~\e[9901~"' ]] || __sf_out+=" $__sf_km:$__sf_k"
+        done
+    done
+    builtin printf '%s' "$__sf_out"
+}
+# A macro on Enter that ends with a key bound to accept-line (`"\C-m":
+# "\e[7777~\C-x\C-a"`, the first key rewriting the line): what it ends with
+# is replaced by the check and accept-line, so the line it wrote is the
+# line checked. Sets __sf_spec to the new macro; returns 1 when the macro
+# does not end that way.
+__shellfirm_fuse_macro() {
+    local __sf_m=${2#\"} __sf_l __sf_key
+    __sf_m=${__sf_m%\"}
+    while IFS= builtin read -r __sf_l; do
+        [[ $__sf_l == \"*\":\ accept-line ]] || continue
+        __sf_key=${__sf_l#\"} __sf_key=${__sf_key%\": accept-line}
+        [[ -z $__sf_key || $__sf_key == '\e[990'* || $__sf_key == '\C-m' || $__sf_key == '\C-j' ]] && continue
+        if [[ $__sf_m == *"$__sf_key" && $__sf_m != "$__sf_key" ]]; then
+            __sf_spec="\"${__sf_m%"$__sf_key"}\\e[9900~\\e[9901~\""
+            return 0
+        fi
+    done < <(builtin bind -m "$1" -p 2>/dev/null)
+    return 1
+}
+# Enter (or Ctrl-J) rebound after shellfirm loaded (a plugin, `bind
+# '"\C-m": ...'`): bind it to the check again, and run that binding after
+# the check (a readline function, a macro or a `bind -x` command).
+# __shellfirm_rw holds those bindings ("keymap seq kind spec" lines).
+__shellfirm_rw=""
+__shellfirm_rw_seen=""
+__shellfirm_check_bindings() {
+    local __sf_bad __sf_e __sf_km __sf_k __sf_seq __sf_l __sf_kind __sf_spec __sf_q __sf_new="" __sf_fail=""
+    __sf_bad=$(__shellfirm_unbound_keys)
+    [[ -z $__sf_bad ]] && return
+    for __sf_e in $__sf_bad; do
+        __sf_km=${__sf_e%%:*} __sf_k=${__sf_e#*:}
+        if [[ $__sf_k == '\C-m' ]]; then __sf_seq='\e[9905~'; else __sf_seq='\e[9906~'; fi
+        __sf_q="\"$__sf_k\": "
+        __sf_kind="" __sf_spec=""
+        __sf_l=$(builtin bind -m "$__sf_km" -p 2>/dev/null | builtin command grep -F -m1 -- "$__sf_q")
+        if [[ -n $__sf_l ]]; then
+            __sf_kind=fn __sf_spec=${__sf_l#"$__sf_q"}
+        else
+            __sf_l=$(builtin bind -m "$__sf_km" -s 2>/dev/null | builtin command grep -F -m1 -- "$__sf_q")
+            if [[ -n $__sf_l ]]; then
+                __sf_kind=macro __sf_spec=${__sf_l#"$__sf_q"}
+            else
+                __sf_l=$(builtin bind -m "$__sf_km" -X 2>/dev/null | builtin command grep -F -m1 -- "$__sf_q")
+                [[ -n $__sf_l ]] && __sf_kind=x __sf_spec=${__sf_l#"$__sf_q"}
+            fi
+        fi
+        # Unbound, or bound to shellfirm's own sequences: plain accept-line.
+        if [[ -z $__sf_kind || $__sf_spec == *9900~* || $__sf_spec == *__shellfirm_* ]]; then
+            __sf_kind=fn __sf_spec=accept-line
+        fi
+        if [[ $__sf_kind == macro ]] && __shellfirm_fuse_macro "$__sf_km" "$__sf_spec"; then
+            builtin bind -m "$__sf_km" "\"$__sf_k\": $__sf_spec" 2>/dev/null || { __sf_fail+=" $__sf_e"; continue; }
+            __sf_new+=$'\n'"$__sf_km $__sf_seq fn redraw-current-line"
+            continue
+        fi
+        __shellfirm_rw_bind "$__sf_km" "$__sf_seq" "$__sf_kind" "$__sf_spec" || { __sf_fail+=" $__sf_e"; continue; }
+        builtin bind -m "$__sf_km" "\"$__sf_k\": \"\\e[9900~$__sf_seq\"" 2>/dev/null || { __sf_fail+=" $__sf_e"; continue; }
+        __sf_new+=$'\n'"$__sf_km $__sf_seq $__sf_kind $__sf_spec"
+    done
+    if [[ -n $__sf_new ]]; then
+        # Replace older entries for the same keymap and key.
+        local __sf_old __sf_keep=""
+        while IFS= builtin read -r __sf_old; do
+            [[ -z $__sf_old || $__sf_new == *$'\n'"${__sf_old%%~ *}~ "* ]] && continue
+            __sf_keep+=$'\n'$__sf_old
+        done <<< "$__shellfirm_rw"
+        __shellfirm_rw=$__sf_keep$__sf_new
+        for __sf_e in $__sf_bad; do
+            [[ " $__shellfirm_rw_seen " == *" $__sf_e "* ]] || __shellfirm_rw_seen+=" $__sf_e"
+        done
+        # Something rebinds Enter: look before every prompt from now on.
+        __shellfirm_rw_every=1
+        if [[ -z $__shellfirm_rebound_warned && -z ${__shellfirm_loading:-} ]]; then
+            __shellfirm_rebound_warned=1
+            builtin printf '%s\n' "shellfirm: Enter was rebound after shellfirm loaded (${__sf_bad# }); shellfirm now checks the line first, then runs that binding." >&2
+        fi
+    fi
+    if [[ -n $__sf_fail && -z $__shellfirm_bypass_warned ]]; then
+        __shellfirm_bypass_warned=1
+        builtin printf '%s\n' "shellfirm: warning: Enter was rebound after shellfirm loaded (${__sf_fail# }) and shellfirm could not wrap it; commands are NOT being checked. Run \`shellfirm doctor\`." >&2
+    fi
+}
+__shellfirm_rebound_warned=""
+# __shellfirm_rw_bind <keymap> <seq> <kind> <spec>: bind seq to the binding.
+__shellfirm_rw_bind() {
+    case $3 in
+        x) builtin bind -m "$1" -x "\"$2\": $4" 2>/dev/null ;;
+        *) builtin bind -m "$1" "\"$2\": $4" 2>/dev/null ;;
+    esac
+}
+# $1 = 1: run the re-wrapped bindings after the check; else skip them.
+__shellfirm_rw_arm() {
+    local __sf_l __sf_km __sf_seq __sf_kind __sf_spec
+    while IFS= builtin read -r __sf_l; do
+        [[ -z $__sf_l ]] && continue
+        __sf_km=${__sf_l%% *} __sf_l=${__sf_l#* }
+        __sf_seq=${__sf_l%% *} __sf_l=${__sf_l#* }
+        __sf_kind=${__sf_l%% *} __sf_spec=${__sf_l#* }
+        if [[ $1 == 1 ]]; then
+            __shellfirm_rw_bind "$__sf_km" "$__sf_seq" "$__sf_kind" "$__sf_spec"
+        else
+            builtin bind -m "$__sf_km" "\"$__sf_seq\": redraw-current-line" 2>/dev/null
+        fi
+    done <<< "$__shellfirm_rw"
+}
+
+# Returns 0 when bash will ask for more input (PS2) instead of running $1.
+__shellfirm_incomplete() {
+    local __sf_re=$'[][\\\\\'"(){}<|&`]|(^|[[:space:];&|])(if|case|for|select|while|until|function|coproc)([[:space:]]|$)'
+    [[ $1 =~ $__sf_re ]] || return 1
+    local __sf_err
+    __sf_err=$("${BASH:-bash}" --norc --noprofile -O extglob -n -c "$1" 2>&1 >/dev/null)
+    case $__sf_err in
+        *"unexpected end of file"*|*"unexpected EOF"*|*"here-document at line"*) return 0 ;;
+    esac
+    local __sf_bs=${1##*[!\\]}
+    if [[ -z $__sf_err ]] && (( ${#__sf_bs} % 2 )); then
+        # Trailing backslash: a line continuation unless it sits in a comment.
+        "${BASH:-bash}" --norc --noprofile -O extglob -n -c "$1"$'\nfi' >/dev/null 2>&1 && return 0
+        # After an operator (`a && \`): without the backslash the line is
+        # still open (a backslash in a comment would leave it complete).
+        __sf_err=$("${BASH:-bash}" --norc --noprofile -O extglob -n -c "${1%\\}" 2>&1 >/dev/null)
+        [[ $__sf_err == *"unexpected end of file"* || $__sf_err == *"unexpected EOF"* ]] && return 0
+    fi
+    return 1
+}
+
+# The same for text after history expansion, with aliases expanded too.
+__shellfirm_incomplete_expanded() {
+    __shellfirm_incomplete "$1" || return 1
+    local __sf_ax __sf_nd __sf_defnames="" __sf_segmark="" __sf_fx=""
+    local -a __sf_fcseg __sf_calls=()
+    __shellfirm_segments "$1"
+    [[ $__sf_ax == "$1" ]] && return 0
+    __shellfirm_incomplete "$__sf_ax"
+}
+
+# Keep __shellfirm_precmd (which resets the multi-line buffer) running before
+# every primary prompt, even if PROMPT_COMMAND is reassigned later. Chains
+# with bash-preexec and with string or array PROMPT_COMMAND.
+# Returns 1 if it had to (re)install it.
+__shellfirm_install_precmd() {
+    if [[ -n ${bash_preexec_imported:-}${__bp_imported:-} ]]; then
+        [[ " ${precmd_functions[*]} " == *" __shellfirm_precmd "* ]] && return 0
+        precmd_functions=(__shellfirm_precmd "${precmd_functions[@]}")
+        return 1
+    fi
+    [[ "${PROMPT_COMMAND[*]}" == *__shellfirm_precmd* ]] && return 0
+    if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+        PROMPT_COMMAND=(__shellfirm_precmd "${PROMPT_COMMAND[@]}")
+    else
+        PROMPT_COMMAND="__shellfirm_precmd${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
+    fi
+    return 1
+}
+__shellfirm_install_postcmd() {
+    local __sf_e
+    local -a __sf_keep=()
+    if [[ -n ${bash_preexec_imported:-}${__bp_imported:-} ]]; then
+        # bash-preexec runs precmd_functions from its first PROMPT_COMMAND
+        # entry, and keeps the entries added later (a plugin that rebinds
+        # Enter at every prompt) after it: shellfirm's look goes last in
+        # PROMPT_COMMAND too, just before bash-preexec's own last entry.
+        local __sf_r=0
+        if [[ ${precmd_functions[${#precmd_functions[@]}-1]-} != __shellfirm_postcmd ]]; then
+            for __sf_e in "${precmd_functions[@]}"; do
+                [[ $__sf_e == __shellfirm_postcmd ]] || __sf_keep+=("$__sf_e")
+            done
+            precmd_functions=("${__sf_keep[@]}" __shellfirm_postcmd)
+            __sf_r=1
+        fi
+        __shellfirm_pc_last || __sf_r=1
+        return $__sf_r
+    fi
+    if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+        [[ ${PROMPT_COMMAND[${#PROMPT_COMMAND[@]}-1]} == __shellfirm_postcmd ]] && return 0
+        for __sf_e in "${PROMPT_COMMAND[@]}"; do
+            [[ $__sf_e == __shellfirm_postcmd ]] || __sf_keep+=("$__sf_e")
+        done
+        PROMPT_COMMAND=("${__sf_keep[@]}" __shellfirm_postcmd)
+        return 1
+    fi
+    [[ $PROMPT_COMMAND == *$'\n'__shellfirm_postcmd ]] && return 0
+    __sf_e=${PROMPT_COMMAND//$'\n'__shellfirm_postcmd/}
+    PROMPT_COMMAND=$__sf_e$'\n'__shellfirm_postcmd
+    return 1
+}
+
+# Under bash-preexec: `__shellfirm_postcmd` as the last PROMPT_COMMAND entry
+# before `__bp_interactive_mode` (array) or its last line (string). Returns 1
+# when it had to move it.
+__shellfirm_pc_last() {
+    local __sf_e __sf_s
+    local -a __sf_keep=()
+    if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+        local __sf_n=${#PROMPT_COMMAND[@]} __sf_bp=""
+        if [[ ${PROMPT_COMMAND[__sf_n-1]//[[:space:]]/} == __bp_interactive_mode ]]; then
+            (( __sf_n >= 2 )) && [[ ${PROMPT_COMMAND[__sf_n-2]} == __shellfirm_postcmd ]] && return 0
+        else
+            [[ ${PROMPT_COMMAND[__sf_n-1]-} == __shellfirm_postcmd ]] && return 0
+        fi
+        for __sf_e in "${PROMPT_COMMAND[@]}"; do
+            if [[ ${__sf_e//[[:space:]]/} == __bp_interactive_mode ]]; then
+                __sf_bp=$__sf_e
+            elif [[ $__sf_e != __shellfirm_postcmd ]]; then
+                __sf_keep+=("$__sf_e")
+            fi
+        done
+        __sf_keep+=(__shellfirm_postcmd)
+        [[ -n $__sf_bp ]] && __sf_keep+=("$__sf_bp")
+        PROMPT_COMMAND=("${__sf_keep[@]}")
+        return 1
+    fi
+    __sf_s=${PROMPT_COMMAND-}
+    [[ $__sf_s == *$'\n__shellfirm_postcmd\n__bp_interactive_mode' || $__sf_s == *$'\n__shellfirm_postcmd' ]] && return 0
+    __sf_s=${__sf_s//$'\n'__shellfirm_postcmd/}
+    if [[ $__sf_s =~ ^(.*[^[:space:]\;])[[:space:]\;]*__bp_interactive_mode[[:space:]\;]*$ ]]; then
+        __sf_s=${BASH_REMATCH[1]}$'\n__shellfirm_postcmd\n__bp_interactive_mode'
+    else
+        __sf_s+=$'\n__shellfirm_postcmd'
+    fi
+    PROMPT_COMMAND=$__sf_s
+    return 1
+}
+
+__shellfirm_accept() {
+    # bash exports READLINE_LINE to programs started here: a huge line would
+    # make every exec fail with E2BIG.
+    builtin export -n READLINE_LINE READLINE_POINT READLINE_MARK 2>/dev/null
+    # The DEBUG / ERR / RETURN traps (see the binding below).
+    __shellfirm_traps=${1-}
+    builtin bind '"\e[9901~": accept-line'
+    builtin bind '"\e[9903~": operate-and-get-next' 2>/dev/null
+    [[ -n $__shellfirm_rw ]] && __shellfirm_rw_arm 1
+    # starship-style DEBUG-trap timers started at this key press (this
+    # `bind -x` command); re-arm them so they time the command, not the check.
+    [[ -n ${STARSHIP_PREEXEC_READY+set} ]] && STARSHIP_PREEXEC_READY=true
+    __shellfirm_seen=1
+    __shellfirm_install_precmd || { __shellfirm_pending=""; __shellfirm_pending_x=""; __shellfirm_cont=""; }
+    __shellfirm_fc_ok=""
+    __shellfirm_block_msg=""
+    __shellfirm_rest=""
+    local __sf_line=$READLINE_LINE __sf_full __sf_x __sf_cont=$__shellfirm_cont
+    # Only input bash is still collecting (an open quote or block, PS2) is
+    # joined with this line. A line bash rejected (history expansion failed:
+    # "event not found") ran nothing and is not kept.
+    if [[ -n $__sf_cont ]]; then
+        __sf_full=$__shellfirm_pending$'\n'$__sf_line
+    else
+        __sf_full=$__sf_line
+        __shellfirm_pending_x=""
+    fi
+    __shellfirm_cont=""
+    __shellfirm_pending=$__sf_full
+    # The line can rebind Enter: look at the next prompt.
+    [[ $__sf_full == *bind* || $__sf_full == *source* || $__sf_full == *.[[:space:]]* ]] && __shellfirm_rebind_maybe=1
+    __shellfirm_catsrc=""
+    local __sf_srcre='(^|[;&|({[:space:]])(source|\.)[[:space:]]+[^/<[:space:]]'
+    [[ $__sf_full =~ $__sf_srcre ]] && __shellfirm_relsrc=1
+    if [[ $__sf_full == *'<(cat'* ]]; then
+        local __sf_cre='^[[:space:]]*(source|\.)[[:space:]]+<\([[:space:]]*cat[[:space:]]+([^][:space:];&|()<>`$'"'"'"\\*?[{}]+)[[:space:]]*\)[[:space:]]*$'
+        if [[ $__sf_full =~ $__sf_cre ]]; then
+            __shellfirm_catsrc=${BASH_REMATCH[2]}
+            [[ $__shellfirm_catsrc == '~/'* ]] && __shellfirm_catsrc=$HOME/${__shellfirm_catsrc#'~/'}
+        fi
+    fi
+    __shellfirm_fc_typed=""
+    # History references (!!, !$, ^a^b) are expanded line by line, as bash
+    # does. `history -p` drops the newest entry unless one was just pushed;
+    # push and delete a dummy entry (in the subshell only) to avoid that.
+    __sf_x=$__sf_line
+    # The history characters can be changed (`histchars='@^#'`).
+    local __sf_hc=${histchars-!^#}
+    local __sf_h1=${__sf_hc:0:1} __sf_h2=${__sf_hc:1:1}
+    if [[ $- == *H* && -n $__sf_h1 && ( $__sf_line == *"$__sf_h1"* || ( -n $__sf_h2 && $__sf_line == "$__sf_h2"* ) ) ]]; then
+        __sf_x=$(builtin history -s :; builtin history -d -1; builtin history -p -- "$__sf_line" 2>/dev/null) || __sf_x=$__sf_line
+    fi
+    [[ -n $__sf_cont ]] && __sf_x=$__shellfirm_pending_x$'\n'$__sf_x
+    __shellfirm_pending_x=$__sf_x
+    [[ -z ${__sf_full//[[:space:]]/} ]] && return
+    local __sf_len
+    __shellfirm_len "$__sf_full"
+    if (( __sf_len > __shellfirm_max_arg )); then
+        # Huge input: no (slow) completeness probe; expansions are capped.
+        __shellfirm_expand "$__sf_x" 1
+        __shellfirm_check "${__shellfirm_expanded:-$__sf_x}" && return
+    else
+        # Incomplete input (open quote/block, trailing \): bash shows PS2 and
+        # the whole construct is checked once it is complete. bash decides
+        # that after history and alias expansion (`!$` or an alias can be
+        # the `fi`), so the expanded text is probed.
+        if __shellfirm_incomplete_expanded "$__sf_x"; then
+            __shellfirm_cont=1
+            return
+        fi
+        __shellfirm_expand "$__sf_x"
+        if [[ -n $__shellfirm_block_msg ]]; then
+            builtin printf '%s\n' "$__shellfirm_block_msg" >&2
+        else
+            # A typed `command fc` / `builtin fc` was read and checked: the
+            # builtin is on while this line runs (off at the next prompt).
+            [[ -n $__shellfirm_fc_typed && -n $__shellfirm_fc_off ]] && builtin enable fc 2>/dev/null
+            [[ -z $__shellfirm_expanded ]] && return
+            __shellfirm_check "$__shellfirm_expanded" 1 "$__sf_cont" && return
+        fi
+    fi
+    # Blocked: skip accept-line. A single line stays in the buffer for
+    # editing; a multi-line construct is discarded with SIGINT (a user INT
+    # trap would swallow it, so lift it around the signal).
+    builtin bind '"\e[9901~": redraw-current-line'
+    builtin bind '"\e[9903~": redraw-current-line'
+    [[ -n $__shellfirm_rw ]] && __shellfirm_rw_arm 0
+    [[ -n $__shellfirm_fc_off ]] && builtin enable -n fc 2>/dev/null
+    __shellfirm_pending=""
+    __shellfirm_pending_x=""
+    local __sf_rn __sf_rv __sf_rp
+    [[ -n $__shellfirm_rest ]] && __shellfirm_rest_count
+    if [[ $__sf_full == "$__sf_line" ]]; then
+        # The cursor at the end (a binding that rewrote the line before the
+        # check leaves it where the old line ended), so Ctrl-U clears it all
+        # (also every line of a pasted block: readline edits it as one).
+        if [[ -n $__shellfirm_rest ]]; then
+            # The lines read ahead of the challenge stay with it.
+            READLINE_LINE+=$'\n'$__shellfirm_rest
+            builtin printf '%s\n' "shellfirm: the line and the $__sf_rn typed or pasted after it are kept for editing (Ctrl-U clears them all)." >&2
+        elif [[ $READLINE_LINE == *$'\n'* ]]; then
+            builtin printf '%s\n' "shellfirm: the lines are kept for editing (Ctrl-U clears them all)." >&2
+        else
+            builtin printf '%s\n' "shellfirm: the line is kept for editing (Ctrl-U clears it)." >&2
+        fi
+        READLINE_POINT=${#READLINE_LINE}
+    else
+        [[ -n $__shellfirm_rest ]] && builtin printf '%s\n' "shellfirm: the $__sf_rn typed or pasted after it $__sf_rv discarded too." >&2
+        local __sf_int
+        __sf_int=$(builtin trap -p INT)
+        builtin trap - INT
+        builtin kill -INT $$
+        [[ -n $__sf_int ]] && builtin eval "$__sf_int"
+    fi
+    __shellfirm_rest=""
+}
+
+__sf_wrap=""
+for __sf_km in emacs vi-insert vi-command; do
+    # Passing "$_" keeps $_ (last argument of the previous command) intact.
+    # A function does not see the DEBUG, ERR and RETURN traps (`trap -p`
+    # prints nothing for them there): they are read here, at the top level.
+    builtin bind -m "$__sf_km" -x '"\e[9900~": __shellfirm_accept "$(builtin trap -p DEBUG ERR RETURN 2>/dev/null)" "$_"'
+    builtin bind -m "$__sf_km" '"\e[9901~": accept-line'
+    # Enter bound before shellfirm loaded to something other than
+    # accept-line (a macro or a command that rewrites the line): kept, and
+    # wrapped below like a binding made later.
+    __sf_l=$'\n'$(builtin bind -m "$__sf_km" -s 2>/dev/null; builtin bind -m "$__sf_km" -X 2>/dev/null)
+    for __sf_k in '\C-m' '\C-j'; do
+        if [[ $__sf_l == *$'\n'"\"$__sf_k\": "* ]]; then
+            __sf_wrap=1
+        else
+            builtin bind -m "$__sf_km" "\"$__sf_k\": \"\\e[9900~\\e[9901~\""
+        fi
+    done
+done
+if [[ -n $__sf_wrap ]]; then
+    __shellfirm_loading=1
+    __shellfirm_check_bindings
+    __shellfirm_loading=""
+fi
+unset __sf_wrap __sf_l __sf_k
+# Ctrl-O (operate-and-get-next) runs the line too.
+if [[ $(builtin bind -m emacs -q operate-and-get-next 2>/dev/null) == *'"\C-o"'* ]]; then
+    builtin bind -m emacs '"\e[9903~": operate-and-get-next'
+    builtin bind -m emacs '"\C-o": "\e[9900~\e[9903~"'
+fi
+unset __sf_km
+__shellfirm_install_precmd
+__shellfirm_install_postcmd
+__shellfirm_disable_legacy
+# `bind` that changes what Enter (or Ctrl-J) does: Enter is bound to the
+# check again at once. A plugin that rebinds Enter from a PROMPT_COMMAND
+# entry that runs after shellfirm's (appended, or loaded later) would
+# otherwise leave the first command of a new shell unchecked: the look
+# before each prompt runs before that entry.
+if ! builtin declare -F bind >/dev/null && [[ -z ${BASH_ALIASES[bind]+set} ]]; then
+bind() {
+    builtin bind "$@"
+    local __sf_r=$? __sf_a __sf_l __sf_need=""
+    for __sf_a in "$@"; do
+        __sf_l=${__sf_a,,}
+        case $__sf_l in
+            -*[fru]*) [[ $__sf_l == -[a-z]* ]] && __sf_need=1 ;;
+            *c-m*|*c-j*|*'\r'*|*'\n'*|*'\015'*|*'\012'*|*'\x0d'*|*'\x0a'*|*ret*|*lfd*|*newline*|*$'\r'*|*$'\n'*) __sf_need=1 ;;
+        esac
+    done
+    [[ -n $__sf_need && -z ${__shellfirm_loading:-} ]] && __shellfirm_check_bindings
+    return $__sf_r
+}
+fi
+# `command fc` / `builtin fc` skip the checked `fc` above, also where the
+# line checked on Enter does not show them (in a function, a variable,
+# PROMPT_COMMAND or a trap). With the builtin turned off they cannot: bash
+# hands `command fc ...` to command_not_found_handle, which runs the checked
+# `fc` (in a subshell, as bash runs that handler), and `builtin fc` fails.
+if builtin declare -F __shellfirm_bfc >/dev/null && builtin enable -n fc 2>/dev/null; then
+    __shellfirm_fc_off=1
+    if builtin declare -F command_not_found_handle >/dev/null; then
+        __sf_f=$(builtin declare -f command_not_found_handle)
+        builtin eval "__shellfirm_orig_cnfh ${__sf_f#command_not_found_handle}"
+        unset __sf_f
+    fi
+    command_not_found_handle() {
+        if [[ $1 == fc ]]; then
+            builtin shift
+            \fc "$@"
+            return
+        fi
+        if builtin declare -F __shellfirm_orig_cnfh >/dev/null; then
+            __shellfirm_orig_cnfh "$@"
+            return
+        fi
+        builtin printf 'bash: %s: command not found\n' "$1" >&2
+        return 127
+    }
+fi
+
+else
+__shellfirm_check_bindings() { :; }
+# Fallback without readline: DEBUG trap (reads the command from history).
+if [[ -n $(builtin trap -p DEBUG) ]]; then
+    builtin printf '%s\n' "shellfirm: a DEBUG trap is already set; not installing the fallback hook (line editing is off)" >&2
+else
+__shellfirm_ready=""
+__shellfirm_blocked=""
+__shellfirm_histnum="__sf_none__"
+__shellfirm_dbg_precmd() { __shellfirm_ready=1; __shellfirm_blocked=""; }
+__shellfirm_dbg() {
+    # extdebug implies functrace: never interfere with our own functions.
+    [[ $BASH_COMMAND == __shellfirm_* || ${FUNCNAME[1]:-} == __shellfirm_* ]] && return 0
+    if [[ -z $__shellfirm_ready ]]; then
+        [[ -n $__shellfirm_blocked ]] && return 1
+        return 0
+    fi
+    [[ -n ${COMP_LINE:-} ]] && return 0
+    local __sf_h __sf_n __sf_cmd
+    __sf_h=$(HISTTIMEFORMAT='' builtin history 1)
+    __sf_n=${__sf_h#"${__sf_h%%[![:space:]]*}"}
+    __sf_n=${__sf_n%%[[:space:]]*}
+    [[ $__sf_n == "$__shellfirm_histnum" ]] && return 0
+    __shellfirm_ready=""
+    __shellfirm_histnum=$__sf_n
+    __sf_cmd=${__sf_h#*[0-9][[:space:]]}
+    __sf_cmd=${__sf_cmd#"${__sf_cmd%%[![:space:]]*}"}
+    [[ -z $__sf_cmd ]] && return 0
+    # bash 3.2 (macOS /bin/bash) always runs here (no readline mode): its
+    # aliases and functions are expanded as Enter does in readline mode,
+    # so `alias kd='kubectl delete'; kd ns prod` is checked as what runs.
+    if (( BASH_VERSINFO[0] < 4 )); then
+        __shellfirm_expand "$__sf_cmd"
+        __sf_cmd=${__shellfirm_expanded:-$__sf_cmd}
+    fi
+    if ! __shellfirm_check "$__sf_cmd"; then
+        __shellfirm_blocked=1
+        return 1
+    fi
+    return 0
+}
+PROMPT_COMMAND="__shellfirm_dbg_precmd${PROMPT_COMMAND:+$'\n'$PROMPT_COMMAND}"
+builtin shopt -s extdebug
+builtin trap '__shellfirm_dbg' DEBUG
+fi
+fi
+
+# `shellfirm doctor` runs this in a fresh interactive shell; run it in this
+# shell to check the live state: `__shellfirm_doctor_probe | shellfirm doctor --stdin`
+__shellfirm_doctor_probe() {
+    builtin printf 'shell=bash\nshell_version=%s\nhook_version=%s\npid=%s\n' "$BASH_VERSION" "$__shellfirm_hook_version" "$$"
+    if [[ ( -o emacs || -o vi ) && ${BASH_VERSINFO[0]:-0} -ge 4 ]]; then
+        local __sf_bad __sf_first="" __sf_e
+        if [[ -z $__shellfirm_legacy_checked ]]; then
+            # A new shell (`shellfirm doctor`): what its first prompt does,
+            # PROMPT_COMMAND included (a plugin can rebind Enter there, after
+            # shellfirm's look; the first command would then not be checked).
+            {
+                if [[ $(builtin declare -p PROMPT_COMMAND 2>/dev/null) == "declare -a"* ]]; then
+                    for __sf_e in "${PROMPT_COMMAND[@]}"; do builtin eval "$__sf_e"; done
+                else
+                    builtin eval "${PROMPT_COMMAND-}"
+                fi
+            } >/dev/null 2>&1
+            __sf_first=$(__shellfirm_unbound_keys)
+        fi
+        # What the next prompt does: Enter rebound after shellfirm loaded is
+        # wrapped again.
+        __shellfirm_check_bindings 2>/dev/null
+        __sf_bad=$(__shellfirm_unbound_keys)
+        if [[ -n $__sf_first ]]; then
+            builtin printf 'mode=readline\nenter=%s (rebound at the first prompt by a PROMPT_COMMAND entry that runs after shellfirm looks: the first command of a new shell is not checked)\n' "${__sf_first# }"
+        else
+            builtin printf 'mode=readline\nenter=%s\n' "${__sf_bad:-ok}"
+        fi
+        if [[ $(builtin bind -m emacs -q operate-and-get-next 2>/dev/null) == *'"\C-o"'* ]]; then
+            builtin printf 'ctrl_o=unchecked\n'
+        else
+            builtin printf 'ctrl_o=ok\n'
+        fi
+    else
+        builtin printf 'mode=debug-trap\nenter=n/a\n'
+    fi
+    [[ "${PROMPT_COMMAND[*]} ${precmd_functions[*]}" == *__shellfirm_precmd* || "${PROMPT_COMMAND[*]}" == *__shellfirm_dbg_precmd* ]] \
+        && builtin printf 'precmd=ok\n' || builtin printf 'precmd=missing\n'
+    [[ $(builtin type -t fc) == function && $(builtin declare -f fc) == *__shellfirm_fcedit* ]] \
+        && builtin printf 'fc=ok\n' || builtin printf 'fc=unchecked\n'
+    if [[ $(builtin enable -n -p 2>/dev/null) == *"enable -n fc"* ]]; then
+        if [[ $(builtin declare -f command_not_found_handle 2>/dev/null) == *'\fc "$@"'* ]]; then
+            builtin printf 'fc_builtin=off\n'
+        else
+            builtin printf 'fc_builtin=off-no-handler\n'
+        fi
+    else
+        builtin printf 'fc_builtin=on\n'
+    fi
+    [[ -n $__shellfirm_rw_seen ]] && builtin printf 'rewrapped=%s\n' "${__shellfirm_rw_seen# }"
+    [[ $(builtin trap -p DEBUG) == *_shellfirm_hook* ]] && builtin printf 'legacy_hook=active\n'
+    [[ -n $__shellfirm_bypass_warned || -n ${__shellfirm_unchecked_seen:-} ]] && builtin printf 'bypass_seen=yes\n'
+    __shellfirm_wrap_plugins
+    local __sf_pl=""
+    builtin declare -F __atuin_accept_line >/dev/null && __sf_pl+=" atuin:${__shellfirm_atuin_wrapped:+checked}"
+    [[ -n ${bash_preexec_imported:-}${__bp_imported:-} ]] && __sf_pl+=" bash-preexec"
+    builtin declare -F __fzf_select__ >/dev/null && __sf_pl+=" fzf"
+    [[ -n ${BLE_VERSION:-} ]] && __sf_pl+=" ble.sh:unsupported"
+    builtin declare -F starship_precmd >/dev/null && __sf_pl+=" starship"
+    builtin printf 'plugins=%s\n' "${__sf_pl# }"
+}
+fi

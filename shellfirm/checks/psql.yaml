@@ -1,5 +1,69 @@
 - from: psql
-  test: (?i)psql.*-c\s+.*\bDROP\s
-  description: "Executing DROP commands via psql CLI."
+  test: (?i)(?:^|\s)psql\b.*\s(?:-[a-zA-Z]*c|--command)(?:=|\s+|)['"]?\s*DROP\s+(?:DATABASE|TABLE|SCHEMA|OWNED|TABLESPACE)\b
+  description: "This runs a DROP DATABASE/TABLE/SCHEMA statement through psql."
   id: psql:drop
   severity: Critical
+- from: psql
+  test: (?:^|\s)dropdb\s+\S
+  description: "dropdb permanently deletes a PostgreSQL database."
+  id: psql:dropdb
+  severity: Critical
+- from: psql
+  test: (?:^|\s)pg_restore\s+(?:\S+\s+)*?(?:--clean|-c)(?:\s|$)
+  description: "pg_restore --clean drops the database objects before recreating them from the dump."
+  id: psql:pg_restore_clean
+  severity: Medium
+- from: psql
+  test: (?:^|\s)dropuser\s+\S
+  description: "dropuser removes a PostgreSQL role; applications and people using it lose access."
+  id: psql:dropuser
+  severity: High
+  filters:
+    - type: NotMatches
+      value: (?:^|\s)dropuser\s+(?:--help|-\?|--version|-V)(?:\s|$)
+- from: psql
+  test: (?:^|\s)pg_ctl\s+(?:\S+\s+)*?(?:stop|restart)\b.*(?:-m\s*|--mode[=\s]+)i(?:mmediate)?\b
+  description: "pg_ctl stop -m immediate aborts the server without a clean shutdown (crash recovery on the next start, connections are cut)."
+  id: psql:pg_ctl_immediate
+  severity: High
+  alternative: "pg_ctl stop -m fast -D <datadir>"
+  alternative_info: "Fast mode rolls back open transactions and shuts down cleanly."
+- from: psql
+  test: (?:^|\s)pg_reset(?:wal|xlog)\s+\S
+  description: "pg_resetwal rewrites the write-ahead log; it can leave the database corrupted and is a last-resort recovery tool."
+  id: psql:pg_resetwal
+  severity: Critical
+  filters:
+    - type: NotMatches
+      value: (?:^|\s)(?:-n|--dry-run|--help|-\?|--version|-V)(?:\s|$)
+- from: psql
+  test: (?:^|\s)pg_dropcluster\s+\S
+  description: "pg_dropcluster deletes a PostgreSQL cluster: its data directory and every database in it."
+  id: psql:pg_dropcluster
+  severity: Critical
+  filters:
+    - type: NotMatches
+      value: (?:^|\s)pg_dropcluster\s+(?:--help|-h)(?:\s|$)
+# psql `\gexec` runs every value a query returns as a new statement: the
+# standard "generate DROP/TRUNCATE for every table" one-liner. The
+# statements it runs are not visible here (`shellfirm wrap psql` asks too).
+- from: psql
+  test: (?is)^\s*(?:(?:\S*/)?psql\b.*|(?:SELECT|WITH|TABLE|VALUES)\b.*[\s\x01;)])\\gexec\b
+  description: "\\gexec runs every value the query returns as a new SQL statement; those statements are not checked."
+  id: psql:gexec
+  severity: Medium
+- from: psql
+  test: (?:^|\s)pgbench\s+(?:\S+\s+)*?(?:-i|--initialize|-i\S+)(?:\s|$)
+  description: "pgbench -i drops and recreates the pgbench_* tables (pgbench_accounts, pgbench_branches, ...) in the target database."
+  id: psql:pgbench_initialize
+  severity: Medium
+- from: psql
+  test: (?:^|\s)patronictl\b.*\sremove(?:\s|$)
+  description: "patronictl remove deletes the cluster's state from the DCS (leader key, members, configuration): Patroni loses track of the cluster."
+  id: psql:patronictl_remove
+  severity: High
+- from: psql
+  test: (?:^|\s)patronictl\b.*\s(?:failover|switchover)\b.*\s--force(?:\s|$)
+  description: "patronictl failover/switchover --force changes the primary without asking; connections to the old primary are cut."
+  id: psql:patronictl_failover_force
+  severity: Medium

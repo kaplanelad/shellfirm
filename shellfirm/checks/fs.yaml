@@ -1,6 +1,8 @@
 - from: fs
-  test: 'rm\s{1,}(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system))(?:\s+(?:-[rRfvV]+|--(?:force|recursive|verbose|preserve-root|no-preserve-root|one-file-system)))*(?:\s+\S+)*?\s+(\*|\.{1,}|/|\.\/\*)(?:\s|$)'
-  description: "You are going to delete everything in the path."
+  # Operands are normalized by the parser first (`//` → `/`, `/home/..` → `/`,
+  # `~/` → `~`, `${HOME}` → `$HOME`, `./*` → `*`, trailing `/` dropped).
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+(?:\S+\s+)*?(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.\.?(?:/\.\.)*(?:/\*)?|\*|\.git(?:/(?:\*|objects|refs|logs|index|HEAD)(?:/\S*)?)?|/(?:home|Users)/[^/\s*]+(?:/\*)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?)(?:\s|$)'
+  description: "This deletes a critical location: the filesystem root, your home directory, a system directory, the repository, or everything in the current directory."
   id: fs:recursively_delete
   severity: Critical
   filters:
@@ -9,123 +11,341 @@
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion. Install: brew install trash (macOS) or trash-cli (Linux)."
 - from: fs
-  test: mv\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?([^\s]+)(?:\s+[^\s]+)*\s+/dev/null
-  description: "The files will be discarded and destroyed."
+  # Credentials and keys in the home directory: losing them locks you out
+  # (SSH, GPG, cloud and cluster credentials).
+  test: '^(?:rm|unlink|shred|srm)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$)'
+  description: "This deletes SSH keys, GPG keys or cloud / cluster credentials from your home directory."
+  id: fs:delete_credentials
+  severity: Critical
+  filters:
+    - type: PathExists
+      value: 1
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion, so the keys can be restored."
+- from: fs
+  # A direct child of the home directory (`~/projects`, `~/data`) or a
+  # directory outside the current one (`../webapp`).
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/[^/\s*]+|(?:\.\./)+[^/\s.][^\s]*|(?:\.\./)+\.[^/\s.][^\s]*)(?:\s|$)'
+  description: "This recursively deletes a top-level folder of your home directory (for example `~/projects` or `~/data`), or a directory outside the current one reached with `../`."
+  id: fs:recursively_delete_outside
+  severity: High
+  filters:
+    - type: PathExists
+      value: 1
+    # Package-manager caches only (`rm -rf /root/.cache` in a Dockerfile).
+    - type: NotMatches
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?(?:\s+|$))+$'
+    # zsh's completion cache (`rm -rf ~/.zcompdump*`): compinit rebuilds it.
+    - type: NotMatches
+      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  # Emitted by shellfirm when `rm -r` deletes the root of a git repository
+  # (a directory with a readable .git), by any spelling (`../webapp`,
+  # `~/projects/webapp`, `/srv/app`).
+  test: '^shellfirm-delete-repository\s'
+  description: "This recursively deletes a whole git repository, including any work that was never pushed."
+  id: fs:delete_repository
+  severity: High
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  # Emitted by shellfirm when `rm -r` deletes the `.git` directory of a
+  # repository by another spelling than `.git` (`projects/webapp/.git` from
+  # the home directory, `../.git` from a sub-directory).
+  test: '^shellfirm-delete-git-dir\s'
+  description: "This deletes the .git directory of a repository: its whole history, branches, stashes and every commit that was never pushed."
+  id: fs:delete_git_dir
+  severity: Critical
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  # Emitted by shellfirm when `mv DIR /tmp/…` moves a folder of a git
+  # repository that holds uncommitted or untracked files (or that could not
+  # be checked in time) to a scratch folder that is cleared on its own.
+  test: '^shellfirm-move-work-away\s'
+  description: "This moves a folder with work git does not have to a scratch folder that is cleared on its own."
+  id: fs:move_work_away
+  severity: High
+  alternative: "git stash push --include-untracked -- <path>"
+  alternative_info: "Keeps the uncommitted and untracked files in a stash you can bring back with `git stash pop`."
+- from: fs
+  # Emitted by shellfirm for every `context.sensitive_paths` entry the
+  # command deletes or overwrites (see `shellfirm config context paths`).
+  test: '^shellfirm-sensitive-path\s'
+  description: "This deletes or overwrites a path you marked as sensitive (context.sensitive_paths)."
+  id: fs:sensitive_path
+  severity: High
+- from: fs
+  test: (?:^|\s)mv\s+(?:-\S+\s+)*([^-\s]\S*)(?:\s+\S+)*\s+/dev/null(?:\s|$)
+  description: "Moving files to /dev/null destroys them."
   id: fs:move_to_dev_null
   severity: Critical
   filters:
     - type: PathExists
       value: 1
 - from: fs
-  test: (?:^|[^>])>([^>].*)
-  description: "The above command is used to flush the content of a file."
+  test: (?:^|\s)(?:[0-9]*|&)>\|?\s+(\S+)
+  description: "This redirection overwrites the existing file and erases its contents."
   id: fs:flush_file_content
-  severity: High
+  severity: Medium
   filters:
     - type: PathExists
       value: 1
-    - type: NotContains
-      value: ">/dev/null"
+    - type: NotMatches
+      value: '(?:^|\s)(?:[0-9]*|&)>\|?\s+/(?:dev|proc|sys)/'
+    # A fresh `mktemp` file, and truncating log files on purpose (`: >
+    # app.log`, `for f in *.log; do : > "$f"; done`) are routine.
+    - type: NotMatches
+      value: '(?:^|\s)(?:[0-9]*|&)>\|?\s+/tmp/shellfirm-mktemp\.\S*(?:\s|$)'
+    - type: NotMatches
+      value: '^(?::|true)\s+>\|?\s+\S*\.log(?:\.\d+)?(?:\s|$)'
 - from: fs
-  test: chmod\s{1,}(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(\*|\.{1,}|/)
-  description: "Change permission to all root files can brake your some thinks like SSH keys."
+  test: '(?:^|\s)chmod\s+(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.+|\*|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|Users|Library|System)(?:/\*)?|/(?:home|Users)/[^/\s]+/?\*?)(?:\s|$)'
+  description: "Recursively changing permissions on the root, home or current directory can break the system and SSH keys."
   id: fs:recursively_chmod
   severity: Critical
+  filters:
+    # Adding your own permissions, adding read access or taking write access
+    # away from others (`chmod -R u+rwX .`, `a+r`, `go-w`) on the project or
+    # the home directory repairs access; it does not break anything
+    # (fs-strict:change_permissions still reports it).
+    - type: NotMatches
+      value: '^chmod(?:\s+-\S+)*\s+(?:u+\+[rwxXst]+|[ugoa]*\+[rX]+|[go]+-[rwxXst]+)(?:,(?:u+\+[rwxXst]+|[ugoa]*\+[rX]+|[go]+-[rwxXst]+))*(?:\s+-\S+)*(?:\s+(?:\.{1,2}|\*|~|\$HOME|/(?:home|Users)/[^/\s]+)(?:/\S*)?)+$'
+    # `chmod -R 755 .` on the project: everything readable, nothing writable
+    # by others (fs-strict:change_permissions still reports it, Low).
+    - type: NotMatches
+      value: '^chmod(?:\s+-\S+)*\s+0?755(?:\s+-\S+)*\s+\.(?:/)?$'
+# Opening the SSH / GnuPG keys to other users, or locking them with 000:
+# recursively any group / other permission, on a single file any group /
+# other write. `chmod -R 700 ~/.ssh`, `go-rwx` and `chmod 644 ~/.ssh/id.pub`
+# are the right fix / normal and stay quiet.
 - from: fs
-  test: find\s.*\s-delete(\s|$)
-  description: "Did you -delete flag in the wrong order? find -delete going to delete all the file under your current path."
+  test: '(?:^|\s)chmod\s+(?:(?:-\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:-\S+\s+)*(?:0?[0-7][0-7][1-7]|0?[0-7][1-7][0-7]|0?000|(?:[ugoa]*[goa][ugoa]*)?[+=][rwxXst]+)|(?:-\S+\s+)*(?:0?[0-7][0-7][2367]|0?[0-7][2367][0-7]|0?000|(?:[ugoa]*[goa][ugoa]*)?[+=][rwxXst]*w[rwxXst]*))\s+(?:\S+\s+)*?(?:~|\$HOME|/(?:home|Users)/[^/\s]+)/\.(?:ssh|gnupg)(?:/\S*)?(?:\s|$)'
+  description: "This changes the permissions of your SSH or GnuPG keys so that other users can read them (ssh then refuses the keys), or so that nobody can."
+  id: fs:chmod_credentials
+  severity: High
+  alternative: "chmod -R go-rwx ~/.ssh"
+  alternative_info: "Keys must be readable only by you: `chmod 700 ~/.ssh` and `chmod 600` for the files in it."
+
+# find -delete: without a name/time/size filter it deletes everything under
+# the starting point. find evaluates its expression left to right, so a
+# filter only narrows the delete when it comes *before* `-delete`
+# (`find . -delete -name '*.log'` deletes everything). A filter on a critical root (`find / -name x -delete`)
+# is still critical; a filtered delete elsewhere is Medium.
+- from: fs
+  test: (?:^|\s)find\s.*\s-delete(\s|$)
+  description: "find -delete without a name, time or size filter deletes everything under the path: here the filesystem root, your home directory, a system directory, the repository or the current directory."
   id: fs:delete_find_files
   severity: Critical
+  filters:
+    - type: NotMatches
+      value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
+    # Starting point: `.`, `..`, `~`, `/`, a system or home directory, `.git`,
+    # a glob or a variable. A named subdirectory is fs:delete_find_files_dir.
+    - type: Matches
+      value: '(?:^|\s)find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/\*?|~(?:/[^/\s]+)?|\$HOME(?:/[^/\s]+)?|\.\.?(?:/\S*)?|\*|\.git(?:/\S*)?|\$\{?\w+\}?\S*|\{\}|/(?:home|Users)/[^/\s]+(?:/[^/\s]+)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/[^/\s]+)?)(?:\s|$)'
   alternative: "find <path> -name '<pattern>' -print"
   alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
 - from: fs
-  test: 'dd\s+.*of=/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+)'
-  description: "Are you sure you want to write directly to a block device? This could overwrite your disk."
+  # `find build -mindepth 1 -delete`, `find dist -type f -delete`: emptying a
+  # named directory, like `rm -rf build/*`.
+  test: (?:^|\s)find\s.*\s-delete(\s|$)
+  description: "find -delete without a name, time or size filter deletes every file under the given directory."
+  id: fs:delete_find_files_dir
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
+    - type: NotMatches
+      value: '(?:^|\s)find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/\*?|~(?:/[^/\s]+)?|\$HOME(?:/[^/\s]+)?|\.\.?(?:/\S*)?|\*|\.git(?:/\S*)?|\$\{?\w+\}?\S*|\{\}|/(?:home|Users)/[^/\s]+(?:/[^/\s]+)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/[^/\s]+)?)(?:\s|$)'
+  alternative: "find <path> -name '<pattern>' -print"
+  alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
+- from: fs
+  test: '^find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))\s(?:.*\s)?-delete(?:\s|$)'
+  description: "find -delete under the filesystem root, your home directory or a system directory deletes every matching file there."
+  id: fs:delete_find_files_critical_root
+  severity: Critical
+  filters:
+    # The unfiltered form is covered by fs:delete_find_files.
+    - type: Matches
+      value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
+  alternative: "find <path> -name '<pattern>' -print"
+  alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
+- from: fs
+  test: (?:^|\s)find\s.*\s-delete(\s|$)
+  description: "find -delete permanently deletes every file matching the filter."
+  id: fs:delete_find_files_filtered
+  severity: Medium
+  filters:
+    - type: Matches
+      value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
+    - type: NotMatches
+      value: '^find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))(?:\s|$)'
+  alternative: "find <path> -name '<pattern>' -print"
+  alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
+- from: fs
+  # Any block device: local (`sda`, `nvme0n1`), cloud (`xvdf`, `vdb`), RAID,
+  # device-mapper / LVM (`mapper/vg-data`, `vg/lv`) and stable names
+  # (`disk/by-id/…`).
+  test: '(?:^|\s)dd\s+(?:\S+\s+)*?of=(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Writing directly to a block device can overwrite the whole disk."
   id: fs:dd_block_device
   severity: Critical
+  filters:
+    # Pseudo files under /dev that are not disks.
+    - type: NotMatches
+      value: 'of=/dev/(?:fd|pts|shm|tcp|udp|std(?:in|out|err)|mqueue|hugepages|net)/'
 - from: fs
-  test: 'mkfs(?:\.(?:ext[2-4]|fat|vfat|ntfs|xfs|btrfs))?\s+(?:-t\s+\w+\s+)?/dev/([hs]d[a-z][0-9]*|mmcblk[0-9]p?[0-9]*|nvme[0-9]+n[0-9]+(?:p[0-9]+)?)'
-  description: "Are you sure you want to format this device? This will erase all data on it."
+  # Any options before the device (`-F`, `-L data`, `-t xfs`) and any block
+  # device name (see fs:dd_block_device).
+  test: '(?:^|\s)(?:mkfs(?:\.\w+)?|mke2fs|mkswap)\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Formatting a device erases all data on it."
   id: fs:mkfs_format
   severity: Critical
+  filters:
+    # `mkfs.ext4 -n` / `mke2fs -n` / `mkfs.xfs -N`: a dry run that writes nothing.
+    - type: NotMatches
+      value: '(?:^|\s)(?:mkfs\.ext[2-4]|mke2fs|mkfs\.xfs)\s+(?:\S+\s+)*?-[nN](?:\s|$)'
 - from: fs
-  test: 'parted\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to modify disk partitions? This could erase all data on the disk."
+  test: '(?:^|\s)parted\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Modifying disk partitions can erase all data on the disk."
   id: fs:parted_disk_modify
   severity: Critical
 - from: fs
-  test: 'fdisk\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to modify disk partitions? This could erase all data on the disk."
+  test: '(?:^|\s)fdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Modifying disk partitions can erase all data on the disk."
   id: fs:fdisk_disk_modify
   severity: Critical
 - from: fs
-  test: 'sfdisk\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to modify disk partitions? This could erase all data on the disk."
+  test: '(?:^|\s)sfdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Modifying disk partitions can erase all data on the disk."
   id: fs:sfdisk_disk_modify
   severity: Critical
 - from: fs
-  test: 'dd\s+.*(?:conv=notrunc|seek=\d+|skip=\d+).*of=/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+)'
-  description: "Are you sure you want to write to a specific sector of the disk? This could corrupt data."
+  test: '(?:^|\s)dd\s+.*(?:conv=notrunc|seek=\d+|skip=\d+).*of=(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Writing to a specific disk sector can corrupt data."
   id: fs:dd_advanced_disk_write
   severity: Critical
 - from: fs
-  test: 'gdisk\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to modify GPT disk partitions? This could erase all data on the disk."
+  test: '(?:^|\s)gdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "Modifying GPT disk partitions can erase all data on the disk."
   id: fs:gdisk_disk_modify
   severity: Critical
 - from: fs
-  test: 'partprobe\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to inform the OS of partition table changes? This could affect mounted partitions."
+  # `sgdisk --zap-all` / `-Z` destroys the GPT and MBR, `-z` / `--zap` the
+  # GPT, `-o` / `--clear` writes a new empty partition table.
+  test: '(?:^|\s)sgdisk\s+(?:\S+\s+)*?(?:--zap-all|--zap|--clear|-[a-zA-Z]*[Zzo][a-zA-Z]*)(?:\s|$)'
+  description: "This destroys the partition table of the disk (with --zap-all also the MBR); every partition on it becomes unreachable."
+  id: fs:sgdisk_zap
+  severity: Critical
+  alternative: "sgdisk --print <device>"
+  alternative_info: "Print the partition table first and back it up with `sgdisk --backup=<file> <device>`."
+- from: fs
+  test: '(?:^|\s)blkdiscard\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
+  description: "This discards every block of the device (TRIM): the data on it is gone at once and cannot be recovered."
+  id: fs:blkdiscard
+  severity: Critical
+  alternative: "lsblk -f <device>"
+  alternative_info: "Check which filesystem and mount point the device has first."
+- from: fs
+  test: '(?:^|\s)mdadm\s+(?:\S+\s+)*?--zero-superblock(?:\s|$)'
+  description: "This erases the RAID superblock of the device: the array it belongs to can no longer be assembled from it."
+  id: fs:mdadm_zero_superblock
+  severity: Critical
+  alternative: "mdadm --examine <device>"
+  alternative_info: "Check which array the device belongs to first."
+- from: fs
+  test: '(?:^|\s)partprobe\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
+  description: "Re-reading the partition table can affect mounted partitions."
   id: fs:partprobe_disk_update
   severity: High
 - from: fs
-  test: 'blockdev\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to modify block device parameters? This could affect disk operations."
+  test: '(?:^|\s)blockdev\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
+  description: "Changing block device parameters can affect disk operations."
   id: fs:blockdev_disk_modify
   severity: High
 - from: fs
-  test: 'mount\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to mount this device? This could affect system stability."
+  test: '(?:^|\s)mount\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
+  description: "Mounting a raw block device can affect system stability."
   id: fs:mount_operations
   severity: High
 - from: fs
-  test: '(?:sudo\s+)?(?:lvremove|pvremove|vgremove)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
-  description: "Are you sure you want to remove this logical volume/volume group? This will delete all data."
+  test: '(?:^|\s)(?:sudo\s+)?(?:lvremove|pvremove|vgremove)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
+  description: "Removing a logical volume, physical volume or volume group deletes all of its data."
   id: fs:lvm_operations
   severity: Critical
 - from: fs
-  test: '(?:dump|restore)\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to backup/restore this filesystem? This could affect system stability."
+  test: '(?:^|\s)(?:dump|restore)\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
+  description: "Dumping or restoring a raw filesystem device can affect system stability."
   id: fs:filesystem_backup
   severity: High
 - from: fs
-  test: 'cryptsetup\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
-  description: "Are you sure you want to encrypt/decrypt this device? This could affect data accessibility."
+  test: '(?:^|\s)cryptsetup\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
+  description: "Encrypting or reformatting a device with cryptsetup can make its data inaccessible."
   id: fs:encryption_operations
   severity: Critical
 - from: fs
-  test: chmod\s
-  description: "Are you sure that you want to change permissions?"
+  test: (?:^|\s)chmod\s
+  description: "This changes file permissions."
   id: fs-strict:change_permissions
-  severity: Medium
+  severity: Low
+  filters:
+    # Making one file executable or giving it the usual mode (`chmod +x
+    # deploy.sh`, `chmod u+x run`, `chmod 644 notes.txt`) is routine: no
+    # prompt for a single file outside the system directories, your home
+    # itself and dot directories (`~/.ssh`).
+    - type: NotMatches
+      value: '^chmod\s+(?:[ugoa]*\+[rx]+|u[+=][rwx]+|0?(?:644|755|600|700|640|750))\s+(?:(?:\./)?[^\s/~$.*\-][^\s*]*|(?:~|\$HOME|/tmp)/[^.\s*][^\s*]*)$'
+    # Taking write access away from group / others (`chmod go-w f`, the
+    # oh-my-zsh `compaudit | xargs chmod g-w,o-w` fix) only tightens
+    # permissions. A recursive change on / or a system directory is still
+    # fs:recursively_chmod.
+    - type: NotMatches
+      value: '(?:^|\s)chmod(?:\s+-\S+)*\s+[go]+-w+(?:,[go]+-w+)*(?:\s|$)'
 - from: fs
-  test: ^(?:sudo\s+)?rm\s{1,}(?:-Rf|-rf|-fR|-fr|-r|-R|-f)?\s*(.*)\r?
-  description: "Are you sure you want to continue with deletion?"
+  test: ^rm\s+(.+)$
+  description: "This permanently deletes the given files."
   id: fs-strict:any_deletion
+  severity: Low
+  filters:
+    - type: PathExists
+      value: 1
+    # Recursive deletes are covered by fs-strict:recursive_deletion.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s|$)'
+    # zsh's completion cache (`rm -f ~/.zcompdump*`): compinit rebuilds it.
+    - type: NotMatches
+      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+- from: fs
+  test: '^rm\s+((?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s.*)?)$'
+  description: "This recursively deletes the given files or directories, with everything inside them."
+  id: fs-strict:recursive_deletion
   severity: Medium
   filters:
     - type: PathExists
       value: 1
+    # Package-manager caches (the Dockerfile `rm -rf /var/lib/apt/lists/*`
+    # idiom), a `.cache` directory and top-level named entries of /tmp: only
+    # regenerable / throwaway files, when every operand is one of them.
+    - type: NotMatches
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:(?:\./)?\.cache|/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?|/tmp/[^\s/*?]+|/var/tmp/[^\s/*?]+)(?:\s+|$))+$'
+    # zsh's completion cache (`rm -rf ~/.zcompdump*`): compinit rebuilds it.
+    - type: NotMatches
+      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
 - from: fs
-  test: rmdir\s+(.*)\s*
-  description: "Are you sure you want to continue with deletion?"
+  test: (?:^|\s)rmdir\s+(.*)\s*
+  description: "This deletes the given directory."
   id: fs-strict:folder_deletion
   severity: Medium
   filters:
     - type: PathExists
       value: 1
 - from: fs
-  test: rsync\s+.*--delete(\s|$)
+  test: (?:^|\s)rsync\s+.*--delete(\s|$)
   description: "Syncs with deletion — removes files at destination not present in source."
   id: fs:rsync_delete
   severity: High
@@ -137,19 +357,197 @@
     - type: NotContains
       value: "-n"
 - from: fs
-  test: chown\s{1,}(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(\*|\.{1,}|/)
-  description: "Recursive ownership change on root or wildcard can break system files and SSH keys."
+  # Same targets as fs:recursively_chmod, plus a home directory by its absolute
+  # path and its `.ssh` / `.gnupg` (`chown -R dev ./src` and
+  # `chown -R dev /home/dev/project` are fine).
+  test: '(?:^|\s)chown\s+(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|(?:~|\$HOME)/\.(?:ssh|gnupg)\S*|\.+|\*|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|Users|Library|System)(?:/\*)?|/(?:home|Users)/[^/\s]+(?:/\*?|/\.(?:ssh|gnupg)\S*)?)(?:\s|$)'
+  description: "Recursively changing the owner of the root, home or current directory, a system directory or your SSH keys can break the system and lock you out."
   id: fs:recursively_chown
   severity: Critical
+  filters:
+    # Taking ownership of your own project or home directory (`sudo chown -R
+    # $USER .` after a `sudo npm install`, `chown -R dev:dev ~/projects/webapp`,
+    # `sudo chown -R $(whoami) ~`): your own user, written as
+    # `$USER`, `$LOGNAME`, `$(whoami)` or `$(id -u)`. Your home's dot
+    # directories (`~/.ssh`) and other users' homes stay critical.
+    - type: NotMatches
+      value: '^chown(?:\s+-\S+)*\s+(?:\$\{?(?:USER|LOGNAME)\}?|\$\(whoami\)|\$\(id\s+-u?n?\))(?:[:.]\S*)?(?:\s+-\S+)*(?:\s+(?:\.|\*|(?:~|\$HOME|\$\{HOME\})/?|(?:~|\$HOME|\$\{HOME\}|/(?:home|Users)/[^/\s]+)/[^.\s]\S*))+$'
 - from: fs
-  test: shred\s+
+  test: (?:^|\s)shred\s+
   description: "Shred overwrites file data at the block level, making recovery impossible unlike rm."
   id: fs:shred
   severity: High
   alternative: "rm <file>"
   alternative_info: "Regular rm only unlinks the file. Use shred only when you truly need irrecoverable deletion."
 - from: fs
-  test: truncate\s+.*-s\s*0\s
-  description: "This command will zero out a file, permanently erasing its contents."
+  test: (?:^|\s)truncate\s+(?:\S+\s+)*?-s\s*0\s+(?:\S+\s+)*?([^-\s]\S*)
+  description: "This truncates the file to zero bytes and erases its contents."
   id: fs:truncate_zero
   severity: High
+  filters:
+    # A file that does not exist is only created (empty).
+    - type: PathExists
+      value: 1
+    # Emptying log files, like `: > app.log`.
+    - type: NotMatches
+      value: '^truncate\s+(?:-\S+\s+)*-s\s*0\s+(?:\S+\.log(?:\.\d+)?(?:\s+|$))+$'
+- from: fs
+  # `{}` is the parser's placeholder for arguments that come from another
+  # command (xargs input, a filtered find -exec). A bare variable target is
+  # unverifiable: when it is empty or unset the command deletes `/` or `.`.
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?(\{\}|/?\$\{?\w+\}?(?:/\*?)?)(?:\s|$)'
+  description: "The deletion target comes from a variable, from another command's output (xargs, find -exec) or from a link created earlier on the line, so it cannot be verified. An empty variable, unexpected input or a link to an important directory deletes far more than intended."
+  id: fs:recursive_delete_unknown_target
+  severity: High
+  filters:
+    # $HOME is a known critical target (fs:recursively_delete).
+    - type: NotMatches
+      value: '\s\$(?:HOME|\{HOME\})(?:/\*?)?(?:\s|$)'
+  alternative: "echo <targets>"
+  alternative_info: "Print what the command would delete and review the list before deleting it."
+- from: fs
+  test: '^rm\s+(?:\S+\s+)*?(\{\})(?:\s|$)'
+  description: "This deletes files whose names come from another command's output (xargs, find -exec), so the targets cannot be verified."
+  id: fs:delete_unknown_target
+  severity: Medium
+  filters:
+    # Recursive deletes are covered by fs:recursive_delete_unknown_target.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s|$)'
+- from: fs
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?((?:~|\$HOME)/\S+/\*)(?:\s|$)'
+  description: "This deletes everything inside a directory in your home folder."
+  id: fs:recursive_delete_home_glob
+  severity: High
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?(/var/lib/(?:postgresql|pgsql|mysql|mariadb|docker|containerd|mongodb|mongo|redis|etcd|elasticsearch|opensearch|cassandra|kubelet|rabbitmq|influxdb|clickhouse|couchdb|neo4j)(?:/\S*)?)(?:\s|$)'
+  description: "This deletes a database or container-engine data directory: every database, image or volume stored there is lost."
+  id: fs:recursive_delete_data_dir
+  severity: High
+- from: fs
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?(/[^/\s*$]+)(?:\s|$)'
+  description: "This recursively deletes a top-level directory of the filesystem."
+  id: fs:recursive_delete_top_level_dir
+  severity: High
+  filters:
+    # System directories are covered by fs:recursively_delete (Critical).
+    - type: NotMatches
+      value: '\s/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?(?:\s|$)'
+- from: fs
+  # A system file (any write), or a shell startup file replaced (`>`,
+  # `tee` without `-a`); appending to a startup file is
+  # fs:append_shell_startup_file.
+  test: '(?:(?:^|\s)\d*(?:>>?|>\||&>>?)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?)(/etc/\S+|/boot/\S+|/usr/\S+|/s?bin/\S+|/lib(?:64)?/\S+|/System/\S+)(?:\s|$)|(?:(?:^|\s)\d*(?:>|>\||&>)\s+|(?:^|\s)tee\s+(?:(?:-[b-zA-Z]\S*|--[b-z]\S*|[^-\s]\S*)\s+)*?)((?:~|\$HOME)/\.(?:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
+  description: "This writes to a system file or replaces a shell startup file. Overwriting it can break logins, networking or the whole system."
+  id: fs:overwrite_system_file
+  severity: High
+- from: fs
+  # `echo 'export PATH=…' >> ~/.bashrc`: a routine setup step, but it also
+  # runs on every new shell.
+  test: '(?:(?:^|\s)\d*(?:>>|&>>)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?(?:-[a-zA-Z]*a[a-zA-Z]*|--append)\s+(?:\S+\s+)*?)((?:~|\$HOME)/\.(?:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
+  description: "This appends to a shell startup file: the added lines run in every new shell."
+  id: fs:append_shell_startup_file
+  severity: Low
+- from: fs
+  # Emitted by shellfirm for an alias written to a shell startup file that
+  # makes a command run a different, destructive one (`alias ls=rm`).
+  test: '^shellfirm-startup-alias\s'
+  description: "This adds an alias to a shell startup file that makes a command run a different, destructive one (for example `ls` running `rm`) in every new shell."
+  id: fs:startup_alias_replaces_command
+  severity: High
+- from: fs
+  test: '^(?:rm|unlink)\s+(?:\S+\s+)*?(/etc/\S+|/boot/\S+|/(?:usr/)?s?bin/\S+|/usr/lib\S*/\S+|/lib(?:64)?/\S+)(?:\s|$)'
+  description: "This deletes a system file. The system may not boot or let you log in afterwards."
+  id: fs:delete_system_file
+  severity: High
+- from: fs
+  # Moving a system file or directory away (`mv /etc/passwd /tmp/`) breaks the
+  # system like deleting it. Moving something *into* /usr/local/bin is fine.
+  test: '^mv\s+(?:\S+\s+)*?(/etc(?:/\S*)?|/boot(?:/\S*)?|/(?:usr/)?s?bin(?:/\S*)?|/usr|/usr/lib\S*|/lib(?:64)?(?:/\S*)?|~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)\s+(?:\S+\s+)*?\S+\s*$'
+  description: "This moves a system file or directory (or your home directory) away. Programs and logins that need it break until it is moved back."
+  id: fs:move_system_file
+  severity: High
+- from: fs
+  # Moving the credential directories away (`mv ~/.ssh /tmp/`) or into an
+  # archive that deletes them (`zip -rm x.zip ~/.ssh`).
+  test: '^(?:mv\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)\s+(?:\S+\s+)*?\S+\s*$|zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$))'
+  description: "This moves SSH keys, GPG keys or cloud / cluster credentials out of your home directory (or into an archive that deletes them): logins and CLIs that use them stop working, and the copy may be readable elsewhere."
+  id: fs:move_credentials
+  severity: High
+- from: fs
+  # `zip -m` / `zip -rm` deletes the files it adds.
+  test: '(?:^|\s)zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)\s'
+  description: "zip -m deletes the original files after adding them to the archive."
+  id: fs:zip_move
+  severity: Medium
+- from: fs
+  test: '^(?:cp(?:\s+-\S+)*|ln(?:\s+-\S+)*\s+-[a-zA-Z]*f[a-zA-Z]*(?:\s+-\S+)*)\s+/dev/(?:null|zero)\s+(\S+)(?:\s|$)'
+  description: "This replaces the file with /dev/null and erases its contents."
+  id: fs:clobber_with_dev_null
+  severity: High
+  filters:
+    - type: PathExists
+      value: 1
+- from: fs
+  test: '(?:^|\s)chmod\s+(?:-\S+\s+)*\S+\s+(/|~|\$HOME|/(?:etc|usr|bin|sbin|boot|home|root|var|lib|lib64|System|Users|Library))(?:\s|$)'
+  description: "Changing permissions of the root, home or a system directory can lock you out and break SSH and system services."
+  id: fs:chmod_critical_location
+  severity: High
+  filters:
+    # The recursive form is covered by fs:recursively_chmod.
+    - type: NotMatches
+      value: '\s(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)(?:\s|$)'
+- from: fs
+  test: '^watch\s+(?:\S+\s+)*?(?:sudo\s+)?rm\s'
+  description: "watch runs this deletion again and again, every interval."
+  id: fs:watch_repeated_delete
+  severity: Medium
+- from: fs
+  # Only the code argument (`-c` / `-e` / `--eval` / `-r` / `deno eval`; a
+  # program read from stdin is matched as `-c`), not file names or test
+  # filters (`python3 -m pytest tests/test_rmtree.py -k rm_rf`).
+  test: '^(?:python[0-9.]*|perl|ruby|node|nodejs|bun|deno|php|tsx|ts-node)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[ceE]|-[pr]|--eval|--print|eval)(?:\s+|=)\S*(?:rmtree|rm_rf|rm_r\b|remove_tree|rmSync|rmdirSync|unlinkSync|os\.remove|os\.unlink|os\.rmdir|os\.removedirs|\bunlink\s*\(|FileUtils\.rm|File\.delete)'
+  description: "This inline script deletes files or directories."
+  id: fs:interpreter_inline_delete
+  severity: Medium
+- from: fs
+  test: (?:^|\s)wipefs\s+(?:\S+\s+)*?(?:-[a-zA-Z]*a[a-zA-Z]*|--all|-o|--offset)(?:\s|$|=)
+  description: "This erases the filesystem / partition-table signatures of a device, making its data unreachable."
+  id: fs:wipefs
+  severity: Critical
+- from: fs
+  test: (?:^|\s)umount\s+(?:\S+\s+)*?(?:-l|--lazy|-[a-zA-Z]*l[a-zA-Z]*)(?:\s|$)
+  description: "A lazy unmount detaches the filesystem while programs still use it; writes in flight can be lost."
+  id: fs:umount_lazy
+  severity: Medium
+- from: fs
+  test: '(?:^|\s)(?:zfs\s+(?:\S+\s+)*?destroy|zpool\s+(?:\S+\s+)*?destroy)\s'
+  description: "This destroys a ZFS dataset / pool and all of its data and snapshots."
+  id: fs:zfs_destroy
+  severity: High
+- from: fs
+  # A recursive owner / mode change in a data or service directory
+  # (`/var/lib/postgresql`, `/srv/www`, `/opt/app`) breaks the service that
+  # owns it.
+  test: '(?:^|\s)(?:chown|chgrp|chmod)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?(/(?:var/lib|var/www|var/log|srv|opt|etc|usr)/[^\s]+)(?:\s|$)'
+  description: "This recursively changes the owner or permissions of a system data / service directory: the service that owns it can stop working."
+  id: fs:recursive_owner_change_system_dir
+  severity: High
+- from: fs
+  # `cp -r /tmp/evil/. ~/`: the contents of a directory copied over the home
+  # directory replace its dotfiles (shell startup files, `.ssh`).
+  test: '(?:^|\s)cp\s+(?:\S+\s+)*?-[a-zA-Z]*[rRa][a-zA-Z]*\s+(?:\S+\s+)*?\S+/(?:\.|\*|\.\*)\s+(?:~|\$HOME|/(?:home|Users)/[^/\s]+|/root)/?(?:\s|$)'
+  description: "This copies the contents of a directory over your home directory, replacing your dotfiles (shell startup files, SSH configuration)."
+  id: fs:copy_over_home
+  severity: Medium
+- from: fs
+  # `-r` destroys every snapshot (and with -R every clone) newer than the
+  # target.
+  test: '(?:^|\s)zfs\s+(?:\S+\s+)*?rollback\s+(?:\S+\s+)*?-[a-zA-Z]*[rR][a-zA-Z]*\s'
+  description: "This rolls the ZFS dataset back and destroys every later snapshot (and with -R their clones)."
+  id: fs:zfs_rollback_recursive
+  severity: High
+  alternative: "zfs list -t snapshot -o name,creation <dataset>"
+  alternative_info: "List the snapshots that would be destroyed first."
