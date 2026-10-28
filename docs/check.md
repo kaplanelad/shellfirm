@@ -49,6 +49,21 @@ Without `--exit-code` / `--fail-on`, `check` exits 0 whenever it could answer.
 | 74 | the result could not be written to stdout (e.g. disk full) |
 | 78 | `--strict`: the settings, custom checks or an applicable policy have errors or warnings (printed as `shellfirm: strict: …`); the output is unchanged. 78 replaces the decision's 10 / 11 (a deny with a configuration problem exits 78, with `exit_reason: strict`) |
 
+**Changed in 0.4.0.** shellfirm 0.3.x `check --exit-code` exited **2** for a
+risky command and printed its report on **stderr**. Now a risky command exits
+**10** (`ask`) or **11** (`deny`), **2 is a usage error**, and the report is
+on **stdout**. A script written for 0.3.x that tests for exit 2 (or reads
+stderr) lets every risky command through. Test for any non-zero exit instead:
+
+```sh
+# 0.3.x gate (lets risky commands through on 0.4)
+shellfirm check -c "$cmd" --exit-code; [ $? -eq 2 ] && exit 1
+# 0.4 gate
+shellfirm check -c "$cmd" --exit-code || exit 1      # ask or deny
+shellfirm check -c "$cmd" --fail-on high || exit 1   # High and above (a deny always fails)
+shellfirm check -c "$cmd" --format json | jq -e '.decision == "allow"' >/dev/null || exit 1
+```
+
 `--fail-on <severity>` exits non-zero only when the matched severity is at
 least `<severity>`. Deny-listed commands (settings `deny_patterns_ids` or a
 policy `deny`) always exit 11, whatever `--fail-on` says.

@@ -50,7 +50,7 @@ fn create_companion(shell: Shell, rc_path: &Path) -> Option<PathBuf> {
 /// Version of the shell hook protocol. Every hook sets it (for example
 /// `__shellfirm_hook_version=9` in bash) so `shellfirm doctor` can tell a
 /// shell that still runs an older hook.
-pub const HOOK_VERSION: &str = "13";
+pub const HOOK_VERSION: &str = "14";
 
 /// Every name `init` accepts (canonical names and binary names).
 const SHELL_NAMES: [&str; 12] = [
@@ -1882,7 +1882,7 @@ pub fn detect_installed_shells() -> Vec<Shell> {
 const BASH_HOOK: &str = r#"# shellfirm hook for bash
 if [[ $- == *i* && -z ${__shellfirm_hook_loaded:-} ]]; then
 __shellfirm_hook_loaded=1
-__shellfirm_hook_version=13
+__shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
 # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec bash`).
 builtin export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM
@@ -3632,7 +3632,7 @@ fi
 /// through a checking wrapper (an alias set at the first prompt).
 const ZSH_HOOK: &str = r#"# shellfirm hook for zsh
 if [[ -o interactive ]]; then
-typeset -g _shellfirm_hook_version=13
+typeset -g _shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
 # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec zsh`).
 export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM
@@ -4960,7 +4960,7 @@ fi
 /// (transient prompts) after the check.
 const FISH_HOOK: &str = r#"# shellfirm hook for fish
 if status is-interactive
-    set -g __shellfirm_hook_version 13
+    set -g __shellfirm_hook_version 14
     # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
     # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec fish`).
     set -gx SHELLFIRM_HOOK_PID $fish_pid
@@ -6009,7 +6009,7 @@ $env.config.hooks.pre_prompt = ($env.config.hooks.pre_prompt | append {||
 })"#;
 
 const POWERSHELL_HOOK: &str = r#"# shellfirm hook for PowerShell
-$global:__shellfirm_hook_version = 13
+$global:__shellfirm_hook_version = 14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
 $env:SHELLFIRM_HOOK_PID = "$PID"
 Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
@@ -6750,7 +6750,7 @@ if not getattr(_sf_builtins, "_shellfirm_xonsh_loaded", False):
 
 /// Oils (OSH/YSH): DEBUG trap + history (no `bind -x` in Oils).
 const OILS_HOOK: &str = r#"# shellfirm hook for Oils (OSH/YSH)
-__shellfirm_hook_version=13
+__shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
 export SHELLFIRM_HOOK_PID=$$
 __shellfirm_ready=""

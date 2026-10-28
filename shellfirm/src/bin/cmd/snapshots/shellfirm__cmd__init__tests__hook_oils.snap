@@ -3,7 +3,7 @@ source: shellfirm/src/bin/cmd/init.rs
 expression: shell.hook()
 ---
 # shellfirm hook for Oils (OSH/YSH)
-__shellfirm_hook_version=13
+__shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook.
 export SHELLFIRM_HOOK_PID=$$
 __shellfirm_ready=""

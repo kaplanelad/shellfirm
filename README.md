@@ -68,6 +68,11 @@ This adds:
 - **Hooks** — every Bash command is checked before execution; risky commands are blocked
 - **MCP** — Claude can call shellfirm tools to explain risks and suggest alternatives
 
+Safe commands get no answer from the hook, so Claude Code's own permission
+rules decide whether it asks you (the shellfirm 0.3.10 hook approved them
+outright). After upgrading from 0.3.10, re-run `shellfirm connect
+claude-code`; see [Upgrading from 0.3.10](CHANGELOG.md#upgrading-from-0310).
+
 ### MCP Tools
 
 | Tool | Description |
@@ -81,7 +86,7 @@ This adds:
 
 ## Installation
 
-Upgrading from 0.3.10? Read [Upgrading from 0.3.10](CHANGELOG.md#upgrading-from-0310): restart your shells, re-run `shellfirm connect <agent>`, and check the new exit codes.
+Upgrading from 0.3.10? Upgrading the package only replaces the binary. Read [Upgrading from 0.3.10](CHANGELOG.md#upgrading-from-0310): restart your shells, re-run `shellfirm init <shell>` for elvish, xonsh and nushell and `shellfirm connect <agent>` for each agent, fix CI scripts for the new exit codes, and enable the new default groups (`shellfirm status` shows the command).
 
 ### npm
 

@@ -1424,6 +1424,33 @@ impl Settings {
     pub const fn get_active_groups(&self) -> &Vec<String> {
         &self.enabled_groups
     }
+
+    /// Default groups (see [`DEFAULT_ENABLED_GROUPS`]) these settings leave
+    /// off: missing from `enabled_groups` or listed in `disabled_groups`.
+    /// Empty for the default settings.
+    #[must_use]
+    pub fn default_groups_not_enabled(&self) -> Vec<&'static str> {
+        DEFAULT_ENABLED_GROUPS
+            .iter()
+            .copied()
+            .filter(|g| {
+                !self.enabled_groups.iter().any(|e| e == g)
+                    || self.disabled_groups.iter().any(|d| d == g)
+            })
+            .collect()
+    }
+}
+
+/// The command that enables `groups`
+/// (`shellfirm config groups --enable a --enable b`).
+#[must_use]
+pub fn enable_groups_command(groups: &[&str]) -> String {
+    let mut cmd = String::from("shellfirm config groups");
+    for g in groups {
+        cmd.push_str(" --enable ");
+        cmd.push_str(g);
+    }
+    cmd
 }
 
 /// Read-only view of settings with per-mode overrides resolved.
@@ -2692,6 +2719,43 @@ mod test_config {
         assert_eq!(settings.challenge, DEFAULT_CHALLENGE);
         assert_eq!(settings.enabled_groups, default_enabled_groups());
         assert!(settings.audit_enabled);
+    }
+
+    #[test]
+    fn default_groups_not_enabled_lists_missing_and_disabled_defaults() {
+        assert!(Settings::default().default_groups_not_enabled().is_empty());
+        // An explicit list without some default groups (as saved by an
+        // older release), plus a group turned off with `--disable`.
+        let mut enabled: Vec<String> = default_enabled_groups()
+            .into_iter()
+            .filter(|g| g != "shell" && g != "exfil")
+            .collect();
+        enabled.push("my_team".into());
+        let s = parse_settings_strict(
+            &serde_yaml::to_string(&serde_yaml::Mapping::from_iter([
+                (
+                    "enabled_groups".into(),
+                    serde_yaml::to_value(&enabled).unwrap(),
+                ),
+                (
+                    "disabled_groups".into(),
+                    serde_yaml::to_value(["docker"]).unwrap(),
+                ),
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            s.default_groups_not_enabled(),
+            vec!["docker", "exfil", "shell"]
+        );
+        let s = parse_settings_strict("enabled_groups: [git, fs]\n").unwrap();
+        let missing = s.default_groups_not_enabled();
+        assert!(!missing.contains(&"git") && missing.contains(&"aws"));
+        assert_eq!(
+            enable_groups_command(&["shell", "exfil"]),
+            "shellfirm config groups --enable shell --enable exfil"
+        );
     }
 
     #[test]

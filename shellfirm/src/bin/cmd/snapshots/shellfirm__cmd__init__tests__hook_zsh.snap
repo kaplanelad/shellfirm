@@ -4,7 +4,7 @@ expression: shell.hook()
 ---
 # shellfirm hook for zsh
 if [[ -o interactive ]]; then
-typeset -g _shellfirm_hook_version=13
+typeset -g _shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
 # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec zsh`).
 export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM

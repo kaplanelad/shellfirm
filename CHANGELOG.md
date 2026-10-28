@@ -10,96 +10,97 @@ command reports problems instead of hiding them. Read
 
 ### Upgrading from 0.3.10
 
-1. **Restart your shells.** The shell hooks changed (`HOOK_VERSION` 13). A
-   new shell picks them up automatically (`eval "$(shellfirm init <shell>)"`);
-   in a shell that is already open run `exec $SHELL`. Re-running
-   `shellfirm init` is safe (it changes nothing that is already set up). If
-   you only use the shell hook (no AI agent, no project policy), this is all
-   you need to do. In zsh without `setopt interactivecomments` (zsh's
-   default; oh-my-zsh turns it on) and in bash with `shopt -u
-   interactive_comments`, `#` in a typed line is not a comment but an
-   argument, and it is now checked as one: a line with a `#` may be prompted.
-2. **Re-run `shellfirm connect <agent>` for each agent you connected**
-   (`claude-code`, `cursor`, …; Cursor gains a `preToolUse` hook only this
-   way). It upgrades the hook in place and writes a backup first. It adds the
-   `PowerShell|Monitor` and `Write|Edit|MultiEdit|NotebookEdit` matchers,
-   `"timeout": 30` and `"onFailure": "block"` (fail closed). The 0.3.10 hook
-   line keeps working until you do, and `shellfirm status` reports it as a
-   legacy hook. Restart running agent sessions afterwards. `status` shows
-   `fail-closed no` for Cursor, and that is expected: Cursor's `failClosed`
-   treats shellfirm's silent answer for a safe command as a failure and would
-   block every command, so `connect cursor` leaves it off (and removes it from
-   older shellfirm hooks). If the Cursor hook itself fails or times out,
-   Cursor runs the command, as Claude Code does for a hook connected with
-   `--no-fail-closed` (for Claude Code before 2.1.295).
-3. **`shellfirm check` prints its report on stdout** (it used to print on
-   stderr). Scripts that read the text from stderr should read stdout, or use
-   `--format json`.
-4. **New exit codes.**
-   - `check` and `policy validate`: 74 when the result cannot be written (a
-     full disk).
-   - `check --strict`: 78 when the settings, custom checks or an applicable
-     policy have errors or warnings. It replaces the decision's 10 / 11.
-   - `pre-command`: 3 after a passed challenge, only when the caller sets
-     `SHELLFIRM_SIGNAL_PROMPTED=1`. The shell hooks set it for each call
-     (bash, zsh, fish, elvish) and accept exit 3 in every shell; do not export
-     `SHELLFIRM_SIGNAL_PROMPTED` in your shell profile or environment.
-   - `pre-command`: 74 when there is no terminal to ask on (blocked, fail
-     closed).
-   - Usage errors in `config` setters (`config impact-budget abc`, `config
-     challenge Foo`, an unknown check id) exit 2, like every other usage
-     error.
-   - The full table for `check`: [Exit codes](docs/check.md#exit-codes).
-5. **New settings and defaults** (the settings file stays sparse; no
-   migration is needed):
-   - `approved_notice` (default on) prints `✓ approved — running: <command>`
-     after a passed challenge. Change it with `shellfirm config
-     approved-notice on|off`.
-   - `blast_radius_budget_ms` (default 400, at most 5000) is the total time
-     spent measuring a command's impact before the prompt. Change it with
-     `shellfirm config impact-budget <ms>`; `0` turns the measurement off (the
-     one switch: the TUI toggle writes it too, and a non-zero budget clears an
-     older `blast_radius: false`).
-   - `shellfirm status` and `shellfirm config show` show both.
-   - Before a slow measurement you may briefly see `shellfirm: checking
-     impact… (Ctrl-C cancels)` (or `shellfirm: checking <file>…` while a SQL
-     file is read); it is erased before the warning and never shown under
-     `TERM=dumb`.
-   - The `shell` check group (remote scripts: `curl … | bash`, a downloaded
-     script run on the same line) is on by default: a `curl … | sh` install
-     line now asks first. Download the script, read it, and run it in a
-     separate command, or approve the prompt.
-   - New rules prompt where 0.3.10 was silent, among them the database and
-     platform rules (migration and ORM resets, MySQL `DELETE IGNORE`, `SET
-     SQL_SAFE_UPDATES = 0`, Supabase, Firebase, Cloudflare D1 / KV / R2,
-     Neon, PlanetScale, Turso and Railway deletes, SQL run through `heroku
-     run` / `heroku pg:psql --command` / `fly ssh console -C`), `terraform
-     apply <planfile>`, and disk tools on cloud device names (`mkfs -t xfs
-     /dev/xvdf`). See Added and Fixed. A CI job that runs `check --fail-on
-     high` may now fail on them.
-   - A SQL file over about 6 MB given to a client (`psql -f F`) can be Medium
-     (`database:sql_from_file`, `took too long to check`) at the default
-     400 ms budget instead of its real severity. Raise the budget (`shellfirm
-     config impact-budget 2000`) or run the client through `shellfirm wrap`.
-6. **JSON consumers:** `check --format json` has `"allowed": true` only for
-   `decision: allow` (key on `decision`), and `schema_version` is 2. The new
-   keys `version`, `shell`, `not_applied` and `skipped_missing_paths` are
-   additive. Audit records are `schema_version: 4` (new `version` field);
-   older records stay readable.
-7. **`shellfirm init --yes`** sets the recommended Balanced level
-   (`min_severity: Medium`) when the settings do not choose a level;
-   `init --uninstall` removes a settings file it wrote.
-8. **Project and org policies:** your personal ignores
-   (`ignores_patterns_ids`, `min_severity`, a lower challenge) no longer
-   weaken a check a project or org policy enforces. Run `shellfirm policy
-   validate` in each repository that has a `.shellfirm.yaml` (it shows
-   problems and what the policy enforces).
-9. **Verify** with `shellfirm doctor`. It reports a shell that still runs an
-   old hook, and whether a new shell really routes commands through
-   shellfirm.
-10. **`shellfirm --version`** (and the `version` in JSON and audit records)
-    says `0.3.10` until the 0.4.0 release is published; that is expected for
-    a build from source before the release.
+Upgrading the package (npm, Homebrew, cargo) only replaces the binary. shellfirm
+does not migrate a 0.3.10 setup by itself: follow these steps once, then check
+the table below for what may break.
+
+1. **Restart your shells:** `exec $SHELL` in every open terminal (or open new
+   ones). New bash, zsh and fish shells load the new hook (`HOOK_VERSION` 14)
+   automatically, because the rc file only has a loader line (`eval
+   "$(shellfirm init bash)"`, `shellfirm init fish | source`). A shell that
+   was open during the upgrade keeps running the 0.3.10 hook, which still
+   checks commands, but `shellfirm doctor` in it reports `[XX] session … has
+   NOT loaded the shellfirm hook`.
+2. **elvish, xonsh and nushell users:** 0.3.10 pasted the whole hook into the
+   rc file (`rc.elv`, `.xonshrc`, `config.nu`), and that hook does not protect
+   you (see the table). Run `shellfirm init <shell>` and answer `y` (to
+   `Modify this file?`, or to `Also add the hook for: nushell, elvish, xonsh?`
+   when you run plain `shellfirm init`): it replaces the pasted hook with a
+   loader line. Then restart that shell.
+3. **Re-run `shellfirm connect <agent>` for each agent you connected**
+   (`claude-code`, `cursor`, …). It upgrades the hook in place and writes a
+   backup first (`settings.json.shellfirm-bak-<time>`). The 0.3.10 hook line
+   keeps working until you do, and `shellfirm status` shows it as
+   ``claude-code (user): hook yes, file tools no, fail-closed no, MCP no (not covered: PowerShell, Monitor) (legacy hook: re-run `shellfirm connect` to upgrade)``.
+   Restart running agent sessions afterwards.
+4. **CI scripts and git hooks that run `shellfirm check`:** a risky command now
+   exits **10** (`ask`) or **11** (`deny`), **2 is a usage error**, and the
+   report is on **stdout** (0.3.10: exit 2, report on stderr). A gate that
+   tests for exit 2 lets every risky command through. Test for any non-zero
+   exit, or use `--fail-on`:
+
+   ```sh
+   # before (0.3.10)
+   shellfirm check -c "$cmd" --exit-code; [ $? -eq 2 ] && exit 1
+   # after (0.4.0)
+   shellfirm check -c "$cmd" --exit-code || exit 1      # ask or deny
+   shellfirm check -c "$cmd" --fail-on high || exit 1   # High and above (a deny always fails)
+   ```
+
+   See [Exit codes](docs/check.md#exit-codes).
+5. **Turn on the new default groups.** Settings saved by 0.3.x list the check
+   groups of that time in `enabled_groups` (its setters wrote the whole file),
+   so the groups added since, `shell` (`curl … | bash`) and `exfil`, stay off.
+   `shellfirm status` shows them with the command to enable them:
+   ``Not enabled:         docker, exfil, shell (default groups; enable: `shellfirm config groups --enable docker --enable exfil --enable shell`)``
+   (a group you disabled yourself, `docker` here, is listed too: leave it out
+   of the command). See [Where settings live](docs/config.md#where-settings-live).
+6. **Verify** with `shellfirm doctor` (in a new shell: it checks that commands
+   really go through shellfirm; `[!!] groups` repeats step 5) and
+   `shellfirm status` (hooks, agent integrations, groups).
+
+`shellfirm --version` (and the `version` in JSON and audit records) says
+`0.3.10` until the 0.4.0 release is published; that is expected for a build
+from source before the release.
+
+#### What breaks and how to fix it
+
+The "what you see" column is real output of the 0.4.0 binary with a 0.3.10
+setup.
+
+| Change | Who is affected | What you see | Fix |
+| --- | --- | --- | --- |
+| `check` exit codes: risky = 10 (`ask`) / 11 (`deny`), 2 = usage error (0.3.10: 2 = risky) | CI jobs, pre-commit hooks and scripts that run `shellfirm check --exit-code` | `shellfirm check -c 'git push -f origin main' --exit-code` exits 11 (0.3.10: 2), so a gate that fails only on 2 passes it | Test `!= 0`, or use `--fail-on <severity>` (step 4). [Exit codes](docs/check.md#exit-codes) |
+| `check` prints its text report on stdout (0.3.10: stderr) | Scripts that read the report from stderr | stderr is empty; `1 risky pattern(s) matched:` and the rest are on stdout | Read stdout, or use `--format json`. [Exit codes](docs/check.md#exit-codes) |
+| `check --format json`: `allowed` is `true` only for `decision: allow`; `schema_version: 2`; new keys `decision`, `version`, `shell`, `not_applied`, `skipped_missing_paths` | JSON consumers | `git rebase -i HEAD~3`: `{"allowed":false,"decision":"ask","schema_version":2,"severity":"Medium"}` (0.3.10: `{"allowed":true}` with the matched rules) | Key on `decision` (`allow` / `ask` / `deny`). [JSON](docs/check.md#json---format-json) |
+| `check --strict` exits 78 when the settings, custom checks or an applicable policy have errors or warnings | CI jobs that use `--strict` | ``shellfirm: strict: invalid settings file …/settings.yaml: challenge: unknown variant `Bogus`, expected one of `Enter`, `Math`, `Yes` at line 1 column 12``, exit 78 instead of 10 / 11 | Fix the reported file (`shellfirm config edit`, `shellfirm policy validate`). [Exit codes](docs/check.md#exit-codes) |
+| Other new exit codes: `pre-command` 3 after a passed challenge (only with `SHELLFIRM_SIGNAL_PROMPTED=1`) and 74 without a terminal (fail closed); `check` / `policy validate` 74 when the output cannot be written; `config` setter usage errors 2 | Scripts that call these commands | The new exit code | Do not export `SHELLFIRM_SIGNAL_PROMPTED` in your profile. [Exit codes](docs/check.md#exit-codes) |
+| Project and org policies are enforced over personal settings (`ignores_patterns_ids`, `disabled_groups`, `enabled_groups`, `min_severity`, a lower challenge) | Teams with a `.shellfirm.yaml` or `/etc/shellfirm/policy.yaml` | With `shellfirm config ignore git:force_push` and a policy `deny: [git:force_push]`: ``Shell (you, in a terminal): blocked (deny list or project policy; no challenge)`` / ``why: Command matches a deny-listed pattern: `git:force_push` is denied by the project policy (…/.shellfirm.yaml)`` (0.3.10: `"allowed": true`, no match) | Intended. `shellfirm policy validate` and `shellfirm policy show` list what the policy enforces; change the policy, not your ignores. [Team policies](docs/team-policies.md#guarantees) |
+| New default check groups `shell` and `exfil` (on for fresh installs) | Users whose settings file has an `enabled_groups` list, which includes every user who changed a setting with 0.3.x | `curl -fsSL https://example.com/i.sh \| bash`: `No risky patterns matched.` (fresh install: `[shell:curl_pipe_to_shell] [HIGH]`); `shellfirm status`: `Not enabled:         … exfil, shell (default groups; enable: …)`; `shellfirm doctor`: ``[!!] groups  default groups not enabled: …; enable: `shellfirm config groups --enable … --enable exfil --enable shell` `` | Run the command `status` prints (step 5). [Where settings live](docs/config.md#where-settings-live) |
+| New rules prompt where 0.3.10 was silent (database and platform deletes, migration and ORM resets, `terraform apply <planfile>`, disk tools on cloud device names, …) | Everyone; CI jobs that run `check --fail-on high` | `shellfirm check -c 'terraform apply plan.out'`: `[terraform:apply_plan_file] [HIGH] This applies a saved plan file without asking for confirmation; …` (0.3.10: `No risky patterns matched.`) | Approve the prompt, or `shellfirm config ignore <id>` for a rule you do not want. See Added and Fixed below |
+| Claude Code: the hook no longer auto-approves safe commands | Claude Code users | `ls -la`: the hook prints nothing (0.3.10: `"permissionDecision": "allow"`, which skipped Claude Code's own permission prompt), so Claude Code's permission rules decide whether it asks you. Risky commands are still denied | Intended. Add allow rules to Claude Code's permissions for commands you trust. [Claude Code](README.md#claude-code) |
+| New agent hook format, fail closed: `shellfirm check --hook claude-code`, matchers `Bash`, `PowerShell\|Monitor` and `Write\|Edit\|MultiEdit\|NotebookEdit`, `"timeout": 30`, `"onFailure": "block"`; Cursor gains a `preToolUse` hook | Everyone who ran `shellfirm connect` with 0.3.10 | Until you re-run `connect`: `shellfirm status` shows `` (legacy hook: re-run `shellfirm connect` to upgrade) `` and PowerShell, Monitor and file edits are not checked. After it: `claude-code (user): hook yes, file tools yes, fail-closed yes, MCP yes`, and a payload the hook cannot read is denied (`shellfirm could not evaluate this command: malformed JSON hook input … Failing closed.`) | `shellfirm connect <agent>` (step 3). Claude Code before 2.1.295: `shellfirm connect claude-code --no-fail-closed`. Cursor shows `fail-closed no` by design. [AI Tool Integration](README.md#ai-tool-integration) |
+| Shell hook protocol `HOOK_VERSION` 14 | Every terminal that was open during the upgrade | The old hook keeps checking commands, but `shellfirm doctor` in that shell says ``[XX] session  this bash session has NOT loaded the shellfirm hook: commands typed here are not checked. … start a new one: `exec bash` `` | `exec $SHELL`, or open a new terminal (step 1). [Shell support](README.md#shell-support) |
+| The 0.3.10 elvish / xonsh / nushell hook pasted into the rc file | elvish, xonsh and nushell users | elvish: `Multiple parse errors in ~/.config/elvish/rc.elv: 4:28: if (not ?(which shellfirm &>/dev/null)) {`; nushell: `Error: nu::shell::column_not_found`; xonsh: the challenge appears but the command runs after you cancel it. In all three a risky command runs (the same with 0.3.10). `shellfirm status` still says `installed` for these shells | `shellfirm init <shell>`, answer `y`, restart the shell (step 2). [Shell support](README.md#shell-support) |
+| Audit records: one record per decision, written after the outcome, `schema_version: 4` (new `version` field), `user` from the real uid | Tools that read `audit.log` | New fields; older records stay readable (`shellfirm audit show`) | Read `schema_version`. [Audit log](docs/audit.md) |
+| `SHELLFIRM_CONFIG_DIR` sets the configuration directory for every command | Users who export it | A missing directory is a usage error (exit 2) for commands; the shell hook warns once and uses the default directory | Point it at an existing directory, or `unset SHELLFIRM_CONFIG_DIR`. [Where settings live](docs/config.md#where-settings-live) |
+
+Other changes you may notice (not breaking; no action needed):
+
+- After a passed challenge, one line `✓ approved — running: <command>`
+  (`shellfirm config approved-notice off` turns it off).
+- `shellfirm init --yes` sets the recommended Balanced level (`min_severity:
+  Medium`) when the settings do not choose a level; `init --uninstall`
+  removes a settings file it wrote.
+- In zsh without `setopt interactivecomments` and in bash with `shopt -u
+  interactive_comments`, `#` in a typed line is an argument, not a comment,
+  and it is checked as one.
+- A SQL file over about 6 MB given to a client (`psql -f F`) can be Medium
+  (`database:sql_from_file`, `took too long to check`) at the default 400 ms
+  impact budget; raise it with `shellfirm config impact-budget 2000`.
+- `shellfirm status` shows `fail-closed no` for Cursor: Cursor's
+  `failClosed` would block every safe command, so `connect cursor` leaves it
+  off.
 
 ### Breaking
 
@@ -119,8 +120,11 @@ command reports problems instead of hiding them. Read
   file-tool group and `timeout` / `onFailure: block` (`--no-fail-closed`
   removes it for older Claude Code). `connect cursor` adds a `preToolUse`
   hook for `Write|Delete`.
-- The `shell` group (remote scripts piped into a shell) is enabled by
-  default.
+- The `shell` group (remote scripts piped into a shell) and the `exfil`
+  group are enabled by default. A settings file with an `enabled_groups`
+  list (every 0.3.x settings file a setter wrote) keeps its list:
+  `shellfirm status` shows the default groups it leaves off and the command
+  that enables them.
 - Audit records: one record per decision, written after the outcome; `user`
   comes from the real uid.
 

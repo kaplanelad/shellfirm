@@ -38,6 +38,16 @@ change, at every nesting level:
 - `shellfirm config groups --disable heroku` writes `disabled_groups: [heroku]`
   and leaves `enabled_groups` out of the file; `--enable heroku` removes it
   again. The TUI's Groups tab does the same.
+- An `enabled_groups` list that is in the file is used as it is, so a default
+  group added by a later release is off until you enable it. Settings saved
+  by shellfirm 0.3.x have such a list (its setters wrote the whole file), so
+  `shell` and `exfil` are off there. `shellfirm status` names every default
+  group your settings leave off (missing from `enabled_groups`, or listed in
+  `disabled_groups`), with the command that turns them on:
+  ``Not enabled:         exfil, shell (default groups; enable: `shellfirm config groups --enable exfil --enable shell`)``.
+  `shellfirm doctor` shows the same as a `[!!] groups` warning (it does not
+  fail). A group you disabled on purpose is listed too; the line is only
+  information.
 - Adding a protected branch writes `context.protected_branches`, not the
   whole `context` block. A list is always written whole once you change it:
   `config context branches --add develop` writes the default branches plus

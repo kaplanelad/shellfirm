@@ -507,6 +507,22 @@ fn check_rc(
     }
 }
 
+/// A non-failing warning when the settings leave default groups off.
+fn check_default_groups(report: &mut Report, settings: &shellfirm::config::Settings) {
+    let not_enabled = settings.default_groups_not_enabled();
+    if !not_enabled.is_empty() {
+        report.add(
+            "groups",
+            Status::Warn,
+            format!(
+                "default groups not enabled: {}; enable: `{}`",
+                not_enabled.join(", "),
+                shellfirm::config::enable_groups_command(&not_enabled)
+            ),
+        );
+    }
+}
+
 fn check_config(report: &mut Report) -> serde_json::Value {
     let config = match Config::new(None) {
         Ok(c) => c,
@@ -519,7 +535,7 @@ fn check_config(report: &mut Report) -> serde_json::Value {
             return json!({ "error": e.to_string() });
         }
     };
-    let (_, settings_error) = config.load_settings_lenient();
+    let (settings, settings_error) = config.load_settings_lenient();
     let path = config.setting_file_path.display().to_string();
     match &settings_error {
         Some(e) => report.add(
@@ -536,6 +552,7 @@ fn check_config(report: &mut Report) -> serde_json::Value {
             format!("{path} does not exist yet (built-in defaults)"),
         ),
     }
+    check_default_groups(report, &settings);
     let custom = shellfirm::config::load_custom_checks_report(&config.custom_checks_dir());
     if custom.warnings.is_empty() {
         report.add(
@@ -1398,6 +1415,27 @@ mod tests {
         let mut r = Report::default();
         check_session(&mut r, Shell::Zsh, Session::Hooked);
         assert!(!r.failed());
+    }
+
+    #[test]
+    fn default_groups_off_warn_without_failing() {
+        let mut r = Report::default();
+        check_default_groups(&mut r, &shellfirm::config::Settings::default());
+        assert!(r.findings.is_empty());
+        let settings = shellfirm::config::Settings {
+            disabled_groups: vec!["shell".into()],
+            ..Default::default()
+        };
+        check_default_groups(&mut r, &settings);
+        assert!(!r.failed());
+        assert_eq!(r.findings[0].status, Status::Warn);
+        assert!(
+            r.findings[0]
+                .message
+                .contains("`shellfirm config groups --enable shell`"),
+            "{}",
+            r.findings[0].message
+        );
     }
 
     #[test]

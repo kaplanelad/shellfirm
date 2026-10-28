@@ -5,7 +5,7 @@ expression: shell.hook()
 # shellfirm hook for bash
 if [[ $- == *i* && -z ${__shellfirm_hook_loaded:-} ]]; then
 __shellfirm_hook_loaded=1
-__shellfirm_hook_version=13
+__shellfirm_hook_version=14
 # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
 # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec bash`).
 builtin export SHELLFIRM_HOOK_PID=$$ SHELLFIRM_HOOK_LOAD=$$.$RANDOM$RANDOM

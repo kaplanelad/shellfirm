@@ -527,6 +527,14 @@ pub fn run(
             settings.disabled_groups.join(", ")
         ));
     }
+    let not_enabled = settings.default_groups_not_enabled();
+    if !not_enabled.is_empty() {
+        lines.push(format!(
+            "  Not enabled:         {} (default groups; enable: `{}`)",
+            not_enabled.join(", "),
+            shellfirm::config::enable_groups_command(&not_enabled)
+        ));
+    }
     lines.push(format!("  Active checks:       {}", checks.len()));
     let custom_dir = config.custom_checks_dir();
     if custom_dir.is_dir() {

@@ -4,7 +4,7 @@ expression: shell.hook()
 ---
 # shellfirm hook for fish
 if status is-interactive
-    set -g __shellfirm_hook_version 13
+    set -g __shellfirm_hook_version 14
     # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
     # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec fish`).
     set -gx SHELLFIRM_HOOK_PID $fish_pid
