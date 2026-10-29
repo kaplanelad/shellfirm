@@ -6559,7 +6559,7 @@ mod tests {
         // libtest `--logfile PATH` creates or truncates PATH, rustdoc
         // `--persist-doctests DIR` and cargo `--target-dir DIR` write into
         // DIR: with or without a prefix.
-        let env = home_env("/home/dev/projects/webapp");
+        let env = unmounted_home_env();
         let config = "shellfirm-self:protected_file_write";
         for (c, id) in [
             ("cargo test -- --logfile ~/.claude/settings.json", config),
@@ -7113,6 +7113,18 @@ mod tests {
         MockEnvironment {
             cwd: cwd.into(),
             home: Some("/home/dev".into()),
+            ..Default::default()
+        }
+    }
+
+    /// [`home_env`] under a root that exists nowhere. Write targets are
+    /// canonicalised on the real file system, and on macOS `/home` is an
+    /// automounter path where each lookup is slow, so tests that check many
+    /// write targets use this.
+    fn unmounted_home_env() -> MockEnvironment {
+        MockEnvironment {
+            cwd: "/nonexistent-shellfirm-test/home/dev/projects/webapp".into(),
+            home: Some("/nonexistent-shellfirm-test/home/dev".into()),
             ..Default::default()
         }
     }
@@ -8037,7 +8049,7 @@ mod tests {
         // The local shell opens the target of an unquoted redirect after a
         // container / remote command, so every local write rule judges it
         // exactly as the same redirect after `cat`.
-        let env = home_env("/home/dev/projects/webapp");
+        let env = unmounted_home_env();
         let targets = [
             ".git/hooks/pre-commit",
             ".git/hooks/post-checkout",
@@ -8149,7 +8161,7 @@ mod tests {
 
     #[test]
     fn psql_output_and_log_files_are_local_write_targets() {
-        let env = home_env("/home/dev/projects/webapp");
+        let env = unmounted_home_env();
         for target in [
             ".envrc",
             "~/.bashrc",
@@ -8178,7 +8190,7 @@ mod tests {
 
     #[test]
     fn container_copies_to_a_local_path_are_local_write_targets() {
-        let env = home_env("/home/dev/projects/webapp");
+        let env = unmounted_home_env();
         for target in [
             ".envrc",
             "~/.bashrc",
