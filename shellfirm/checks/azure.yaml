@@ -21,10 +21,15 @@
   id: azure:delete_aks_cluster
   severity: High
 - from: azure
-  test: (?:^|\s)az\s+storage\s+(account|container|blob)\s+delete
+  test: (?:^|\s)az\s+storage\s+(account|container|blob|file|share)\s+delete
   description: "Deleting Azure storage resources can result in permanent data loss."
   id: azure:delete_storage
   severity: High
+  filters:
+    # `delete-batch --dryrun` only lists what would be deleted (when its
+    # output is not piped on).
+    - type: NotMatches
+      value: '(?:^|\s)az\s+storage\s+(?:blob|file)\s+delete-batch(?:(?:\s+[^\s|;&]\S*)*?\s+(?:[^-\s|;&]\S*|-[^\s=]*=\S*|--only-show-errors|--debug|--verbose|--no-dry-run))?\s+--dryrun(?:\s+(?:[^\-|\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: azure
   test: (?:^|\s)az\s+keyvault\s+delete
   description: "Deleting a Key Vault removes all secrets, keys, and certificates."

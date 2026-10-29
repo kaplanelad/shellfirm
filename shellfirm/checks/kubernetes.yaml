@@ -4,8 +4,10 @@
   id: kubernetes:delete_namespace
   severity: Critical
   filters:
+    # A dry run, unless a later dry-run word turns it off (kubectl and helm
+    # use the last value: `--dry-run=client --dry-run=none` really runs).
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--now|--force|--ignore-not-found|-A|--all-namespaces|-R|--recursive|--wait|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "kubectl get all -n <namespace>"
   alternative_info: "List all resources in the namespace first to verify what will be deleted."
 - from: kubernetes
@@ -15,7 +17,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--now|--force|--ignore-not-found|-A|--all-namespaces|-R|--recursive|--wait|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
     # Pods: `kubernetes-strict:delete_pod` (Medium).
     - type: NotMatches
       value: '\sdelete\s+(?:-\S+\s+)*(?:pods?|po)(?:/\S+|(?:\s+(?:-\S+\s+)*[^-\s]\S*)+)(?:\s|$)'
@@ -29,7 +31,7 @@
   severity: Medium
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--now|--force|--ignore-not-found|-A|--all-namespaces|-R|--recursive|--wait|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
     - type: NotMatches
       value: '\s(?:--force|--grace-period[=\s]0|--now)(?:\s|$)'
 - from: kubernetes
@@ -41,7 +43,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--now|--force|--ignore-not-found|-A|--all-namespaces|-R|--recursive|--wait|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "kubectl delete pod <name>"
   alternative_info: "A normal delete gives the pod its grace period to shut down cleanly."
 - from: kubernetes
@@ -51,7 +53,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--local|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(kubectl|k)\s+scale(?:\s|$)
   description: "This changes the replica count of the given resource."
@@ -59,7 +61,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(k|kubectl)\s+rollout\s+(pause|restart|resume|undo)(?:\s|$)
   # Medium: a rolling restart is the routine way to roll pods and deletes
@@ -69,21 +71,26 @@
   severity: Medium
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)helm\s+(uninstall|delete|del|un)\s+
   description: "Removing a Helm release deletes all its managed Kubernetes resources."
   id: helm:uninstall
   severity: High
   filters:
-    # `--dry-run` only simulates the uninstall.
+    # `--dry-run` only simulates the uninstall (`--dry-run=false` does not,
+    # nor does a later `--dry-run=false`: the last value wins).
     - type: NotMatches
-      value: '\s--dry-run(?:=\S+)?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--keep-history|--no-hooks|--wait|--ignore-not-found|--debug|--no-dry-run)\s+--dry-run(?:=(?:client|server|true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)helm\s+rollback\s+
   description: "Rolling back a Helm release reverts to a previous revision."
   id: helm:rollback
   severity: Medium
+  filters:
+    # `--dry-run` only simulates the rollback (the last value wins).
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--wait|--wait-for-jobs|--force|--no-hooks|--recreate-pods|--cleanup-on-fail|--debug|--no-dry-run)\s+--dry-run(?:=(?:client|server|true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)helm\s+upgrade\s+.*--force
   description: "Force-upgrading a Helm release deletes and recreates resources."
@@ -94,11 +101,17 @@
   description: "Draining a node evicts all pods and marks the node unschedulable."
   id: kubernetes:drain_node
   severity: High
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--ignore-daemonsets|--delete-emptydir-data|--delete-local-data|--force|--disable-eviction|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(kubectl|k)\s+cordon\s+
   description: "Cordoning a node prevents new pods from being scheduled on it."
   id: kubernetes:cordon_node
   severity: Medium
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(kubectl|k)\s+replace\s+.*--force
   description: "Force-replacing a resource deletes and recreates it, causing downtime."
@@ -106,7 +119,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--force|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(kubectl|k)\s+(?:-\S+\s+\S+\s+)*delete\s+.*--all(\s|$)
   description: "Deleting all resources of a type wipes everything in the namespace."
@@ -114,7 +127,7 @@
   severity: Critical
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--all|--now|--force|--ignore-not-found|-A|--all-namespaces|-R|--recursive|--wait|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "kubectl get <resource> -n <namespace>"
   alternative_info: "List resources first to verify what would be deleted."
 - from: kubernetes
@@ -124,7 +137,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--force|--prune|--server-side|--force-conflicts|--overwrite|-R|--recursive|--all|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "kubectl apply -f <file>"
   alternative_info: "Apply without --force to update resources in-place without downtime."
 - from: kubernetes
@@ -134,7 +147,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--force|--prune|--server-side|--force-conflicts|--overwrite|-R|--recursive|--all|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "kubectl diff -f <file>"
   alternative_info: "Review what would change (including deletions) before pruning."
 - from: kubernetes
@@ -152,7 +165,7 @@
   filters:
     # Help and dry runs change nothing.
     - type: NotMatches
-      value: '\s(?:--help|-h|--dry-run(?:=(?:client|server|true))?)(?:\s|$)'
+      value: '\s(?:--help|-h)(?:\s|$)|(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--local|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   # Server-side apply that takes ownership of fields other managers own.
   test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?apply\s+(?:\S+\s+)*?--force-conflicts(?:=true)?(?:\s|$)
@@ -161,7 +174,7 @@
   severity: Medium
   filters:
     - type: NotMatches
-      value: '\s--dry-run(?:=(?:client|server|true))?(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--force|--prune|--server-side|--force-conflicts|--overwrite|-R|--recursive|--all|--no-dry-run)\s+--dry-run(?:=(?:client|server|true))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(?:kubectl|k|oc)\s+(?:\S+\s+)*?(?:annotate|label)\s+(?:\S+\s+)*?--overwrite(?:=true)?(?:\s|$)
   description: "--overwrite replaces existing annotations or labels that controllers and selectors may rely on."
@@ -215,7 +228,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: \s(?:--dry-run|--preview-changes)(?:=true)?(?:\s|$)
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--prune|--force|--async|--replace|--server-side|--apply-out-of-sync-only|--prune-last|--no-dry-run)\s+(?:--dry-run|--preview-changes)(?:=true)?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dnp\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?|p(?:[^r\s]\S*|r(?:[^e\s]\S*)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "argocd app diff <app>"
   alternative_info: "Review what the sync would change and delete first (`argocd app sync <app> --dry-run` previews it)."
 - from: kubernetes
@@ -225,7 +238,7 @@
   severity: Medium
   filters:
     - type: NotMatches
-      value: \s(?:--dry-run|--preview-changes)(?:=true)?(?:\s|$)
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--prune|--force|--async|--replace|--server-side|--apply-out-of-sync-only|--prune-last|--no-dry-run)\s+(?:--dry-run|--preview-changes)(?:=true)?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dnp\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?|p(?:[^r\s]\S*|r(?:[^e\s]\S*)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
     # With --force the High check above applies.
     - type: NotMatches
       value: \s--force(?:=true)?(?:\s|$)
@@ -238,7 +251,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: \s(?:--dry-run|-d)(?:=true)?(?:\s|$)
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--purge|-y|--skip-confirmation|--no-dry-run)\s+(?:--dry-run|-d)(?:=true)?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?)?))*\s*$'
   alternative: "istioctl uninstall --purge --dry-run"
   alternative_info: "Lists what would be removed without removing it."
 - from: kubernetes
@@ -272,6 +285,13 @@
   description: "This tears down the Kubernetes node: it removes the control-plane / kubelet configuration and the local etcd data of this machine."
   id: kubernetes:kubeadm_reset
   severity: High
+  filters:
+    # `kubeadm reset --dry-run` only prints what it would do: every option
+    # is one kubeadm knows (a value-taking one with its value), the dry run
+    # is the last one set (`--dry-run=false` after it really resets), and
+    # there is no `phase` subcommand.
+    - type: NotMatches
+      value: '(?:^|\s)kubeadm\s+reset(?:\s+(?:-f|--force|--cleanup-tmp-dir|(?:--cert-dir|--config|--cri-socket|--ignore-preflight-errors|--kubeconfig|--skip-phases|--rootfs|-v|--v)(?:=[^\s=]\S*|\s+[^-\s]\S*)))*\s+--dry-run(?:=true)?(?:\s+(?:-f|--force|--cleanup-tmp-dir|(?:--cert-dir|--config|--cri-socket|--ignore-preflight-errors|--kubeconfig|--skip-phases|--rootfs|-v|--v)(?:=[^\s=]\S*|\s+[^-\s]\S*)|--dry-run(?:=true)?))*\s*$'
 - from: kubernetes
   test: '(?:^|\s)(?:kubectl|k)\s+config\s+(?:delete-context|delete-cluster|delete-user)\s'
   description: "This removes a context, cluster or user entry from your kubeconfig."
@@ -290,6 +310,15 @@
   description: "This restores Kubernetes objects from a Velero backup into the current cluster, which can recreate or (with --existing-resource-policy=update) overwrite live objects."
   id: kubernetes:velero_restore
   severity: Medium
+  filters:
+    # With `-o|--output yaml|json`, a create command only prints the restore
+    # and does not send it. The last `-o` wins (no later `-o`/`--o…` word),
+    # and the word before it is not an option that takes it as its value
+    # (only `--wait` and `--allow-partially-failed` take none). Output piped
+    # on, or written to a file the line goes on to use, is checked in
+    # checks.rs.
+    - type: NotMatches
+      value: '^velero\s+(?:restore\s+create|create\s+restore)(?:\s+\S+)*?\s+(?:[^-\s]\S*|-[^\s=]*=\S*|--wait|--allow-partially-failed)\s+(?:-o(?:=|\s+)?|--output(?:=|\s+))(?:yaml|json)(?:\s+(?:[^-\s]\S*|-|-[^-o\s]\S*|--[^o\s]\S*))*$'
   alternative: "velero backup describe <backup> --details"
   alternative_info: "Check what the backup contains and which cluster you are on before restoring."
 - from: kubernetes

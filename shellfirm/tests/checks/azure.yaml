@@ -111,3 +111,67 @@
 - test: "az cosmosdb list"
   description: "negative: listing Cosmos DB should not match"
   expect_ids: []
+
+# -- az storage delete-batch --dryrun --
+- test: "az storage blob delete-batch --account-name sa --source backups --pattern 'tmp/*' --dryrun"
+  description: "negative: --dryrun only lists what would be deleted"
+  expect_ids: []
+- test: "az storage blob delete-batch -s backups --account-name sa --dryrun"
+  description: "negative: --dryrun only lists what would be deleted"
+  expect_ids: []
+- test: "az storage file delete-batch --account-name sa --source share --dryrun"
+  description: "negative: --dryrun only lists what would be deleted"
+  expect_ids: []
+- test: "az storage blob delete-batch --account-name sa --source backups --pattern 'tmp/*'"
+  description: "a real delete"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete --account-name sa -c backups -n x"
+  description: "a real delete"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch --account-name sa --source backups --dryrun && az storage blob delete-batch --account-name sa --source backups"
+  description: "a real delete follows"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch --account-name sa --source backups --pattern 'tmp/*' --dryrun; az storage blob delete-batch --account-name sa --source backups"
+  description: "a real delete follows"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch --account-name sa --source backups --pattern '*' --dry-run"
+  description: "not the --dryrun option"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage account delete -n sa -g rg --dryrun"
+  description: "account delete has no dry run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch --account-name sa --source backups --dryrun | sh"
+  description: "the output is run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage file delete-batch --account-name sa --source share"
+  description: "a real delete of file share contents"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage file delete --account-name sa --share-name share -p dir/a.txt"
+  description: "a real delete of a file"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage share delete --account-name sa -n share"
+  description: "a real delete of a file share"
+  expect_ids: ["azure:delete_storage"]
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "az storage blob delete-batch -s c --account-name a --pattern '--dryrun'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch -s c --pattern --dryrun"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch -s '--dryrun'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch -s c --account-name '--dryrun'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch -s c --account-key --dryrun"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["azure:delete_storage"]
+- test: "az storage blob delete-batch -s c --only-show-errors --dryrun"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "az storage blob delete-batch -s c --account-name=sa --dryrun"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []

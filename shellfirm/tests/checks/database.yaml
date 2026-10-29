@@ -243,7 +243,7 @@
   description: "EDGE: CONCURRENTLY keyword (PostgreSQL)"
   expect_ids: ["database:drop_index"]
 
-# -- round 2: SQL via pipes and comments --
+# -- SQL via pipes and comments --
 - test: 'echo "DROP TABLE users;" | psql'
   description: "echo to psql"
   expect_ids: ["database:drop_table"]
@@ -257,7 +257,7 @@
   description: "negative: echo to a file"
   expect_ids: ["fs:flush_file_content"]
 
-# -- round 3: more destructive SQL (Dana F11) --
+# -- more destructive SQL --
 - test: 'DROP VIEW active_users'
   description: "drop view"
   expect_ids: ["database:drop_view"]
@@ -340,7 +340,6 @@
   description: "negative: drop constraint"
   expect_ids: []
 
-# -- round 4: Dana r3 F6/F7 --
 - test: 'cqlsh -e "DROP KEYSPACE prod"'
   description: "cqlsh drop keyspace"
   expect_ids: ["database:cqlsh_drop", "database:drop_keyspace"]
@@ -380,7 +379,6 @@
 - test: 'MERGE INTO users u USING src s ON u.id = s.id WHEN MATCHED THEN UPDATE SET name = s.name'
   description: "negative: merge update"
   expect_ids: []
-# -- round 5 (Dana r4 N4, N11, F5, F7) --
 - test: 'psql -c "DELETE FROM users WHERE ''a''=''a''"'
   description: "tautology 'a'='a' (string literals are masked) is no WHERE"
   expect_ids: ["database:delete_all_rows"]
@@ -484,7 +482,7 @@
   description: "negative: pg_dump writes a file"
   expect_ids: []
 
-# -- database:sqlcmd_drop (round 6) --
+# -- database:sqlcmd_drop --
 - test: 'sqlcmd -S prod -Q "DROP DATABASE prod"'
   description: "sqlcmd -Q runs a DROP DATABASE"
   expect_ids: ["database:sqlcmd_drop", "database:drop_database"]
@@ -495,24 +493,24 @@
   description: "negative: sqlcmd read-only query"
   expect_ids: []
 - test: 'sqlcmd -S prod -Q "DELETE FROM orders"'
-  description: "sqlcmd -Q DELETE without WHERE (dana-r7:D7-2)"
+  description: "sqlcmd -Q DELETE without WHERE"
   expect_ids: ["database:delete_all_rows"]
 - test: 'sqlcmd -S prod -Q "DELETE FROM orders WHERE id = 7"'
   description: "negative: sqlcmd DELETE with a condition"
   expect_ids: []
 
-# -- database:lo_unlink_all (round 6) --
+# -- database:lo_unlink_all --
 - test: 'psql -c "SELECT lo_unlink(oid) FROM pg_largeobject_metadata"'
   description: "lo_unlink over every large object"
-  expect_ids: ["database:lo_unlink_all"]
+  expect_ids: ["database:lo_unlink_all", "database:side_effect_function"]
 - test: 'psql -c "SELECT lo_unlink(l.oid) FROM pg_catalog.pg_largeobject_metadata l"'
   description: "lo_unlink over every large object (qualified catalog)"
-  expect_ids: ["database:lo_unlink_all"]
+  expect_ids: ["database:lo_unlink_all", "database:side_effect_function"]
 - test: 'psql -c "SELECT lo_unlink(16409)"'
-  description: "negative: unlinking one known large object"
-  expect_ids: []
+  description: "unlinking one large object is a side effect (not every large object)"
+  expect_ids: ["database:side_effect_function"]
 
-# -- database:innodb_flush_log_off (round 6) --
+# -- database:innodb_flush_log_off --
 - test: 'mysql -e "SET GLOBAL innodb_flush_log_at_trx_commit = 0"'
   description: "turning off the redo-log flush on commit"
   expect_ids: ["database:innodb_flush_log_off"]
@@ -523,7 +521,7 @@
   description: "negative: the durable setting"
   expect_ids: []
 
-# -- database:sql_from_file: sqlcmd input files (round 7, Dana r6 N6) --
+# -- database:sql_from_file: sqlcmd input files --
 - test: 'sqlcmd -S prod -i /home/dev/cleanup.sql'
   description: "sqlcmd -i runs a file of SQL"
   expect_ids: ["database:sql_from_file"]
@@ -534,9 +532,9 @@
   description: "negative: sqlcmd without an input file"
   expect_ids: []
 
-# -- round 8 (R8-WRAP): DELETE ... LIMIT without WHERE (Dana r7 D7-4), migration / ORM resets (D7-1) --
+# -- DELETE ... LIMIT without WHERE, migration / ORM resets --
 - test: 'mysql -e ''DELETE FROM users LIMIT 1000'''
-  description: 'DELETE ... LIMIT without WHERE (Dana r7 D7-4)'
+  description: 'DELETE ... LIMIT without WHERE'
   expect_ids: ["database:delete_limit_without_where"]
 - test: 'mysql -e ''DELETE FROM users ORDER BY id LIMIT 1000'''
   description: 'DELETE ... ORDER BY ... LIMIT without WHERE'
@@ -551,7 +549,7 @@
   description: 'negative: WHERE before ORDER BY / LIMIT'
   expect_ids: []
 - test: 'prisma migrate reset --force'
-  description: 'prisma migrate reset (Dana r7 D7-1)'
+  description: 'prisma migrate reset'
   expect_ids: ["database:prisma_migrate_reset"]
 - test: 'npx prisma migrate reset'
   description: 'prisma migrate reset through npx'
@@ -773,7 +771,6 @@
   description: 'negative: atlas schema apply'
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG) ----
 # -- database:delete_all_rows --
 - test: "mysql -e \"DELETE IGNORE FROM users\""
   description: "MySQL DELETE IGNORE without WHERE"
@@ -1079,4 +1076,72 @@
   expect_ids: ["psql:drop", "database:drop_table"]
 - test: "heroku run ls -a app"
   description: "negative: a harmless remote command"
+  expect_ids: []
+
+# -- dotnet ef: the last dry-run value wins --
+- test: "dotnet ef database drop --force --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "dotnet ef database drop --force --dry-run --no-dry-run"
+  description: "not a dry run"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+
+# -- dotnet ef: a dry-run word right after an option that may take a value is not a dry run --
+- test: "dotnet ef database drop --project --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["database:dotnet_ef_database_drop"]
+- test: "dotnet ef database drop --force --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+
+# -- SQL that can reach a file database stays flagged --
+- test: "sqlite3 :memory: \".open local.db\" \"DROP TABLE orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 -cmd \"ATTACH 'local.db' AS p\" :memory: \"DROP TABLE p.orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "duckdb -c \".open local.duckdb\" -c \"DROP TABLE orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 -init /tmp/i.sql :memory: \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 :memory: \".restore local.db\" \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 :memory: \"CREATE TABLE t(x); DROP TABLE t\" && sqlite3 local.db \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "echo \"DROP TABLE orders\" | sqlite3 local.db"
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sudo sqlite3 /var/lib/app.db \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "duckdb local.duckdb \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "psql -c \"CREATE TEMP TABLE t(x int); DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+
+# -- side-effect functions called from a query --
+- test: "psql < queries/copyenv.sql"
+  description: "flag: psql \\copy TO writes a local file"
+  expect_ids: ["database:sql_from_file"]
+- test: "psql -c 'SELECT lo_unlink(16400)'"
+  description: "flag: a side-effect function called inline"
+  expect_ids: ["database:side_effect_function"]
+- test: "psql -c \"SELECT lo_export(16400, '/tmp/x')\""
+  description: "flag: lo_export writes a server file"
+  expect_ids: ["database:side_effect_function"]
+- test: "SELECT pg_cancel_backend(1234)"
+  description: "flag: cancelling a backend from a query"
+  expect_ids: ["database:side_effect_function"]
+- test: "grep -rn lo_unlink src/"
+  description: "no match: the function name searched for in code"
+  expect_ids: []
+- test: "psql -c 'SELECT lo_get(16400)'"
+  description: "no match: reading a large object"
   expect_ids: []

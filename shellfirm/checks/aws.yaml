@@ -11,13 +11,18 @@
   id: aws:s3_recursive_delete
   severity: High
   filters:
-    - type: NotContains
-      value: "--dryrun"
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-cli-pager|--debug|--no-paginate|--recursive|--delete|--quiet|--only-show-errors|--exact-timestamps|--size-only|--follow-symlinks|--no-follow-symlinks|--no-progress|--no-dry-run)\s+--dryrun(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: aws
   test: (?:^|\s)aws\s+(?:--\S+\s+\S+\s+)*ec2\s+terminate-instances
   description: "Terminating EC2 instances permanently destroys them and their local storage."
   id: aws:ec2_terminate
   severity: High
+  filters:
+    # `--dry-run` only checks the permissions, unless a later
+    # `--no-dry-run` turns it off (the last value wins).
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-cli-pager|--debug|--no-paginate|--no-dry-run)\s+--dry-run(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "aws ec2 stop-instances"
   alternative_info: "Stop instead of terminate to preserve the instance for later restart."
 - from: aws
@@ -103,8 +108,8 @@
   id: aws:s3_sync_delete
   severity: High
   filters:
-    - type: NotContains
-      value: "--dryrun"
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-cli-pager|--debug|--no-paginate|--recursive|--delete|--quiet|--only-show-errors|--exact-timestamps|--size-only|--follow-symlinks|--no-follow-symlinks|--no-progress|--no-dry-run)\s+--dryrun(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "aws s3 sync --dryrun --delete ..."
   alternative_info: "Preview which objects would be deleted first."
 - from: aws

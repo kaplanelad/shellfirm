@@ -24,6 +24,12 @@
   description: "Piping remote content to an interpreter executes arbitrary code without inspection."
   id: shell:curl_pipe_to_interpreter
   severity: High
+  filters:
+    # `curl … | python3 -m json.tool` only pretty-prints the JSON: one
+    # download, piped into exactly json.tool with its own options and no
+    # file, and nothing else on the line.
+    - type: NotMatches
+      value: '^(?:curl|wget)\s+[^|;&<>`()]*\|\s*python[\d.]*\s+(?:-m\s+json\.tool|-mjson\.tool)(?:\s+(?:--sort-keys|--tab|--compact|--no-ensure-ascii|--json-lines|--no-indent|--indent(?:=|\s+)\d+|-))*\s*$'
   alternative: "curl -o script.py <url> && cat script.py"
   alternative_info: "Download it and read it. Run it (`python script.py`) in a separate command once you have reviewed it."
 - from: shell

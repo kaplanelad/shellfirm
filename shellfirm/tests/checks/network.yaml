@@ -234,7 +234,7 @@
 - test: 'iptables -P INPUT ACCEPT'
   description: "negative: ACCEPT policy"
   expect_ids: []
-# -- round 5: option order (Omar R4 N2) --
+# -- round 5: option order --
 - test: "iptables --flush"
   description: "long --flush"
   expect_ids: ["network:flush_iptables"]

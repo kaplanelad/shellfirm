@@ -251,7 +251,7 @@
   description: "EDGE: long option before --privileged"
   expect_ids: ["docker:run_privileged"]
 
-# -- round 2: docker --
+# -- docker --
 - test: 'docker network prune -f'
   description: "network prune"
   expect_ids: ["docker:network_prune"]
@@ -271,7 +271,6 @@
 - test: 'docker run -v /data:/data alpine'
   description: "negative: a data directory"
   expect_ids: []
-# -- round 5 (Omar R4 N7) --
 - test: "nerdctl run -v /:/host alpine sh"
   description: "nerdctl host root mount"
   expect_ids: ["docker:run_mount_host_root"]
@@ -285,7 +284,7 @@
   description: "one config directory read-only is fine"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# ---- anchoring and housekeeping ----
 # -- docker:system_prune_all --
 - test: "xdocker system prune -a"
   description: "another tool whose name ends in docker"
@@ -319,17 +318,117 @@
 - test: "docker volume ls"
   description: "negative: listing volumes"
   expect_ids: []
-# -- issue #189, round 1 --
+# -- issue #189 --
 - test: "podman system reset -f"
-  description: "issue #189 round 1: podman system reset -f"
+  description: "issue #189: podman system reset -f"
   expect_ids: ["docker:podman_system_reset"]
 - test: "podman ps -a"
-  description: "negative (issue #189 round 1): podman ps -a"
+  description: "negative (issue #189): podman ps -a"
   expect_ids: []
-# -- issue #189, round 3: podman parity --
+# -- issue #189: podman parity --
 - test: "podman volume prune -f"
-  description: "round 3: podman volume prune"
+  description: "podman volume prune"
   expect_ids: ["docker:volume_prune"]
 - test: "podman system prune -a"
-  description: "round 3: podman system prune -a"
+  description: "podman system prune -a"
   expect_ids: ["docker:system_prune_all"]
+
+# -- docker compose --dry-run (the last dry-run word, not an option's value) --
+- test: "docker compose down -v --dry-run"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose --dry-run down -v"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose down --volumes --dry-run"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose down -v --remove-orphans --dry-run"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose --dry-run down --volumes"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose --dry-run rm -fsv"
+  description: "negative: a compose dry run changes nothing"
+  expect_ids: []
+- test: "docker compose down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down --volumes"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v --dry-run=false"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v --dry-run --dry-run=false"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose --dry-run=false down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v -t --dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v --timeout --dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose -f --dry-run down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose -p --dry-run down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v '--dry-run'"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v --dry-run && docker compose down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down -v --dry-run; docker compose down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker-compose down -v --dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "sudo docker compose down -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "echo docker compose down -v | sh"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+- test: "docker compose down --rmi --dry-run -v"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["docker:compose_down_volumes"]
+
+# -- docker:compose_rm_volumes --
+- test: "docker compose rm -f"
+  description: "negative: no anonymous volumes are removed"
+  expect_ids: []
+- test: "docker compose rm -fs web"
+  description: "negative: no anonymous volumes are removed"
+  expect_ids: []
+- test: "docker compose run --rm -v ./data:/data app"
+  description: "negative: no anonymous volumes are removed"
+  expect_ids: []
+- test: "docker compose ps -v"
+  description: "negative: no anonymous volumes are removed"
+  expect_ids: []
+- test: "docker compose rm -fsv"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]
+- test: "docker compose rm -v -f"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]
+- test: "docker-compose rm -fsv"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]
+- test: "docker compose rm --volumes web"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]
+- test: "docker compose -f prod.yml rm -sv"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]
+- test: "docker compose rm -f -v db"
+  description: "removing the anonymous volumes deletes their data"
+  expect_ids: ["docker:compose_rm_volumes"]

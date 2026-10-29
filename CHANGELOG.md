@@ -1,5 +1,54 @@
 ## Unreleased
 
+### Fixed
+
+- **Fewer false alarms from agent self-protection.** A command that only
+  carries shellfirm's own settings, hook or config text as data (a script or
+  heredoc written to a scratch file, a quoted script passed to `docker run`,
+  a commit message, a `grep` pattern, `shellfirm` commands that only print) no
+  longer asks. Writing to the protected files, running the written script, and
+  writing a shellfirm config-location variable into a startup or auto-load
+  file (`.bash_aliases`, `.zshrc.local`, `.envrc`, mise config) still ask.
+- **Fewer false alarms from specific checks.**
+  - Project dependency and tool caches (`rm -rf node_modules`, `__pycache__`,
+    `.mypy_cache`, `.next`, `.venv`, lockfiles beside them, `npx rimraf
+    node_modules`, `find . -name __pycache__ -exec rm -rf {} +`) are not
+    asked about when every operand is one of them, written as a relative
+    path. A home or absolute path, a variable, a symbolic link on the way, a
+    `cd -` / `popd` / `pushd` before it, or `sudo` / `doas` keeps the prompt.
+  - `chmod 600 .env` (owner-only mode on one project dotfile) is not asked.
+  - Git: `git merge --no-ff`, `git cherry-pick <commit>`, `git stash pop`,
+    `git worktree add`, `git rebase --continue`, `git submodule update
+    --init` and an annotated `git tag -a -m` are routine; `--abort`,
+    `--skip`, `stash drop`, `worktree remove`, `worktree add -B` and the same
+    commands run as another user still ask.
+  - Dry runs are recognised only when they really are one (the last value
+    wins, and a dry-run word that is the value of the option before it does
+    not count): `rsync -n`, `git push|clean -n`, `docker compose --dry-run`,
+    `npm unpublish --dry-run`, `mongorestore --dryRun`, `az storage
+    delete-batch --dryrun`, `kubeadm reset --dry-run`, `helm uninstall
+    --dry-run`, `pg_resetwal -n`, `dotnet ef … --dry-run`, `zfs destroy -n`,
+    `lvremove|vgremove|pvremove --test`.
+  - Read-only forms: `parted /dev/sdX print`, `cryptsetup luksDump|isLuks`,
+    `pg_restore --clean` that only writes the script (no `-d`), `curl … |
+    python3 -m json.tool`, and `psql` reading a SQL file that only uses
+    display meta-commands.
+
+### Added
+
+- New checks: `gh gist create|edit` of a secret file
+  (`exfil:upload_secret_file`), `lvreduce` (`fs:lvm_operations`), `docker
+  compose rm -v` (`docker:compose_rm_volumes`), SQL that calls a function
+  with a side effect such as `lo_unlink`, `pg_file_write` or `dblink_exec`
+  (`database:side_effect_function`), and psql meta-commands that write a
+  local file, `\copy … TO FILE`, `\o`, `\w`, `\g`
+  (`psql:client_file_write`).
+- Agent self-protection treats more writes like `cp`: `cargo test --
+  --logfile FILE`, `cargo … --target-dir DIR`, `psql -o|-L FILE`, and the
+  local destination of `docker|podman cp`, `docker container cp` and
+  `kubectl cp`. A `python -c` one-liner that reaches a protected file through
+  an alias or an escaped name is caught.
+
 ## 0.4.0
 
 The 0.4.0 release. It is a large release: project and org policies are

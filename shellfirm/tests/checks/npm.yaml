@@ -44,7 +44,7 @@
   description: "match npm unpublish at end of string (boundary check)"
   expect_ids: ["npm:unpublish"]
 # edge case: tab character between npm and unpublish — \s should match tab
-# UNCERTAIN: depends on whether test harness passes literal \t
+# UNCERTAIN: depends on whether test runner passes literal \t
 # - test: "npm\tunpublish"
 #   description: "match npm unpublish with tab separator"
 #   expect_ids: ["npm:unpublish"]
@@ -139,4 +139,100 @@
 # UNCERTAIN: regex `pnpm\s+unpublish(\s|$)` has no word boundary, so "npnpm unpublish" likely matches
 - test: "npnpm unpublish"
   description: "negative: npnpm should not match pnpm_unpublish (word boundary via (^|\\s))"
+  expect_ids: []
+
+# -- dry-run flags --
+- test: "npm unpublish my-pkg@1.0.0 --dry-run"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg --force"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run=false"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --no-dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run && npm unpublish my-pkg@1.0.0"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish --dry-run my-pkg@1.0.0"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+
+# -- the last dry-run value wins --
+- test: "npm unpublish my-pkg@1.0.0 --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run --no-dry-run"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run=true --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run --dry-run false"
+  description: "npm reads the separate false word as the value"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run false"
+  description: "npm reads the separate false word as the value"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --no-dry-run --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0 --dry-run=false --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0 --dry-run true"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "npm unpublish my-pkg@1.0.0 --otp --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --otp=123 --registry --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --workspace --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 -w --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --tag --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --userconfig --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --ignore-scripts --dry-run"
+  description: "only the listed value-less flags may stand before the dry-run word"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 \"--dry-run\""
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --dry-run '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["npm:unpublish"]
+- test: "npm unpublish my-pkg@1.0.0 --force --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0 -f --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0 --otp=123 --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "npm unpublish my-pkg@1.0.0 --json --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "npm unpublish --workspaces --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
   expect_ids: []

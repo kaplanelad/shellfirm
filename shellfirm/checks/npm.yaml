@@ -3,6 +3,12 @@
   description: "Unpublishing a package removes it from the registry, breaking all downstream dependents."
   id: npm:unpublish
   severity: Critical
+  filters:
+    # `--dry-run` only reports what would be unpublished (not
+    # `--dry-run=false` / `--no-dry-run`). npm uses the last value and reads
+    # a separate `false` word as the value (`--dry-run false`).
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-f|--force|--json|--workspaces|--no-dry-run)\s+--dry-run(?:=true)?(?:\s+(?:[^\-0f\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?|0(?:[^\s]\S*)|f(?:[^a\s]\S*|a(?:[^l\s]\S*|l(?:[^s\s]\S*|s(?:[^e\s]\S*|e(?:[^\s]\S*))?)?)?)?))*\s*$'
 - from: npm
   test: (^|\s)npm\s+deprecate\s+
   description: "Deprecating a package marks it as deprecated for all users."

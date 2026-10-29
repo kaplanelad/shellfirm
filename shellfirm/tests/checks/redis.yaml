@@ -89,7 +89,7 @@
   description: "piped command"
   expect_ids: ["redis:interactive_flushall"]
 
-# -- round 3: more redis coverage (Dana F11) --
+# -- round 3: more redis coverage --
 - test: 'FLUSHALL ASYNC'
   description: "async flushall"
   expect_ids: ["redis:interactive_flushall"]
@@ -133,7 +133,7 @@
   description: "shutdown now"
   expect_ids: ["redis:interactive_shutdown"]
 
-# -- round 4: Dana r3 F7 --
+# -- round 4 --
 - test: 'REPLICAOF 10.0.0.5 6379'
   description: "replicaof wipes the dataset"
   expect_ids: ["redis:replicaof"]

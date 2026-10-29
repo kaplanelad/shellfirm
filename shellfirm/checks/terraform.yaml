@@ -57,8 +57,9 @@
   id: terraform:state
   severity: High
   filters:
-    - type: NotContains
-      value: "-dry-run"
+    # A dry run, unless a later `-dry-run=false` turns it off.
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--no-dry-run)\s+--?dry-run(?:=(?:true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "terraform state <cmd> -dry-run"
   alternative_info: "Preview the state change with -dry-run before actually modifying state."
 - from: terraform

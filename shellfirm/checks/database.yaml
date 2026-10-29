@@ -114,6 +114,15 @@
   id: database:terminate_backend
   severity: Medium
 - from: database
+  # Server-side functions with a side effect, called from a query: large
+  # objects removed or written to / read from the server's disk, backends
+  # cancelled, replication slots dropped, server files written, SQL run on
+  # another server, the configuration reloaded.
+  test: (?i)^\s*(?:SELECT|WITH|VALUES|PERFORM|CALL)\b.*\b(?:lo_unlink|lo_export|lo_import|pg_cancel_backend|pg_drop_replication_slot|pg_file_write|pg_file_unlink|pg_file_rename|dblink_exec|pg_reload_conf)\s*\(
+  description: "This query calls a function with a side effect: it removes or exports large objects, cancels backends, drops a replication slot, writes server files, runs SQL on another server or reloads the configuration."
+  id: database:side_effect_function
+  severity: Medium
+- from: database
   test: (?i)^\s*DROP\s+KEYSPACE\b
   description: "Dropping a Cassandra keyspace permanently deletes every table in it."
   id: database:drop_keyspace
@@ -389,7 +398,7 @@
   filters:
     # `--dry-run` only shows which database would be dropped.
     - type: NotMatches
-      value: \s--dry-run(?:\s|$)
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-f|--force|-v|--verbose|--no-build|--no-color|--prefix-output|--no-dry-run)\s+--dry-run(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "dotnet ef database drop --dry-run"
   alternative_info: "Shows which database (server and name) would be dropped without dropping it; back it up first."
 - from: database

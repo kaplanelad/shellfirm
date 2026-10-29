@@ -238,8 +238,15 @@
   filters:
     - type: Matches
       value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
+    # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))(?:\s|$)'
+      value: '^(?:shellfirm-privileged\s+)?find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))(?:\s|$)'
+    # Clearing caches under the current directory or one folder in it
+    # (`find src -name __pycache__ -exec rm -rf {} +`, `find . -name '*.pyc'
+    # -delete`, `.DS_Store`): one exact name test, no `-o` / `!` / `(` and
+    # nothing else deleted.
+    - type: NotMatches
+      value: '^find\s+(?:\.|[^-\s.~/$(!*?\[{][^\s/*?\[{$]*)\s+(?:-depth\s+)?(?:-type\s+[df]\s+)?-i?name\s+(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv|\*\.py[co]|\.DS_Store)\s+(?:-type\s+[df]\s+)?(?:-prune\s+)?(?:-depth\s+)?-delete$'
   alternative: "find <path> -name '<pattern>' -print"
   alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
 - from: fs
@@ -270,6 +277,13 @@
   description: "Modifying disk partitions can erase all data on the disk."
   id: fs:parted_disk_modify
   severity: Critical
+  filters:
+    # parted runs every command word in order: only `print`, `free` and
+    # `unit UNIT` read the table without writing. No command word at all is
+    # interactive (commands come from stdin). Its output may only be piped
+    # on into commands that show it (`| grep gpt`, `| head`, `tee FILE`).
+    - type: NotMatches
+      value: '(?:^|\s)parted(?:\s+(?:-s|--script|-m|--machine|-l|--list))*\s+/dev/\S+(?:\s+(?:print|free|unit\s+(?:s|B|kB|MB|MiB|GB|GiB|TB|TiB|%|cyl|chs|compact)))+(?:\s+2>&\s*1)?(?:\s+\|\s+(?:(?:head|tail|grep|egrep|fgrep|less|wc|sort)(?:\s+[^\s|;&<>()$`]+)*|tee(?:\s+-a)?\s+[^-\s|;&<>()$`][^\s|;&<>()$`]*))*(?:\s*$|\s+(?:&&|\|\||;)\s)'
 - from: fs
   test: '(?:^|\s)fdisk\s+(?:\S+\s+)*?(/dev/(?:[hsv]d[a-z]+[0-9]*|r?disk[0-9]+(?:s[0-9]+)*|xvd[a-z]+[0-9]*|mmcblk[0-9]+(?:p[0-9]+)?|nvme[0-9]+n[0-9]+(?:p[0-9]+)?|md[0-9]+(?:p[0-9]+)?|md/[^\s/]+|dm-[0-9]+|mapper/[^\s/]+|disk/by-[a-z-]+/[^\s/]+|loop[0-9]+(?:p[0-9]+)?|rbd[0-9]+|zd[0-9]+|[a-zA-Z][\w.-]*/[\w.+-]+))(?:\s|$)'
   description: "Modifying disk partitions can erase all data on the disk."
@@ -329,10 +343,15 @@
   id: fs:mount_operations
   severity: High
 - from: fs
-  test: '(?:^|\s)(?:sudo\s+)?(?:lvremove|pvremove|vgremove)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
-  description: "Removing a logical volume, physical volume or volume group deletes all of its data."
+  test: '(?:^|\s)(?:sudo\s+)?(?:lvremove|pvremove|vgremove|lvreduce)\s+(?:-[a-zA-Z]+\s+)?(?:--[a-zA-Z-]+\s+)?(?:/dev/(?:[hs]d[a-z]|mmcblk[0-9])|/dev/mapper/[^\s]+|[^\s]+)'
+  description: "Removing a logical volume, physical volume or volume group, or shrinking a logical volume, deletes its data."
   id: fs:lvm_operations
   severity: Critical
+  filters:
+    # Test mode (`-t` / `--test`) changes no metadata. Every option must be
+    # one that takes no value (`--config` / `--select` can turn it off).
+    - type: NotMatches
+      value: '^(?:lvremove|vgremove|pvremove)(?:\s+(?:--verbose|--force|--yes|--quiet|-[vfyq]+|[^-\s]\S*))*\s+(?:--test|-[vfyq]*t[tvfyq]*)(?:\s+(?:--test|--verbose|--force|--yes|--quiet|-[tvfyq]+|[^-\s]\S*))*$'
 - from: fs
   test: '(?:^|\s)(?:dump|restore)\s+.*(/dev/([hs]d[a-z]|mmcblk[0-9]|nvme[0-9]+n[0-9]+))'
   description: "Dumping or restoring a raw filesystem device can affect system stability."
@@ -343,6 +362,11 @@
   description: "Encrypting or reformatting a device with cryptsetup can make its data inaccessible."
   id: fs:encryption_operations
   severity: Critical
+  filters:
+    # `luksDump` / `isLuks` only read the LUKS header (no key-dump or key
+    # options).
+    - type: NotMatches
+      value: '^cryptsetup(?:\s+(?:-v|--verbose|--debug))*\s+(?:isLuks(?:\s+(?:-v|--verbose|--debug))*\s+[^-\s]\S*(?:\s+(?:-v|--verbose|--debug))*|luksDump(?:\s+(?:-v|--verbose|--debug|--dump-json-metadata))*\s+[^-\s]\S*(?:\s+(?:-v|--verbose|--debug|--dump-json-metadata))*)$'
 - from: fs
   test: (?:^|\s)chmod\s
   description: "This changes file permissions."
@@ -353,14 +377,20 @@
     # deploy.sh`, `chmod u+x run`, `chmod 644 notes.txt`) is routine: no
     # prompt for a single file outside the system directories, your home
     # itself and dot directories (`~/.ssh`).
+    # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^chmod\s+(?:[ugoa]*\+[rx]+|u[+=][rwx]+|0?(?:644|755|600|700|640|750))\s+(?:(?:\./)?[^\s/~$.*\-][^\s*]*|(?:~|\$HOME|/tmp)/[^.\s*][^\s*]*)$'
+      value: '^(?:shellfirm-privileged\s+)?chmod\s+(?:[ugoa]*\+[rx]+|u[+=][rwx]+|0?(?:644|755|600|700|640|750))\s+(?:(?:\./)?[^\s/~$.*\-][^\s*]*|(?:~|\$HOME|/tmp)/[^.\s*][^\s*]*)$'
     # Taking write access away from group / others (`chmod go-w f`, the
     # oh-my-zsh `compaudit | xargs chmod g-w,o-w` fix) only tightens
     # permissions. A recursive change on / or a system directory is still
     # fs:recursively_chmod.
     - type: NotMatches
       value: '(?:^|\s)chmod(?:\s+-\S+)*\s+[go]+-w+(?:,[go]+-w+)*(?:\s|$)'
+    # Making one project dotfile owner-only (`chmod 600 .env`) only takes
+    # access away. A folder or symbolic link (`.git`) is spelled with a
+    # trailing `/` (checks.rs), so it is not skipped.
+    - type: NotMatches
+      value: '^chmod\s+(?:0?600|0?400|go-rwx|og-rwx)\s+\.[^\s/*?\[{$.~][^\s/*?\[{$]*$'
 - from: fs
   test: ^rm\s+(.+)$
   description: "This permanently deletes the given files."
@@ -372,9 +402,15 @@
     # Recursive deletes are covered by fs-strict:recursive_deletion.
     - type: NotMatches
       value: '\s(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s|$)'
-    # zsh's completion cache (`rm -f ~/.zcompdump*`): compinit rebuilds it.
+    # Lockfiles and tool caches the next install or build recreates
+    # (`rm yarn.lock`, `.eslintcache`, `*.tsbuildinfo`): relative, without
+    # `..`, globs or variables.
     - type: NotMatches
-      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|\.eslintcache|(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)?\.tsbuildinfo)(?:\s+|$))+$'
+    # zsh's completion cache (`rm -f ~/.zcompdump*`): compinit rebuilds it.
+    # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
+    - type: NotMatches
+      value: '^(?:shellfirm-privileged\s+)?rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
 - from: fs
   test: '^rm\s+((?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s.*)?)$'
   description: "This recursively deletes the given files or directories, with everything inside them."
@@ -386,11 +422,24 @@
     # Package-manager caches (the Dockerfile `rm -rf /var/lib/apt/lists/*`
     # idiom), a `.cache` directory and top-level named entries of /tmp: only
     # regenerable / throwaway files, when every operand is one of them.
+    # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:(?:\./)?\.cache|/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?|/tmp/[^\s/*?]+|/var/tmp/[^\s/*?]+)(?:\s+|$))+$'
+      value: '^(?:shellfirm-privileged\s+)?rm\s+(?:-\S+\s+)*(?:(?:(?:(?:\./)?\.cache|/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?|/tmp/[^\s/*?]+|/var/tmp/[^\s/*?]+)(?:\s+|$))+$'
     # zsh's completion cache (`rm -rf ~/.zcompdump*`): compinit rebuilds it.
+    # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+      value: '^(?:shellfirm-privileged\s+)?rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
+    # A project's dependency / tool caches (`rm -rf node_modules`,
+    # `__pycache__`, `.mypy_cache`, `node_modules/.vite`, with
+    # `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` / `bun.lock(b)`
+    # beside them): a reinstall or the next run rebuilds them. Every operand
+    # is one of them, relative (or under `~/` after a `cd`), without `..`,
+    # globs, variables or a trailing `/`. Build output folders (`.next`,
+    # `.venv`, `.tox`, `.gradle`, ...) count only as relative paths
+    # (`~/.gradle` holds credentials). A symbolic link on the way is spelled
+    # with a trailing `/` (checks.rs), so it is not skipped.
+    - type: NotMatches
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*(?:(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+))(?:\s+(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*(?:(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+))|(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)))*$'
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion."
 - from: fs
@@ -409,10 +458,13 @@
   alternative: "rsync --dry-run --delete ..."
   alternative_info: "Preview what would be deleted with --dry-run first."
   filters:
-    - type: NotContains
-      value: "--dry-run"
-    - type: NotContains
-      value: "-n"
+    # A real `-n` / `--dry-run` option word before any `--` (not a `-n`
+    # inside a path, an option value or the quoted `-e` command), and no
+    # later dry-run word. The word before it must not be an option that takes
+    # a value (`--exclude -avn`, `-T -n`), and `n` must not follow a short
+    # option that takes the rest of the word as its value (`-en`).
+    - type: NotMatches
+      value: '^rsync\s+(?:(?:(?:[^-\s]\S*|-[^-\s]\S*|--\S+)\s+)*?(?:[^-\s]\S*|-[^-\sBefTM@]|-[^-\s]\S*[^\sBefTM@]|--[^\s=]+=\S*|--(?:[^abcdefgilmoprstuwz\s=][^\s=]*|a(?:[^d\s=][^\s=]*|d(?:[^d\s=][^\s=]*|d(?:[^r\s=][^\s=]*|r(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^s\s=][^\s=]*|s(?:[^\s=][^\s=]*))?)?)?)?)?)?|b(?:[^alw\s=][^\s=]*|a(?:[^c\s=][^\s=]*|c(?:[^k\s=][^\s=]*|k(?:[^u\s=][^\s=]*|u(?:[^p\s=][^\s=]*|p(?:[^\-\s=][^\s=]*|-(?:[^d\s=][^\s=]*|d(?:[^i\s=][^\s=]*|i(?:[^r\s=][^\s=]*|r(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?|l(?:[^o\s=][^\s=]*|o(?:[^c\s=][^\s=]*|c(?:[^k\s=][^\s=]*|k(?:[^\-\s=][^\s=]*|-(?:[^s\s=][^\s=]*|s(?:[^i\s=][^\s=]*|i(?:[^z\s=][^\s=]*|z(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?|w(?:[^l\s=][^\s=]*|l(?:[^i\s=][^\s=]*|i(?:[^m\s=][^\s=]*|m(?:[^i\s=][^\s=]*|i(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?|c(?:[^cho\s=][^\s=]*|c(?:[^\s=][^\s=]*)|h(?:[^emo\s=][^\s=]*|e(?:[^c\s=][^\s=]*|c(?:[^k\s=][^\s=]*|k(?:[^s\s=][^\s=]*|s(?:[^u\s=][^\s=]*|u(?:[^m\s=][^\s=]*|m(?:[^\-\s=][^\s=]*|-(?:[^cs\s=][^\s=]*|c(?:[^h\s=][^\s=]*|h(?:[^o\s=][^\s=]*|o(?:[^i\s=][^\s=]*|i(?:[^c\s=][^\s=]*|c(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?|s(?:[^e\s=][^\s=]*|e(?:[^e\s=][^\s=]*|e(?:[^d\s=][^\s=]*|d(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?|m(?:[^o\s=][^\s=]*|o(?:[^d\s=][^\s=]*|d(?:[^\s=][^\s=]*))?)?|o(?:[^w\s=][^\s=]*|w(?:[^n\s=][^\s=]*|n(?:[^\s=][^\s=]*))?)?)?|o(?:[^mnp\s=][^\s=]*|m(?:[^p\s=][^\s=]*|p(?:[^ar\s=][^\s=]*|a(?:[^r\s=][^\s=]*|r(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^d\s=][^\s=]*|d(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|r(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^s\s=][^\s=]*|s(?:[^\-\s=][^\s=]*|-(?:[^cl\s=][^\s=]*|c(?:[^h\s=][^\s=]*|h(?:[^o\s=][^\s=]*|o(?:[^i\s=][^\s=]*|i(?:[^c\s=][^\s=]*|c(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?|l(?:[^e\s=][^\s=]*|e(?:[^v\s=][^\s=]*|v(?:[^e\s=][^\s=]*|e(?:[^l\s=][^\s=]*|l(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?|n(?:[^ft\s=][^\s=]*|f(?:[^i\s=][^\s=]*|i(?:[^g\s=][^\s=]*|g(?:[^\s=][^\s=]*))?)?|t(?:[^i\s=][^\s=]*|i(?:[^m\s=][^\s=]*|m(?:[^e\s=][^\s=]*|e(?:[^o\s=][^\s=]*|o(?:[^u\s=][^\s=]*|u(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|p(?:[^y\s=][^\s=]*|y(?:[^\-\s=][^\s=]*|-(?:[^ad\s=][^\s=]*|a(?:[^s\s=][^\s=]*|s(?:[^\s=][^\s=]*))?|d(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?|d(?:[^ep\s=][^\s=]*|e(?:[^b\s=][^\s=]*|b(?:[^u\s=][^\s=]*|u(?:[^g\s=][^\s=]*|g(?:[^\s=][^\s=]*))?)?)?|p(?:[^a\s=][^\s=]*|a(?:[^r\s=][^\s=]*|r(?:[^a\s=][^\s=]*|a(?:[^m\s=][^\s=]*|m(?:[^\s=][^\s=]*))?)?)?)?)?|e(?:[^ax\s=][^\s=]*|a(?:[^r\s=][^\s=]*|r(?:[^l\s=][^\s=]*|l(?:[^y\s=][^\s=]*|y(?:[^\-\s=][^\s=]*|-(?:[^i\s=][^\s=]*|i(?:[^n\s=][^\s=]*|n(?:[^p\s=][^\s=]*|p(?:[^u\s=][^\s=]*|u(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?|x(?:[^c\s=][^\s=]*|c(?:[^l\s=][^\s=]*|l(?:[^u\s=][^\s=]*|u(?:[^d\s=][^\s=]*|d(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^r\s=][^\s=]*|r(?:[^o\s=][^\s=]*|o(?:[^m\s=][^\s=]*|m(?:[^\s=][^\s=]*))?)?)?)?))?)?)?)?)?)?|f(?:[^i\s=][^\s=]*|i(?:[^l\s=][^\s=]*|l(?:[^et\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^r\s=][^\s=]*|r(?:[^o\s=][^\s=]*|o(?:[^m\s=][^\s=]*|m(?:[^\s=][^\s=]*))?)?)?)?)?)?|t(?:[^e\s=][^\s=]*|e(?:[^r\s=][^\s=]*|r(?:[^\s=][^\s=]*))?)?)?)?)?|g(?:[^r\s=][^\s=]*|r(?:[^o\s=][^\s=]*|o(?:[^u\s=][^\s=]*|u(?:[^p\s=][^\s=]*|p(?:[^m\s=][^\s=]*|m(?:[^a\s=][^\s=]*|a(?:[^p\s=][^\s=]*|p(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|i(?:[^cn\s=][^\s=]*|c(?:[^o\s=][^\s=]*|o(?:[^n\s=][^\s=]*|n(?:[^v\s=][^\s=]*|v(?:[^\s=][^\s=]*))?)?)?|n(?:[^cf\s=][^\s=]*|c(?:[^l\s=][^\s=]*|l(?:[^u\s=][^\s=]*|u(?:[^d\s=][^\s=]*|d(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^r\s=][^\s=]*|r(?:[^o\s=][^\s=]*|o(?:[^m\s=][^\s=]*|m(?:[^\s=][^\s=]*))?)?)?)?))?)?)?)?|f(?:[^o\s=][^\s=]*|o(?:[^\s=][^\s=]*))?)?)?|l(?:[^io\s=][^\s=]*|i(?:[^n\s=][^\s=]*|n(?:[^k\s=][^\s=]*|k(?:[^\-\s=][^\s=]*|-(?:[^d\s=][^\s=]*|d(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|o(?:[^g\s=][^\s=]*|g(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^io\s=][^\s=]*|i(?:[^l\s=][^\s=]*|l(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^o\s=][^\s=]*|o(?:[^r\s=][^\s=]*|r(?:[^m\s=][^\s=]*|m(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?))?)?|o(?:[^r\s=][^\s=]*|r(?:[^m\s=][^\s=]*|m(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?|m(?:[^aio\s=][^\s=]*|a(?:[^x\s=][^\s=]*|x(?:[^\-\s=][^\s=]*|-(?:[^ads\s=][^\s=]*|a(?:[^l\s=][^\s=]*|l(?:[^l\s=][^\s=]*|l(?:[^o\s=][^\s=]*|o(?:[^c\s=][^\s=]*|c(?:[^\s=][^\s=]*))?)?)?)?|d(?:[^e\s=][^\s=]*|e(?:[^l\s=][^\s=]*|l(?:[^e\s=][^\s=]*|e(?:[^t\s=][^\s=]*|t(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?|s(?:[^i\s=][^\s=]*|i(?:[^z\s=][^\s=]*|z(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?)?|i(?:[^n\s=][^\s=]*|n(?:[^\-\s=][^\s=]*|-(?:[^s\s=][^\s=]*|s(?:[^i\s=][^\s=]*|i(?:[^z\s=][^\s=]*|z(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?)?|o(?:[^d\s=][^\s=]*|d(?:[^i\s=][^\s=]*|i(?:[^f\s=][^\s=]*|f(?:[^y\s=][^\s=]*|y(?:[^\-\s=][^\s=]*|-(?:[^w\s=][^\s=]*|w(?:[^i\s=][^\s=]*|i(?:[^n\s=][^\s=]*|n(?:[^d\s=][^\s=]*|d(?:[^o\s=][^\s=]*|o(?:[^w\s=][^\s=]*|w(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?)?|o(?:[^nu\s=][^\s=]*|n(?:[^l\s=][^\s=]*|l(?:[^y\s=][^\s=]*|y(?:[^\-\s=][^\s=]*|-(?:[^w\s=][^\s=]*|w(?:[^r\s=][^\s=]*|r(?:[^i\s=][^\s=]*|i(?:[^t\s=][^\s=]*|t(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^b\s=][^\s=]*|b(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^c\s=][^\s=]*|c(?:[^h\s=][^\s=]*|h(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?)?)?)?|u(?:[^t\s=][^\s=]*|t(?:[^\-b\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^o\s=][^\s=]*|o(?:[^r\s=][^\s=]*|r(?:[^m\s=][^\s=]*|m(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?|b(?:[^u\s=][^\s=]*|u(?:[^f\s=][^\s=]*|f(?:[^\s=][^\s=]*))?)?)?)?)?|p(?:[^aor\s=][^\s=]*|a(?:[^rs\s=][^\s=]*|r(?:[^t\s=][^\s=]*|t(?:[^i\s=][^\s=]*|i(?:[^a\s=][^\s=]*|a(?:[^l\s=][^\s=]*|l(?:[^\-\s=][^\s=]*|-(?:[^d\s=][^\s=]*|d(?:[^i\s=][^\s=]*|i(?:[^r\s=][^\s=]*|r(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?|s(?:[^s\s=][^\s=]*|s(?:[^w\s=][^\s=]*|w(?:[^o\s=][^\s=]*|o(?:[^r\s=][^\s=]*|r(?:[^d\s=][^\s=]*|d(?:[^\-\s=][^\s=]*|-(?:[^f\s=][^\s=]*|f(?:[^i\s=][^\s=]*|i(?:[^l\s=][^\s=]*|l(?:[^e\s=][^\s=]*|e(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?|o(?:[^r\s=][^\s=]*|r(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?|r(?:[^o\s=][^\s=]*|o(?:[^t\s=][^\s=]*|t(?:[^o\s=][^\s=]*|o(?:[^c\s=][^\s=]*|c(?:[^o\s=][^\s=]*|o(?:[^l\s=][^\s=]*|l(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|r(?:[^es\s=][^\s=]*|e(?:[^am\s=][^\s=]*|a(?:[^d\s=][^\s=]*|d(?:[^\-\s=][^\s=]*|-(?:[^b\s=][^\s=]*|b(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^c\s=][^\s=]*|c(?:[^h\s=][^\s=]*|h(?:[^\s=][^\s=]*))?)?)?)?)?)?)?|m(?:[^o\s=][^\s=]*|o(?:[^t\s=][^\s=]*|t(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^o\s=][^\s=]*|o(?:[^p\s=][^\s=]*|p(?:[^t\s=][^\s=]*|t(?:[^i\s=][^\s=]*|i(?:[^o\s=][^\s=]*|o(?:[^n\s=][^\s=]*|n(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?|s(?:[^hy\s=][^\s=]*|h(?:[^\s=][^\s=]*)|y(?:[^n\s=][^\s=]*|n(?:[^c\s=][^\s=]*|c(?:[^\-\s=][^\s=]*|-(?:[^p\s=][^\s=]*|p(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^h\s=][^\s=]*|h(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?|s(?:[^kotu\s=][^\s=]*|k(?:[^i\s=][^\s=]*|i(?:[^p\s=][^\s=]*|p(?:[^\-\s=][^\s=]*|-(?:[^c\s=][^\s=]*|c(?:[^o\s=][^\s=]*|o(?:[^m\s=][^\s=]*|m(?:[^p\s=][^\s=]*|p(?:[^r\s=][^\s=]*|r(?:[^e\s=][^\s=]*|e(?:[^s\s=][^\s=]*|s(?:[^s\s=][^\s=]*|s(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?)?|o(?:[^c\s=][^\s=]*|c(?:[^k\s=][^\s=]*|k(?:[^o\s=][^\s=]*|o(?:[^p\s=][^\s=]*|p(?:[^t\s=][^\s=]*|t(?:[^s\s=][^\s=]*|s(?:[^\s=][^\s=]*))?)?)?)?)?)?|t(?:[^o\s=][^\s=]*|o(?:[^p\s=][^\s=]*|p(?:[^\-\s=][^\s=]*|-(?:[^a\s=][^\s=]*|a(?:[^ft\s=][^\s=]*|f(?:[^t\s=][^\s=]*|t(?:[^e\s=][^\s=]*|e(?:[^r\s=][^\s=]*|r(?:[^\s=][^\s=]*))?)?)?|t(?:[^\s=][^\s=]*))?)?)?)?)?|u(?:[^f\s=][^\s=]*|f(?:[^f\s=][^\s=]*|f(?:[^i\s=][^\s=]*|i(?:[^x\s=][^\s=]*|x(?:[^\s=][^\s=]*))?)?)?)?)?|t(?:[^ei\s=][^\s=]*|e(?:[^m\s=][^\s=]*|m(?:[^p\s=][^\s=]*|p(?:[^\-\s=][^\s=]*|-(?:[^d\s=][^\s=]*|d(?:[^i\s=][^\s=]*|i(?:[^r\s=][^\s=]*|r(?:[^\s=][^\s=]*))?)?)?)?)?)?|i(?:[^m\s=][^\s=]*|m(?:[^e\s=][^\s=]*|e(?:[^o\s=][^\s=]*|o(?:[^u\s=][^\s=]*|u(?:[^t\s=][^\s=]*|t(?:[^\s=][^\s=]*))?)?)?)?)?)?|u(?:[^s\s=][^\s=]*|s(?:[^e\s=][^\s=]*|e(?:[^r\s=][^\s=]*|r(?:[^m\s=][^\s=]*|m(?:[^a\s=][^\s=]*|a(?:[^p\s=][^\s=]*|p(?:[^\s=][^\s=]*))?)?)?)?)?)?|w(?:[^r\s=][^\s=]*|r(?:[^i\s=][^\s=]*|i(?:[^t\s=][^\s=]*|t(?:[^e\s=][^\s=]*|e(?:[^\-\s=][^\s=]*|-(?:[^b\s=][^\s=]*|b(?:[^a\s=][^\s=]*|a(?:[^t\s=][^\s=]*|t(?:[^c\s=][^\s=]*|c(?:[^h\s=][^\s=]*|h(?:[^\s=][^\s=]*))?)?)?)?)?)?)?)?)?)?|z(?:[^c\s=][^\s=]*|c(?:[^\s=][^\s=]*))?))\s+)?(?:-[a-dg-zAC-LN-SU-Z0-9]*n[a-zA-Z0-9]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: fs
   # Same targets as fs:recursively_chmod, plus a home directory by its absolute
   # path and its `.ssh` / `.gnupg` (`chown -R dev ./src` and
@@ -584,6 +636,13 @@
   description: "This destroys a ZFS dataset / pool and all of its data and snapshots."
   id: fs:zfs_destroy
   severity: High
+  filters:
+    # `zfs destroy -n` only prints what would be destroyed: option bundles
+    # of `nvpdfrR` before the one dataset, one of them with `n`. Its output
+    # may only be piped on into commands that show it (`| tail -1`, `| grep
+    # reclaim`, `tee FILE`); `| sh` keeps it flagged.
+    - type: NotMatches
+      value: '(?:^|\s)zfs\s+destroy(?:\s+-[vpdfrR]+)*\s+-[vpdfrR]*n[nvpdfrR]*(?:\s+-[nvpdfrR]+)*\s+[^-\s]\S*(?:\s+2>&\s*1)?(?:\s+\|\s+(?:(?:head|tail|grep|egrep|fgrep|less|wc|sort)(?:\s+[^\s|;&<>()$`]+)*|tee(?:\s+-a)?\s+[^-\s|;&<>()$`][^\s|;&<>()$`]*))*(?:\s*$|\s+(?:&&|\|\||;)\s)'
 - from: fs
   # A recursive owner / mode change in a data or service directory
   # (`/var/lib/postgresql`, `/srv/www`, `/opt/app`) breaks the service that

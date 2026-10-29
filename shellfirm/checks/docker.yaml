@@ -35,8 +35,24 @@
   description: "This stops the containers and deletes their volumes and data."
   id: docker:compose_down_volumes
   severity: High
+  filters:
+    # `docker compose --dry-run` (v2 only) changes nothing, when it is the
+    # last dry-run word and the word before it cannot take it as a value.
+    - type: NotMatches
+      value: '(?:^|\s)docker\s+compose(?:(?:\s+[^\s|;&]\S*)*?\s+(?:[^-\s|;&]\S*|-[^\s=]*=\S*|-v|--volumes|--remove-orphans|--no-dry-run))?\s+--dry-run(?:=(?:true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "docker-compose down"
   alternative_info: "Without -v, volumes are preserved so data is not lost."
+- from: docker
+  # `rm -v` also removes the anonymous volumes of the removed containers.
+  test: '(?:^|\s)docker[\s-]compose\s+(?:-\S+\s+(?:[^-\s|;&]\S*\s+)?)*rm\s+(?:[^\s|;&]\S*\s+)*?(?:-[a-zA-Z]*v[a-zA-Z]*|--volumes)(?:\s|$)'
+  description: "This removes the stopped service containers and deletes their anonymous volumes and data."
+  id: docker:compose_rm_volumes
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)docker\s+compose(?:(?:\s+[^\s|;&]\S*)*?\s+(?:[^-\s|;&]\S*|-[^\s=]*=\S*|-[fsv]+|--force|--stop|--volumes|--no-dry-run))?\s+--dry-run(?:=(?:true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
+  alternative: "docker compose rm"
+  alternative_info: "Without -v, the anonymous volumes are kept."
 - from: docker
   test: (?:^|\s)docker\s+stop\s+\$\(docker\s+ps
   description: "This stops all running containers."
