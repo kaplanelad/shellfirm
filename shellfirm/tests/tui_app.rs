@@ -919,7 +919,7 @@ fn render_text(app: &shellfirm::tui::app::App, w: u16, h: u16) -> Vec<String> {
         .collect()
 }
 
-/// Round-2 (Noor F3): at the advertised minimum size every tab used to be
+/// At the advertised minimum size every tab used to be
 /// blank. Each tab must now render content in its body.
 #[test]
 fn every_tab_renders_at_minimum_size() {
@@ -953,7 +953,7 @@ fn too_small_message_fits_the_terminal() {
     assert!(all.contains("config show"), "{all}");
 }
 
-/// Round-2 (Noor F3): the help overlay was clipped at 80x24; it now wraps
+/// The help overlay was clipped at 80x24; it now wraps
 /// and scrolls so every binding (down to `?`) can be reached.
 #[test]
 fn help_overlay_scrolls_to_the_end_at_80x24() {
@@ -973,7 +973,7 @@ fn help_overlay_scrolls_to_the_end_at_80x24() {
     assert!(app.modal.is_none());
 }
 
-/// Round-2 (Noor F2, Lena N13): an unknown id in the deny list must not
+/// An unknown id in the deny list must not
 /// be reported as a valid configuration.
 #[test]
 fn save_rejects_unknown_check_ids() {
@@ -1016,7 +1016,7 @@ fn ignore_deny_picker_does_not_accept_unknown_ids() {
     assert!(app.draft.current.deny_patterns_ids.is_empty());
 }
 
-/// Round-2 (Lena N3): saving with a custom-check group must not pin the
+/// Saving with a custom-check group must not pin the
 /// full `enabled_groups` list in the settings file.
 #[test]
 fn save_with_custom_group_keeps_settings_sparse() {
@@ -1040,7 +1040,7 @@ fn save_with_custom_group_keeps_settings_sparse() {
 }
 
 /// The text caret is drawn at the insertion point, and the terminal
-/// cursor is placed there (Noor F5).
+/// cursor is placed there.
 #[test]
 fn custom_check_form_caret_follows_cursor() {
     use ratatui::backend::TestBackend;
@@ -1065,7 +1065,7 @@ fn custom_check_form_caret_follows_cursor() {
     assert_eq!(buf[(pos.x, pos.y)].symbol(), "d", "cursor at {pos:?}");
 }
 
-// ── Round 4 (Noor R4-1..R4-6) ──────────────────────────────────────────
+// ── Round 4 ──────────────────────────────────────────
 
 fn ch(c: char) -> KeyEvent {
     key(KeyCode::Char(c))
@@ -1174,13 +1174,13 @@ fn draw_once(app: &shellfirm::tui::app::App, w: u16, h: u16) {
         .unwrap();
 }
 
-/// Noor R4-1: pressing `+` in a Context list panicked at 80x24 (the row was
+/// Pressing `+` in a Context list panicked at 80x24 (the row was
 /// drawn one below the buffer). Every tab, edit/add state and modal must
 /// render at any terminal size without panicking.
 #[test]
 fn every_state_renders_at_every_size_without_panicking() {
     // Kept small enough for a debug-build CI run; the list sizes below
-    // straddle the minimum size and the rows where the R4-1 panic began.
+    // straddle the minimum size and the rows where the `+` panic began.
     let widths = [20u16, 60, 80, 100, 200];
     let heights = [5u16, 16, 22, 24, 25, 60];
     let mut failures = Vec::new();
@@ -1234,7 +1234,7 @@ fn open_context_add(app: &mut shellfirm::tui::app::App) {
     app.handle_key(ch('+'));
 }
 
-/// Noor R4-1/R4-5: at 80x24 the New entry row is visible (the tab scrolls)
+/// At 80x24 the New entry row is visible (the tab scrolls)
 /// and no tab text is painted into the footer rows.
 #[test]
 fn context_add_row_is_visible_at_80x24_and_footer_is_clean() {
@@ -1258,7 +1258,7 @@ fn context_add_row_is_visible_at_80x24_and_footer_is_clean() {
     }
 }
 
-/// Noor R4-3: Left/Right move the caret in the New entry field instead of
+/// Left/Right move the caret in the New entry field instead of
 /// switching tabs, and the terminal cursor sits on the caret.
 #[test]
 fn context_new_entry_arrows_move_caret_not_tab() {
@@ -1296,7 +1296,7 @@ fn context_new_entry_arrows_move_caret_not_tab() {
         .contains(&"_abcXdef".to_string()));
 }
 
-/// Noor R4-2: in Ignore/Deny edit mode Tab switches to the entries list
+/// In Ignore/Deny edit mode Tab switches to the entries list
 /// (where `d` removes) instead of leaving the tab, and leaving the tab
 /// closes the edit state.
 #[test]
@@ -1363,7 +1363,7 @@ fn leaving_a_tab_closes_its_edit_state() {
     assert!(app.context.edit.is_none());
 }
 
-/// Noor R4-4: the Save dialog fits a 60x16 window and its body scrolls,
+/// The Save dialog fits a 60x16 window and its body scrolls,
 /// with a `more` marker, so every error and the "did you mean" hint can be
 /// reached.
 #[test]
@@ -1389,7 +1389,7 @@ fn save_dialog_scrolls_at_60x16() {
     assert!(app.modal.is_none());
 }
 
-/// Noor R4-4: a valid save shows its diff at 60x16.
+/// A valid save shows its diff at 60x16.
 #[test]
 fn save_dialog_shows_diff_at_60x16() {
     let config = temp_config();
@@ -1401,7 +1401,7 @@ fn save_dialog_shows_diff_at_60x16() {
     assert!(text.contains("Save ]"), "{text}");
 }
 
-/// Noor R4-6: the Behavior summary uses words, not ✓/✗.
+/// The Behavior summary uses words, not ✓/✗.
 #[test]
 fn behavior_summary_uses_words() {
     let config = temp_config();
@@ -1413,7 +1413,7 @@ fn behavior_summary_uses_words() {
     assert!(text.contains("Blast radius: on"), "{text}");
 }
 
-// -- round 6 (Noor N5-1..N5-7, Lena: Save diff) ------------------------------
+// -- round 6 ------------------------------
 
 fn ctrl_c() -> KeyEvent {
     KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
@@ -1436,7 +1436,7 @@ fn save_dialog_text(app: &mut shellfirm::tui::app::App) -> String {
     text
 }
 
-/// Noor N5-1: while "Terminal too small" hides the editor, keys must not
+/// While "Terminal too small" hides the editor, keys must not
 /// change settings; only q / Ctrl-C (the quit flow) work.
 #[test]
 fn keys_do_nothing_while_the_terminal_is_too_small() {
@@ -1481,7 +1481,7 @@ fn keys_do_nothing_while_the_terminal_is_too_small() {
     assert!(!app.running);
 }
 
-/// Noor N5-1: with unsaved changes the too-small screen asks in words;
+/// With unsaved changes the too-small screen asks in words;
 /// `s` / Enter must not save blindly.
 #[test]
 fn too_small_quit_with_unsaved_changes_asks_in_words() {
@@ -1508,7 +1508,7 @@ fn too_small_quit_with_unsaved_changes_asks_in_words() {
     );
 }
 
-/// Noor N5-2: in the Ignore/Deny picker Left/Right move the caret inside the
+/// In the Ignore/Deny picker Left/Right move the caret inside the
 /// filter (they used to switch tabs and lose the text), and the terminal
 /// cursor follows it.
 #[test]
@@ -1546,7 +1546,7 @@ fn ignore_deny_filter_arrows_move_the_caret() {
     assert_eq!(app.draft.current.deny_patterns_ids, vec!["git:force_push"]);
 }
 
-/// Noor N5-6: Enter twice (or a key repeat) right after opening a list must
+/// Enter twice (or a key repeat) right after opening a list must
 /// not add the first check of the picker.
 #[test]
 fn enter_twice_in_ignore_deny_adds_nothing() {
@@ -1576,7 +1576,7 @@ fn enter_twice_in_ignore_deny_adds_nothing() {
     assert_eq!(app.draft.current.deny_patterns_ids.len(), 1);
 }
 
-/// Noor N5-3 / Lena: the Save diff is the exact file that will be written
+/// The Save diff is the exact file that will be written
 /// against the file on disk: no phantom `- key: []` / `+ key: []` lines
 /// for keys that are not in the file.
 #[test]
@@ -1617,7 +1617,7 @@ fn save_diff_shows_the_bytes_that_will_be_written() {
     );
 }
 
-/// Noor N5-3: a nested change is shown under its enclosing keys.
+/// A nested change is shown under its enclosing keys.
 #[test]
 fn save_diff_shows_parent_keys_of_nested_changes() {
     let config = temp_config();
@@ -1635,7 +1635,7 @@ fn save_diff_shows_parent_keys_of_nested_changes() {
     assert!(ctx < pb && pb < add, "{text}");
 }
 
-/// Noor N5-4: a status message is labelled `Note:`, disappears on the next
+/// A status message is labelled `Note:`, disappears on the next
 /// key, and never overwrites the field header at 60 columns.
 #[test]
 fn status_message_is_labelled_cleared_and_does_not_cover_the_header() {
@@ -1661,7 +1661,7 @@ fn status_message_is_labelled_cleared_and_does_not_cover_the_header() {
     assert!(!lines.contains("Note:"), "{lines}");
 }
 
-/// Noor N5-5: Ctrl-C quits (asking first when there are unsaved changes),
+/// Ctrl-C quits (asking first when there are unsaved changes),
 /// also from a text field, and the help lists it.
 #[test]
 fn ctrl_c_runs_the_quit_flow() {

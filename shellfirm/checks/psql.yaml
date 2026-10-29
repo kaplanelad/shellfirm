@@ -9,10 +9,17 @@
   id: psql:dropdb
   severity: Critical
 - from: psql
-  test: (?:^|\s)pg_restore\s+(?:\S+\s+)*?(?:--clean|-c)(?:\s|$)
+  # `-c` in a short bundle (`-Cc`, `-cd DB`) and abbreviations of --clean.
+  test: '(?:^|\s)pg_restore\s+(?:\S+\s+)*?(?:--cl(?:e(?:an?)?)?|-[aCe1lOsvwWx]*c[a-zA-Z0-9]*)(?:\s|$)'
   description: "pg_restore --clean drops the database objects before recreating them from the dump."
   id: psql:pg_restore_clean
   severity: Medium
+  filters:
+    # Without a database (`-d`, `-dDB`, `-cd`, `--db…`) pg_restore only writes
+    # the SQL script (to a file or stdout). The script may then be piped only
+    # into text filters, and nothing may follow that could run it.
+    - type: NotMatches
+      value: '(?:^|\s)pg_restore(?:\s+(?:[^-\s|;&]\S*|-(?:[^-\sd][^\sd]*)?|--(?:[^d\s]\S*|d(?:[^b\s]\S*)?)?))*(?:\s+\|\s+(?:grep|egrep|fgrep|rg|head|tail|wc|cut|tr|column|nl|cat|less|more)(?:\s+[^\s|;&]\S*)*)*\s*$'
 - from: psql
   test: (?:^|\s)dropuser\s+\S
   description: "dropuser removes a PostgreSQL role; applications and people using it lose access."
@@ -35,7 +42,7 @@
   severity: Critical
   filters:
     - type: NotMatches
-      value: (?:^|\s)(?:-n|--dry-run|--help|-\?|--version|-V)(?:\s|$)
+      value: '(?:^|\s)(?:--help|-\?|--version|-V)(?:\s|$)|(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-f|--force|--no-dry-run)\s+(?:-n|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: psql
   test: (?:^|\s)pg_dropcluster\s+\S
   description: "pg_dropcluster deletes a PostgreSQL cluster: its data directory and every database in it."
@@ -44,6 +51,20 @@
   filters:
     - type: NotMatches
       value: (?:^|\s)pg_dropcluster\s+(?:--help|-h)(?:\s|$)
+# psql meta-commands that write a file on the client machine: `\copy …
+# TO FILE`, `\o FILE`, `\w FILE`, `\g FILE`.
+- from: psql
+  test: (?i)(?:^|[\s\x01])\\(?:copy[\s\x01].*[\s\x01]to[\s\x01]+\S|o(?:ut)?[\s\x01]+[^\s\x01]|w(?:rite)?[\s\x01]+\S|gx?[\s\x01]+[^\s\x01])
+  description: "psql writes a file on this machine (\\copy … TO FILE, \\o FILE, \\w FILE, \\g FILE): it can overwrite any file you can write, such as .env or a shell startup file."
+  id: psql:client_file_write
+  severity: Medium
+  filters:
+    # `\copy … TO STDOUT` / `pstdout` prints.
+    - type: NotMatches
+      value: (?i)\\copy[\s\x01].*[\s\x01]to[\s\x01]+(?:stdout|pstdout)(?:[\s\x01;]|$)
+    # Output to a scratch file (`\o /tmp/out.txt`) or thrown away.
+    - type: NotMatches
+      value: (?i)\\(?:copy[\s\x01].*[\s\x01]to|o(?:ut)?|w(?:rite)?|gx?)[\s\x01]+['"]?(?:/tmp/|/var/tmp/|/dev/null(?:[\s\x01'";]|$))
 # psql `\gexec` runs every value a query returns as a new statement: the
 # standard "generate DROP/TRUNCATE for every table" one-liner. The
 # statements it runs are not visible here (`shellfirm wrap psql` asks too).

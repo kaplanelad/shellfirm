@@ -312,16 +312,16 @@
   description: "bash brace expansion builds the command"
   expect_ids: ["git:force_push"]
 - test: "nu -c 'git push -f'"
-  description: "nu -c is unwrapped (ken-r5:N3)"
+  description: "nu -c is unwrapped"
   expect_ids: ["git:force_push"]
 - test: "pwsh -NoProfile -Command 'git push -f'"
   description: "pwsh -Command is unwrapped"
   expect_ids: ["git:force_push"]
 - test: "set c git; $c push -f"
-  description: "fish set assignment (ken-r5:N2)"
+  description: "fish set assignment"
   expect_ids: ["git:force_push"]
 - test: "$'\\x67it' push -f"
-  description: "ANSI-C hex escape in the command word (ken-r5:N4)"
+  description: "ANSI-C hex escape in the command word"
   expect_ids: ["git:force_push"]
 - test: "sudo $(echo git push -f)"
   description: "a generated command behind sudo"
@@ -371,10 +371,10 @@
   description: "time -p prefix"
   expect_ids: ["git:force_push"]
 - test: "var c = git; (external $c) push --force origin main"
-  description: "elvish external with a variable (ken-r6:R6-4)"
+  description: "elvish external with a variable"
   expect_ids: ["git:force_push"]
 - test: "exec 3<<<'git push -f'; source /dev/fd/3"
-  description: "a here-string on a file descriptor sourced later (ken-r6:R6-9)"
+  description: "a here-string on a file descriptor sourced later"
   expect_ids: ["git:force_push"]
 - test: "tmux new -d 'git push -f'"
   description: "a command run by tmux"

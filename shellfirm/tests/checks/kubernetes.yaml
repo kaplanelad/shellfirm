@@ -290,14 +290,12 @@
 - test: 'kubectl get deploy patch-job'
   description: "negative: a name containing patch"
   expect_ids: []
-# -- round 5 (Omar R4 N7) --
 - test: "kubectl patch --help"
   description: "help changes nothing"
   expect_ids: []
 - test: "kubectl patch deploy api -p '{}' --dry-run=client"
   description: "a dry run changes nothing"
   expect_ids: []
-# -- round 7 --
 - test: 'sudo etcdctl del "" --prefix'
   description: "every key of the cluster"
   expect_ids: ["kubernetes:etcd_delete_keys"]
@@ -334,7 +332,7 @@
 - test: "helm uninstall api --dry-run"
   description: "negative: a dry run"
   expect_ids: []
-# -- round 8 (jules-r7:R7-2): anchored kubectl / helm regexes --
+# -- anchored kubectl / helm regexes --
 - test: "task delete pods --all"
   description: "negative: `task` ends in k but is not kubectl"
   expect_ids: []
@@ -403,6 +401,85 @@
 - test: "velero restore get"
   description: "negative: listing restores"
   expect_ids: []
+# velero restore create -o yaml|json only prints the restore
+- test: "velero restore create --from-backup nightly -o yaml"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create --from-backup nightly --output json"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create --from-backup nightly --output=yaml"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create restore-1 --from-backup nightly -o yaml > restore.yaml"
+  description: "with -o the create command only prints the object (the file is taken to exist here)"
+  expect_ids: ["fs:flush_file_content"]
+- test: "velero create restore --from-backup nightly -o json"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create r1 --from-backup nightly -oyaml"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create --from-backup nightly --wait -o yaml"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create --from-backup nightly -o yaml | less"
+  description: "negative: with -o the create command only prints the object"
+  expect_ids: []
+- test: "velero restore create --from-backup nightly -o yaml > r.yaml && cat r.yaml"
+  description: "with -o the create command only prints the object (the file is taken to exist here)"
+  expect_ids: ["fs:flush_file_content"]
+- test: "velero restore create --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly --wait"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup -o yaml"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --selector -o yaml --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml -o ''"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly --output yaml --output="
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly '-o' yaml"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml | kubectl apply -f -"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml > r.yaml && kubectl apply -f r.yaml"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["fs:flush_file_content", "kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml; velero restore create --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml && velero restore create --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "sudo velero restore create --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "env velero restore create --from-backup nightly"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "echo 'velero restore create --from-backup nightly' | sh"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml | sh"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o table"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
+- test: "velero restore create --from-backup nightly -o yaml --output=json --output table"
+  description: "a real restore, a swallowed or overridden -o, or printed output that is applied or run"
+  expect_ids: ["kubernetes:velero_restore"]
 # -- kubernetes:etcd_member_remove --
 - test: "etcdctl member remove 8e9e05c52164694d"
   description: "removes an etcd member"
@@ -411,7 +488,6 @@
   description: "negative: listing members"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG) ----
 # -- kubernetes:argocd_sync_force --
 - test: "argocd app sync myapp --prune --force"
   description: "prune and force"
@@ -510,3 +586,400 @@
 - test: "kubectl delete deploy web"
   description: "a deployment is still the High delete_resource"
   expect_ids: ["kubernetes-strict:delete_resource"]
+
+# -- dry-run flags --
+- test: "kubectl drain node-1 --ignore-daemonsets --dry-run=client"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "kubectl drain node-1 --ignore-daemonsets"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=none"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=false"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=client; kubectl drain node-1"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl cordon node-1"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl drain node-1 --dry-run=server"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "kubectl drain node-1 --dry-run"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "kubectl cordon node-1 --dry-run=client"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "kubectl cordon node-1 --dry-run=none"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "helm rollback api 3 --dry-run"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "helm rollback api 3"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run=false"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run; helm rollback api 3"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["helm:rollback"]
+
+# -- helm uninstall: --dry-run=false is a real uninstall --
+- test: "helm uninstall web --dry-run=false"
+  description: "--dry-run=false uninstalls for real"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall web --dry-run=none"
+  description: "--dry-run=none uninstalls for real"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall web --dry-run"
+  description: "negative: --dry-run only simulates the uninstall"
+  expect_ids: []
+- test: "helm uninstall web --dry-run=true"
+  description: "negative: --dry-run=true only simulates the uninstall"
+  expect_ids: []
+
+# -- the last dry-run value wins --
+- test: "kubectl drain node-1 --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=server --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=true --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=client --ignore-daemonsets --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain --dry-run=client node-1 --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "k drain node-1 --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --dry-run=client --dry-run=None"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl cordon node-1 --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl cordon node-1 --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl cordon node-1 --dry-run=server --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "helm rollback api 3 --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run=true --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run --dry-run=False"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run --dry-run=0"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run --dry-run=f"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:rollback"]
+- test: "kubectl delete ns prod --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl delete ns prod --dry-run --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "helm uninstall web --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["helm:uninstall"]
+- test: "kubectl scale deploy api --replicas=0 --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes-strict:change_resource_size"]
+- test: "kubectl delete pods --all -n prod --dry-run=server --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes-strict:delete_pod", "kubernetes:delete_all_resources"]
+- test: "kubectl patch deploy api -p '{}' --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:patch"]
+- test: "kubectl apply -f k8s/ --prune -l app=web --dry-run=client --dry-run=none"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:apply_prune"]
+- test: "argocd app sync web --force --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:argocd_sync_force"]
+- test: "argocd app sync web --prune --preview-changes --preview-changes=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:argocd_sync_prune"]
+- test: "istioctl uninstall --purge --dry-run --dry-run=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "istioctl uninstall --purge -d -d=false"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "kubectl drain node-1 --dry-run=client --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "kubectl drain node-1 --dry-run=none --dry-run=client"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "kubectl delete ns prod --dry-run=none --dry-run=server"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "helm rollback api 3 --dry-run=false --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "helm rollback api 3 --dry-run=True"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "helm uninstall web --dry-run=false --dry-run=true"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "argocd app sync web --force --dry-run=false --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "istioctl uninstall --purge -d=false --dry-run"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "kubectl drain node-1 --pod-selector --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --selector --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 -l --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --timeout --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --context --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --kubeconfig --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --ignore-errors --dry-run=client"
+  description: "only the listed value-less flags may stand before the dry-run word"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 '--dry-run=client'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 \"--dry-run\""
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "bash -c \"kubectl drain node-1 '--dry-run=client'\""
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl drain node-1 --ignore-daemonsets --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain node-1 --delete-emptydir-data --dry-run=server"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain node-1 --force --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain node-1 --disable-eviction --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain node-1 --timeout=60s --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain -l role=spot --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl drain --dry-run=client node-1"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "bash -c \"kubectl drain node-1 --dry-run=client\""
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl cordon node-1 -l --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl cordon node-1 --selector --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl cordon node-1 '--dry-run=client'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["kubernetes:cordon_node"]
+- test: "kubectl cordon --selector=role=spot --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm rollback api 3 --namespace --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --kube-context --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --timeout --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["helm:rollback"]
+- test: "helm rollback api 3 --wait --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm rollback api 3 --cleanup-on-fail --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm rollback api 3 --namespace=prod --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm rollback api 3 -n prod --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl delete ns prod --namespace --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:delete_namespace", "kubernetes-strict:delete_resource"]
+- test: "kubectl delete ns prod --context --dry-run=server"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:delete_namespace", "kubernetes-strict:delete_resource"]
+- test: "kubectl delete pods -l --dry-run=client --all"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_all_resources"]
+- test: "kubectl delete pod web-1 --grace-period --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes-strict:delete_pod"]
+- test: "kubectl delete ns prod '--dry-run=client'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["kubernetes:delete_namespace", "kubernetes-strict:delete_resource"]
+- test: "helm uninstall web --description --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall web --namespace --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall web --kube-context --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["helm:uninstall"]
+- test: "helm uninstall web '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["helm:uninstall"]
+- test: "kubectl delete ns prod --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl delete ns prod --wait --dry-run=server"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl delete pods --all -A --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl delete ns prod --context=dev --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl delete pod web-1 --now --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm uninstall web --keep-history --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm uninstall web --namespace=prod --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "helm uninstall web -n prod --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "argocd app sync web --prune --revision --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:argocd_sync_prune"]
+- test: "argocd app sync web --prune --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "istioctl uninstall --purge --revision --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes:istioctl_uninstall"]
+- test: "istioctl uninstall --purge --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "kubectl scale deploy web --replicas --dry-run=client"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["kubernetes-strict:change_resource_size"]
+- test: "kubectl scale deploy web --replicas=0 --dry-run=client"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+
+# -- kubeadm reset dry run --
+- test: "sudo kubeadm reset --dry-run"
+  description: "allow: kubeadm reset dry run"
+  expect_ids: []
+- test: "kubeadm reset --dry-run"
+  description: "allow: kubeadm reset dry run"
+  expect_ids: []
+- test: "sudo kubeadm reset -f --dry-run"
+  description: "allow: kubeadm reset dry run"
+  expect_ids: []
+- test: "sudo kubeadm reset"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset -f"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "kubeadm reset"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --dry-run=false"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --dry-run --dry-run=false"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset '--dry-run'"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --cri-socket --dry-run"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --dry-run; sudo kubeadm reset -f"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --dry-run && kubeadm reset -f"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "echo 'kubeadm reset -f' | sh"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --dry-run | sh"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset -- --dry-run"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset phase cleanup-node --dry-run"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --config --dry-run"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo kubeadm reset --skip-phases --dry-run"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "sudo sh -c 'kubeadm reset -f'"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["kubernetes:kubeadm_reset"]
+- test: "kubeadm reset --cri-socket unix:///run/containerd/containerd.sock --dry-run"
+  description: "allow: kubeadm reset dry run with a value-taking option"
+  expect_ids: []
+- test: "kubeadm reset --dry-run --cleanup-tmp-dir -v 5"
+  description: "allow: kubeadm reset dry run with more options after it"
+  expect_ids: []
+- test: "kubeadm reset --dry-run=true -f"
+  description: "allow: kubeadm reset dry run set to true"
+  expect_ids: []

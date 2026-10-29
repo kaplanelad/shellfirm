@@ -647,27 +647,85 @@ fn strip_read_only_parts(command: &str) -> String {
                 .next()
                 .is_some_and(|args| !args.contains(','))
         });
-        code.contains("open(") && single_arg_opens && !WRITERS.iter().any(|w| code.contains(w))
+        // `open` is only ever called, never kept as a value (`f=open`), and
+        // no string spells a character as an escape (`"\x77"` is `"w"`).
+        let open_only_called = code
+            .match_indices("open")
+            .all(|(i, _)| code[i + "open".len()..].starts_with('('));
+        let escapes = code
+            .split('\\')
+            .skip(1)
+            .any(|after| !after.starts_with(['n', 't', 'r', '"', '\'']));
+        code.contains("open(")
+            && single_arg_opens
+            && open_only_called
+            && !escapes
+            && !WRITERS.iter().any(|w| code.contains(w))
+    };
+    // `python -m json.tool [options] INFILE` prints INFILE; a second
+    // positional is the file it writes.
+    let json_tool_reads_only = |part: &str| -> bool {
+        let words: Vec<&str> = part.split_whitespace().collect();
+        let Some((prog, args)) = words.split_first() else {
+            return false;
+        };
+        let base = prog.rsplit('/').next().unwrap_or(prog);
+        let is_python = base == "python"
+            || base
+                .strip_prefix("python")
+                .is_some_and(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.'));
+        let ["-m", "json.tool", rest @ ..] = args else {
+            return false;
+        };
+        let mut positionals = 0;
+        let mut i = 0;
+        while i < rest.len() {
+            match rest[i] {
+                "--sort-keys" | "--tab" | "--compact" | "--no-ensure-ascii" | "--json-lines" => {}
+                "--indent" => i += 1,
+                w if w.starts_with("--indent=") => {}
+                w if w.starts_with('-') => return false,
+                _ => positionals += 1,
+            }
+            i += 1;
+        }
+        is_python && positionals == 1
     };
     // Split on list / pipeline operators; quoted operators make a part
     // "unsafe", which keeps it.
     let mut out = String::with_capacity(without_input.len());
     let mut rest = without_input.as_str();
+    let unsafe_chars = ['\'', '"', '`', '>', '$', '(', ')', '{', '}', '\\'];
     loop {
+        // (`&` of a redirect such as `2>&1` / `&>` does not end the part)
+        let bytes = rest.as_bytes();
         let cut = rest
             .char_indices()
-            .find(|(_, ch)| matches!(ch, '|' | ';' | '&' | '\n'))
+            .find(|&(i, ch)| {
+                matches!(ch, '|' | ';' | '\n')
+                    || (ch == '&'
+                        && !(i > 0 && bytes[i - 1] == b'>')
+                        && bytes.get(i + 1) != Some(&b'>'))
+            })
             .map(|(i, _)| i);
         let (part, sep) = cut.map_or((rest, ""), |i| (&rest[..i], &rest[i..=i]));
         let trimmed = part.trim();
         let first = trimmed.split_whitespace().next().unwrap_or("");
-        let plain = !trimmed.contains(['\'', '"', '`', '>', '$', '(', ')', '{', '}', '\\']);
+        let plain = !trimmed.contains(unsafe_chars);
         let vim_read_only = matches!(first, "vim" | "vi" | "nvim" | "view")
             && (first == "view" || trimmed.split_whitespace().any(|w| w == "-R" || w == "-M"))
             && !trimmed
                 .split_whitespace()
                 .any(|w| w == "-c" || w.starts_with('+') || w == "-s" || w == "-S" || w == "--cmd");
+        // json.tool may print to `/dev/null`, `2>&1` or an ordinary file;
+        // a redirect to a protected file stays (a symlink to one is caught
+        // where write targets are resolved).
+        let json_tool_read = || {
+            let unredirected = strip_harmless_redirects(trimmed);
+            !unredirected.contains(unsafe_chars) && json_tool_reads_only(&unredirected)
+        };
         let drop = (plain && (READERS.contains(&first) || vim_read_only))
+            || json_tool_read()
             || python_reads_only(trimmed, rest);
         if drop {
             out.push(' ');
@@ -692,6 +750,1811 @@ fn is_config_location_var(var: &str) -> bool {
         "SHELLFIRM_LOG" | "SHELLFIRM_LLM_API_KEY" => false,
         v => v.starts_with("SHELLFIRM_"),
     }
+}
+
+/// The text self-protection reads: the parser's segments, one per line, the
+/// same view the checks match. Quoted arguments of a program that does not
+/// run them (`echo '…'`, `./run.sh box '…'`, `git commit -m '…'`) stay one
+/// word there, and heredoc bodies written to a file are dropped, while
+/// `sh -c`, `eval`, `$( … )`, `ssh`, `docker exec` and heredocs fed to a
+/// shell or interpreter are opened up. Where the parser cannot tell what
+/// runs (`xargs sh -c '{}'`, `tmux send-keys`, `source /dev/stdin`), the
+/// command itself is read too.
+fn self_protection_view(command: &str) -> String {
+    let parsed = crate::parser::parse(command);
+    let mut view = parsed.segments.join("\n");
+    let opaque = parsed
+        .segments
+        .iter()
+        .any(|s| s.contains("shellfirm-unknown-shell-payload"))
+        || ["send-keys", "/dev/stdin", "/dev/fd/0"]
+            .iter()
+            .any(|w| command.contains(w));
+    if opaque {
+        view.push('\n');
+        view.push_str(command);
+    }
+    view
+}
+
+/// Whether one line of [`self_protection_view`] writes a file `target`
+/// matches. The write itself (program, flags, redirects) is read outside
+/// quoted words, so `./run.sh box 'echo x >> ~/.claude/settings.json'` does
+/// not write; the path is matched anywhere in the segment, so
+/// `python3 -c "open('.shellfirm.yaml', 'w')"` and
+/// `curl -o "…/Application Support/shellfirm/settings.yaml"` do.
+fn segment_text_writes(segment: &str, target: &SelfRe) -> bool {
+    let r = self_regexes();
+    let full = crate::parser::desentinel(segment);
+    // Parts that only read (`cat`, `vim -R`, a `python3 -c` that only opens
+    // files for reading) do not make the file a target.
+    let reduced = strip_read_only_parts(&full);
+    if !target.is_match(&Haystack::new(&reduced)) {
+        return false;
+    }
+    let mut structure = String::with_capacity(segment.len());
+    let mut after_redirect = false;
+    for word in segment.split_whitespace() {
+        let redirect = word
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '&')
+            .starts_with('>');
+        if !word.contains(crate::parser::WS_SENTINEL) {
+            structure.push_str(word);
+        } else if redirect || after_redirect {
+            // A quoted redirect target is a path, not data.
+            let text = crate::parser::desentinel(word).replace('\'', "");
+            let split = text.rfind('>').map_or(0, |i| i + 1);
+            structure.push_str(&text[..split]);
+            structure.push('\'');
+            structure.push_str(&text[split..]);
+            structure.push('\'');
+        }
+        structure.push(' ');
+        after_redirect = redirect && word.ends_with('>');
+    }
+    let structure = strip_read_only_parts(&structure);
+    let structure_hay = Haystack::new(&structure);
+    let without_dev_null = r.dev_null.replace_all(&structure_hay, " ");
+    // A redirect to an ordinary file (`cat .shellfirm.yaml > /tmp/p`) only
+    // reads the protected file; redirects *to* a protected file are kept.
+    let without_harmless = strip_harmless_redirects(&without_dev_null);
+    r.write_op.is_match(&Haystack::new(&without_harmless))
+}
+
+/// `shellfirm config …` forms that only print: `--help` / `-h` anywhere,
+/// `show`, and the setters that show the current value when given nothing
+/// (`config groups`, `config severity`, …). `rest` is the text after
+/// `config`.
+fn config_only_reads(rest: &str) -> bool {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    if words.iter().any(|w| matches!(*w, "-h" | "--help")) {
+        return true;
+    }
+    // The context / escalation listings print with no word or `--list`
+    // (bare `config context` is interactive).
+    let listing = match words.as_slice() {
+        ["context", "branches" | "k8s" | "paths" | "env" | "escalation", tail @ ..]
+        | ["escalation", "severity" | "group" | "check", tail @ ..]
+        | ["escalation", tail @ ..] => tail,
+        _ => &["-"][..],
+    };
+    matches!(listing, [] | ["--list"])
+        || matches!(
+            words.as_slice(),
+            ["show", ..]
+                | ["groups"
+                    | "severity"
+                    | "challenge"
+                    | "ignore"
+                    | "deny"
+                    | "approved-notice"
+                    | "impact-budget"]
+        )
+}
+
+/// A file a shell or an env loader reads on its own later: startup and
+/// alias files and the dotfiles they commonly source (`.zshrc.local`,
+/// `.zsh_aliases`), `conf.d` / `profile.d` style directories, `.env*` /
+/// `.envrc`, `environment.d`, `~/.ssh/environment`, `.pam_environment` and
+/// mise config. A word with an expansion (`$ZSH_CUSTOM/x.zsh`) may be one
+/// too.
+fn is_autoload_path(path: &str) -> bool {
+    const NAMES: &[&str] = &[
+        ".bash_aliases",
+        ".zlogout",
+        ".kshrc",
+        ".mkshrc",
+        ".xonshrc",
+        ".cshrc",
+        ".tcshrc",
+        "config.fish",
+        ".mise.toml",
+        "mise.toml",
+        "mise.local.toml",
+        ".pam_environment",
+    ];
+    const DOTFILE_PREFIXES: &[&str] = &[
+        ".bash",
+        ".zsh",
+        ".zprofile",
+        ".zlog",
+        ".profile",
+        ".alias",
+        ".shrc",
+        ".kshrc",
+    ];
+    const DIRS: &[&str] = &[
+        "/.bashrc.d/",
+        "/.zshrc.d/",
+        "/.oh-my-zsh/",
+        "/.zsh/",
+        "/.config/zsh/",
+        "/.config/fish/",
+        "/fish/conf.d/",
+        "/fish/functions/",
+        "/profile.d/",
+        "/environment.d/",
+        "/.ssh/environment",
+        "/etc/bash.bashrc",
+        "/etc/zsh",
+        "/etc/profile",
+        "/etc/environment",
+        "/.config/mise/",
+    ];
+    if path.contains(['$', '`', '*', '?', '[']) {
+        return true;
+    }
+    let path = path.trim_end_matches('/');
+    let base = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    let rooted = format!("/{path}");
+    RC_FILE_NAMES.contains(&base.as_str())
+        || NAMES.contains(&base.as_str())
+        || base.starts_with(".env")
+        || DOTFILE_PREFIXES.iter().any(|p| base.starts_with(p))
+        || DIRS.iter().any(|d| rooted.contains(d))
+}
+
+/// One word of a [`RawCmd`]: its bytes in the command, its text without
+/// quotes, whether any part was quoted (and where in `text` the first
+/// quoted part starts), and whether it is literal (no command
+/// substitution; a `"$(cat <<'X' … X)"` of a quoted heredoc is).
+#[derive(Debug)]
+struct RawWord {
+    span: std::ops::Range<usize>,
+    text: String,
+    quoted: bool,
+    quote_start: Option<usize>,
+    literal: bool,
+}
+
+/// One simple command of the command line as written, for
+/// [`data_blanked`].
+#[derive(Debug, Default)]
+struct RawCmd {
+    words: Vec<RawWord>,
+    /// Targets of `>`, `>>`, `&>`, `2>` ...
+    writes: Vec<String>,
+    /// Heredocs: quoted delimiter, body bytes.
+    heredocs: Vec<(bool, std::ops::Range<usize>)>,
+    /// Its stdout is piped into the next command.
+    piped: bool,
+    /// It runs as a background job (`cmd &`).
+    background: bool,
+}
+
+/// `$(cat <<'X'` … `X` `)` at `i`: a substitution that only prints a quoted
+/// heredoc. Returns the index after its `)`.
+fn literal_cat_heredoc(command: &str, i: usize) -> Option<usize> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"^\$\([ \t]*cat[ \t]+<<-?[ \t]*'([A-Za-z_][A-Za-z0-9_]*)'[ \t]*\n").unwrap()
+    });
+    let rest = &command[i..];
+    let caps = re.captures(rest)?;
+    let delim = caps.get(1)?.as_str();
+    let mut at = caps.get(0)?.end();
+    loop {
+        let end = rest[at..].find('\n').map_or(rest.len(), |n| at + n);
+        if rest[at..end].trim_start_matches('\t') == delim {
+            let close = rest[end..].trim_start_matches([' ', '\t', '\n']);
+            return close
+                .starts_with(')')
+                .then(|| command.len() - close.len() + 1);
+        }
+        if end >= rest.len() {
+            return None;
+        }
+        at = end + 1;
+    }
+}
+
+/// The index after the `$( … )` / `` ` … ` `` that starts at `i`, skipping
+/// quoted text inside it.
+fn skip_substitution(b: &[u8], i: usize) -> Option<usize> {
+    if b[i] == b'`' {
+        let mut j = i + 1;
+        while j < b.len() {
+            match b[j] {
+                b'\\' => j += 2,
+                b'`' => return Some(j + 1),
+                _ => j += 1,
+            }
+        }
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut j = i;
+    while j < b.len() {
+        match b[j] {
+            b'\\' => j += 1,
+            b'\'' => j += b[j + 1..].iter().position(|&c| c == b'\'')? + 1,
+            b'"' => {
+                j += 1;
+                while j < b.len() && b[j] != b'"' {
+                    j += if b[j] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j + 1);
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    None
+}
+
+/// Read one word starting at `i` (a blank, newline or operator ends it).
+fn raw_word(command: &str, mut i: usize) -> Option<(RawWord, usize)> {
+    let b = command.as_bytes();
+    let start = i;
+    let mut text: Vec<u8> = Vec::new();
+    let mut quoted = false;
+    let mut quote_start = None;
+    let mut literal = true;
+    while i < b.len() {
+        if matches!(b[i], b'\'' | b'"') && quote_start.is_none() {
+            quote_start = Some(text.len());
+        }
+        match b[i] {
+            b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'<' | b'>' => break,
+            b'(' | b')' => return None,
+            b'\\' => {
+                // `\x` quotes `x` (a `` \` `` or `\$(` is text); a
+                // backslash-newline only joins lines.
+                if b.get(i + 1) != Some(&b'\n') {
+                    text.extend(b.get(i + 1));
+                    quoted = true;
+                }
+                i = (i + 2).min(b.len());
+            }
+            // `$'…'`: only backslash escapes are expanded, nothing runs.
+            b'$' if b.get(i + 1) == Some(&b'\'') => {
+                if quote_start.is_none() {
+                    quote_start = Some(text.len());
+                }
+                quoted = true;
+                i += 2;
+                loop {
+                    match *b.get(i)? {
+                        b'\'' => break,
+                        b'\\' => {
+                            text.extend(b.get(i + 1));
+                            i += 2;
+                        }
+                        c => {
+                            text.push(c);
+                            i += 1;
+                        }
+                    }
+                }
+                i += 1;
+            }
+            b'\'' => {
+                let end = i + 1 + b[i + 1..].iter().position(|&c| c == b'\'')?;
+                text.extend(&b[i + 1..end]);
+                quoted = true;
+                i = end + 1;
+            }
+            b'"' => {
+                quoted = true;
+                i += 1;
+                loop {
+                    match *b.get(i)? {
+                        b'"' => break,
+                        b'\\' => {
+                            text.extend(b.get(i..(i + 2).min(b.len()))?);
+                            i += 2;
+                        }
+                        b'$' if b.get(i + 1) == Some(&b'(') => {
+                            if let Some(end) = literal_cat_heredoc(command, i) {
+                                i = end;
+                            } else {
+                                literal = false;
+                                i = skip_substitution(b, i + 1)?;
+                            }
+                        }
+                        b'`' => {
+                            literal = false;
+                            i = skip_substitution(b, i)?;
+                        }
+                        c => {
+                            text.push(c);
+                            i += 1;
+                        }
+                    }
+                }
+                i += 1;
+            }
+            b'$' if b.get(i + 1) == Some(&b'(') => {
+                literal = false;
+                i = skip_substitution(b, i + 1)?;
+            }
+            b'`' => {
+                literal = false;
+                i = skip_substitution(b, i)?;
+            }
+            c => {
+                text.push(c);
+                i += 1;
+            }
+        }
+    }
+    let word = RawWord {
+        span: start..i,
+        text: String::from_utf8_lossy(&text).into_owned(),
+        quoted,
+        quote_start,
+        literal,
+    };
+    Some((word, i))
+}
+
+/// Split `command` into simple commands with their words, redirects and
+/// heredoc bodies. `None` for anything this reader does not model
+/// (subshells, process substitution, comments, unbalanced quotes).
+#[allow(clippy::too_many_lines)]
+fn raw_commands(command: &str) -> Option<Vec<RawCmd>> {
+    let b = command.as_bytes();
+    let mut cmds: Vec<RawCmd> = Vec::new();
+    let mut cur = RawCmd::default();
+    // (command index, heredoc index, delimiter, strip tabs)
+    let mut pending: Vec<(usize, usize, String, bool)> = Vec::new();
+    let mut i = 0;
+    let finish = |cur: &mut RawCmd, cmds: &mut Vec<RawCmd>, piped: bool| {
+        if !cur.words.is_empty() || !cur.writes.is_empty() || !cur.heredocs.is_empty() {
+            cur.piped = piped;
+            cmds.push(std::mem::take(cur));
+        }
+    };
+    while i < b.len() {
+        let c = b[i];
+        let fd_redirect = c.is_ascii_digit() && {
+            let digits = b[i..].iter().take_while(|d| d.is_ascii_digit()).count();
+            matches!(b.get(i + digits), Some(b'<' | b'>'))
+        };
+        match c {
+            b' ' | b'\t' => i += 1,
+            b'\n' => {
+                finish(&mut cur, &mut cmds, false);
+                i += 1;
+                for (ci, hi, delim, strip) in std::mem::take(&mut pending) {
+                    let body_start = i;
+                    let body_end = loop {
+                        let end = command[i..].find('\n').map_or(b.len(), |n| i + n);
+                        let line = &command[i..end];
+                        let line = if strip {
+                            line.trim_start_matches('\t')
+                        } else {
+                            line
+                        };
+                        if line == delim {
+                            let body = body_start..i;
+                            i = (end + 1).min(b.len());
+                            break body;
+                        }
+                        if end >= b.len() {
+                            i = b.len();
+                            break body_start..b.len();
+                        }
+                        i = end + 1;
+                    };
+                    cmds[ci].heredocs[hi].1 = body_start..body_end.end;
+                }
+            }
+            b';' => {
+                finish(&mut cur, &mut cmds, false);
+                i += 1;
+            }
+            b'|' => {
+                let double = b.get(i + 1) == Some(&b'|');
+                finish(&mut cur, &mut cmds, !double);
+                i += if matches!(b.get(i + 1), Some(b'|' | b'&')) {
+                    2
+                } else {
+                    1
+                };
+            }
+            b'&' if b.get(i + 1) != Some(&b'>') => {
+                let job = b.get(i + 1) != Some(&b'&');
+                finish(&mut cur, &mut cmds, false);
+                if job {
+                    if let Some(last) = cmds.last_mut() {
+                        last.background = true;
+                    }
+                }
+                i += if job { 1 } else { 2 };
+                continue;
+            }
+            b'(' | b')' | b'#' => return None,
+            b'<' | b'>' | b'&' => {}
+            _ if fd_redirect => {}
+            _ => {
+                let (word, next) = raw_word(command, i)?;
+                cur.words.push(word);
+                i = next;
+                continue;
+            }
+        }
+        if !(matches!(c, b'<' | b'>' | b'&') || fd_redirect) {
+            continue;
+        }
+        // A redirect: [n|&] operator, then its target word.
+        while b.get(i).is_some_and(|c| c.is_ascii_digit() || *c == b'&') {
+            i += 1;
+        }
+        let op_start = i;
+        let op_len = ["<<<", "<<-", "<<", "<>", "<&", ">>", ">&", ">|", "<", ">"]
+            .iter()
+            .find(|op| command[i..].starts_with(*op))
+            .map_or(1, |op| op.len());
+        i += op_len;
+        let op = &command[op_start..i];
+        if b.get(i) == Some(&b'(') {
+            return None;
+        }
+        while i < b.len() && matches!(b[i], b' ' | b'\t') {
+            i += 1;
+        }
+        let (target, next) = raw_word(command, i)?;
+        i = next;
+        if op.starts_with("<<") && op != "<<<" {
+            let quoted = target.quoted || command[target.span.clone()].contains('\\');
+            pending.push((
+                cmds.len(),
+                cur.heredocs.len(),
+                target.text,
+                op.ends_with('-'),
+            ));
+            cur.heredocs.push((quoted, 0..0));
+        } else if op.contains('>')
+            && !(op.ends_with('&') && target.text.chars().all(|c| c.is_ascii_digit() || c == '-'))
+        {
+            cur.writes.push(target.text);
+        }
+    }
+    finish(&mut cur, &mut cmds, false);
+    // A heredoc whose body never started (no newline after it) has none.
+    Some(cmds)
+}
+
+/// The message a git / gh call only stores: a commit, tag, note, stash or
+/// merge message, a commit trailer, an issue / PR / release title, body or
+/// notes, a squash-merge subject, a gist description. `words` start at the
+/// program. Returns the words that are a message value (`-m V`,
+/// `--message=V`, `--body V`, `-t V`, a quoted attached `-m"V"` ...) and
+/// whether the message is read from stdin (`git commit -F -`, `gh …
+/// --body-file -`), or `None` when the command takes no message.
+fn message_values(words: &[RawWord]) -> Option<(Vec<&RawWord>, bool)> {
+    let texts: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+    let prog = texts.first()?.rsplit('/').next().unwrap_or_default();
+    let sub = texts.get(1).copied().unwrap_or_default();
+    let sub2 = texts.get(2).copied().unwrap_or_default();
+    let (long, short, stdin): (&[&str], &[&str], &[&str]) = match (prog, sub, sub2) {
+        ("git", "commit", _) => (&["--message", "--trailer"], &[], &["-F", "--file"]),
+        ("git", "tag" | "merge", _)
+        | ("git", "notes", "add" | "append")
+        | ("git", "stash", "push") => (&["--message"], &[], &[]),
+        ("gh", "release", _) => (
+            &["--title", "--notes"],
+            &["-t", "-n"],
+            &["-F", "--notes-file"],
+        ),
+        ("gh", "pr" | "issue", _) => (
+            &["--title", "--body", "--notes", "--subject"],
+            &["-t", "-b"],
+            &["-F", "--body-file"],
+        ),
+        ("gh", "gist", "create" | "edit") => (&["--desc"], &["-d"], &[]),
+        ("gh", ..) => (&["--title", "--body", "--notes"], &[], &[]),
+        _ => return None,
+    };
+    // git bundles short options: `-m`, `-am`.
+    let takes_value = |t: &str| {
+        long.contains(&t)
+            || short.contains(&t)
+            || (prog == "git"
+                && t.len() > 1
+                && t.starts_with('-')
+                && !t.starts_with("--")
+                && t.ends_with('m')
+                && t[1..].chars().all(|c| c.is_ascii_alphabetic()))
+    };
+    // A value attached to its short option counts only when quoted right
+    // after it (`-m"msg"`, `-am'msg'`, `-b"body"`).
+    let attached = |w: &RawWord| {
+        w.quote_start
+            .and_then(|q| w.text.get(..q))
+            .is_some_and(|flag| flag.len() > 1 && takes_value(flag))
+    };
+    let mut values = Vec::new();
+    let mut from_stdin = false;
+    let mut k = 1;
+    while k < words.len() {
+        let t = texts[k];
+        let next = texts.get(k + 1).copied();
+        if takes_value(t) && k + 1 < words.len() {
+            values.push(&words[k + 1]);
+            k += 2;
+            continue;
+        }
+        if attached(&words[k])
+            || long
+                .iter()
+                .any(|l| t.strip_prefix(l).is_some_and(|r| r.starts_with('=')))
+        {
+            values.push(&words[k]);
+        }
+        from_stdin |= stdin.iter().any(|f| {
+            (t == *f && next == Some("-"))
+                || t.strip_prefix(f).is_some_and(|r| r == "=-")
+                || (!f.starts_with("--") && t.strip_prefix(f) == Some("-"))
+        });
+        k += 1;
+    }
+    Some((values, from_stdin))
+}
+
+/// A heredoc body that is text as written: its delimiter is quoted, or
+/// nothing in it expands (bash expands an unquoted body only through `$`,
+/// `` ` `` and `\`).
+fn heredoc_is_literal(command: &str, quoted: bool, body: &std::ops::Range<usize>) -> bool {
+    quoted
+        || !command
+            .get(body.clone())
+            .unwrap_or("$")
+            .contains(['$', '`', '\\'])
+}
+
+/// Prefix variables that only change how a test or dev-build run prints,
+/// allowed beside a config-location prefix of [`prefix_scoped_program`].
+const OUTPUT_ONLY_VARS: &[&str] = &[
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "RUST_TEST_THREADS",
+    "NO_COLOR",
+    "CI",
+    "TERM",
+    "CARGO_TERM_COLOR",
+    "SHELLFIRM_LOG",
+];
+
+/// The options of `cargo test` / `cargo nextest run` that pick what is
+/// built and run, and how it prints; none of them names a program, a
+/// manifest or a file of binaries.
+const CARGO_TEST_FLAGS: &[&str] = &[
+    "--workspace",
+    "--all",
+    "--lib",
+    "--bins",
+    "--tests",
+    "--examples",
+    "--doc",
+    "--all-targets",
+    "--release",
+    "--all-features",
+    "--no-default-features",
+    "--no-fail-fast",
+    "--no-run",
+    "-q",
+    "--quiet",
+    "-v",
+    "--verbose",
+    "--locked",
+    "--offline",
+    "--frozen",
+];
+
+/// The options of [`CARGO_TEST_FLAGS`] that take a value.
+const CARGO_TEST_VALUED: &[&str] = &[
+    "-p",
+    "--package",
+    "--exclude",
+    "--bin",
+    "--test",
+    "--example",
+    "--profile",
+    "-F",
+    "--features",
+    "-j",
+    "--jobs",
+    "--target",
+    "--target-dir",
+    "--color",
+];
+
+/// rustc's built-in targets (`rustc --print target-list`, sorted). Any other
+/// `--target` name is looked up as `<name>.json` on `RUST_TARGET_PATH` (the
+/// current directory when unset), and a target spec can name a linker.
+const RUSTC_BUILTIN_TARGETS: &[&str] = &[
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-apple-ios-macabi",
+    "aarch64-apple-ios-sim",
+    "aarch64-apple-tvos",
+    "aarch64-apple-tvos-sim",
+    "aarch64-apple-visionos",
+    "aarch64-apple-visionos-sim",
+    "aarch64-apple-watchos",
+    "aarch64-apple-watchos-sim",
+    "aarch64-kmc-solid_asp3",
+    "aarch64-linux-android",
+    "aarch64-nintendo-switch-freestanding",
+    "aarch64-oe-linux-gnu",
+    "aarch64-pc-windows-gnullvm",
+    "aarch64-pc-windows-msvc",
+    "aarch64-unknown-freebsd",
+    "aarch64-unknown-fuchsia",
+    "aarch64-unknown-helenos",
+    "aarch64-unknown-hermit",
+    "aarch64-unknown-illumos",
+    "aarch64-unknown-l4re-uclibc",
+    "aarch64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu_ilp32",
+    "aarch64-unknown-linux-musl",
+    "aarch64-unknown-linux-ohos",
+    "aarch64-unknown-linux-pauthtest",
+    "aarch64-unknown-managarm-mlibc",
+    "aarch64-unknown-netbsd",
+    "aarch64-unknown-none",
+    "aarch64-unknown-none-softfloat",
+    "aarch64-unknown-nto-qnx700",
+    "aarch64-unknown-nto-qnx710",
+    "aarch64-unknown-nto-qnx710_iosock",
+    "aarch64-unknown-nuttx",
+    "aarch64-unknown-openbsd",
+    "aarch64-unknown-qnx",
+    "aarch64-unknown-redox",
+    "aarch64-unknown-teeos",
+    "aarch64-unknown-trusty",
+    "aarch64-unknown-uefi",
+    "aarch64-uwp-windows-msvc",
+    "aarch64-wrs-vxworks",
+    "aarch64_be-unknown-hermit",
+    "aarch64_be-unknown-linux-gnu",
+    "aarch64_be-unknown-linux-gnu_ilp32",
+    "aarch64_be-unknown-linux-musl",
+    "aarch64_be-unknown-netbsd",
+    "aarch64_be-unknown-none-softfloat",
+    "aarch64v8r-unknown-none",
+    "aarch64v8r-unknown-none-softfloat",
+    "amdgcn-amd-amdhsa",
+    "arm-linux-androideabi",
+    "arm-unknown-linux-gnueabi",
+    "arm-unknown-linux-gnueabihf",
+    "arm-unknown-linux-musleabi",
+    "arm-unknown-linux-musleabihf",
+    "arm64_32-apple-watchos",
+    "arm64e-apple-darwin",
+    "arm64e-apple-ios",
+    "arm64e-apple-tvos",
+    "arm64ec-pc-windows-msvc",
+    "armeb-unknown-linux-gnueabi",
+    "armebv7r-none-eabi",
+    "armebv7r-none-eabihf",
+    "armv4t-none-eabi",
+    "armv4t-unknown-linux-gnueabi",
+    "armv5te-none-eabi",
+    "armv5te-unknown-linux-gnueabi",
+    "armv5te-unknown-linux-musleabi",
+    "armv5te-unknown-linux-uclibceabi",
+    "armv6-none-eabi",
+    "armv6-none-eabihf",
+    "armv6-unknown-freebsd",
+    "armv6-unknown-netbsd-eabihf",
+    "armv6k-nintendo-3ds",
+    "armv7-linux-androideabi",
+    "armv7-oe-linux-gnueabihf",
+    "armv7-rtems-eabihf",
+    "armv7-sony-vita-newlibeabihf",
+    "armv7-unknown-freebsd",
+    "armv7-unknown-linux-gnueabi",
+    "armv7-unknown-linux-gnueabihf",
+    "armv7-unknown-linux-musleabi",
+    "armv7-unknown-linux-musleabihf",
+    "armv7-unknown-linux-ohos",
+    "armv7-unknown-linux-uclibceabi",
+    "armv7-unknown-linux-uclibceabihf",
+    "armv7-unknown-netbsd-eabihf",
+    "armv7-unknown-trusty",
+    "armv7-wrs-vxworks-eabihf",
+    "armv7a-kmc-solid_asp3-eabi",
+    "armv7a-kmc-solid_asp3-eabihf",
+    "armv7a-none-eabi",
+    "armv7a-none-eabihf",
+    "armv7a-nuttx-eabi",
+    "armv7a-nuttx-eabihf",
+    "armv7k-apple-watchos",
+    "armv7r-none-eabi",
+    "armv7r-none-eabihf",
+    "armv7s-apple-ios",
+    "armv8r-none-eabihf",
+    "avr-none",
+    "bpfeb-unknown-none",
+    "bpfel-unknown-none",
+    "csky-unknown-linux-gnuabiv2",
+    "csky-unknown-linux-gnuabiv2hf",
+    "hexagon-unknown-linux-musl",
+    "hexagon-unknown-none-elf",
+    "hexagon-unknown-qurt",
+    "i386-apple-ios",
+    "i586-unknown-linux-gnu",
+    "i586-unknown-linux-musl",
+    "i586-unknown-netbsd",
+    "i586-unknown-redox",
+    "i686-apple-darwin",
+    "i686-linux-android",
+    "i686-oe-linux-gnu",
+    "i686-pc-nto-qnx700",
+    "i686-pc-windows-gnu",
+    "i686-pc-windows-gnullvm",
+    "i686-pc-windows-msvc",
+    "i686-unknown-freebsd",
+    "i686-unknown-haiku",
+    "i686-unknown-helenos",
+    "i686-unknown-hurd-gnu",
+    "i686-unknown-linux-gnu",
+    "i686-unknown-linux-musl",
+    "i686-unknown-netbsd",
+    "i686-unknown-openbsd",
+    "i686-unknown-uefi",
+    "i686-uwp-windows-gnu",
+    "i686-uwp-windows-msvc",
+    "i686-win7-windows-gnu",
+    "i686-win7-windows-msvc",
+    "i686-wrs-vxworks",
+    "loongarch32-unknown-none",
+    "loongarch32-unknown-none-softfloat",
+    "loongarch64-unknown-linux-gnu",
+    "loongarch64-unknown-linux-musl",
+    "loongarch64-unknown-linux-ohos",
+    "loongarch64-unknown-none",
+    "loongarch64-unknown-none-softfloat",
+    "m68k-unknown-linux-gnu",
+    "m68k-unknown-none-elf",
+    "mips-mti-none-elf",
+    "mips-unknown-linux-gnu",
+    "mips-unknown-linux-musl",
+    "mips-unknown-linux-uclibc",
+    "mips64-openwrt-linux-musl",
+    "mips64-unknown-linux-gnuabi64",
+    "mips64-unknown-linux-muslabi64",
+    "mips64el-unknown-linux-gnuabi64",
+    "mips64el-unknown-linux-muslabi64",
+    "mipsel-mti-none-elf",
+    "mipsel-sony-psp",
+    "mipsel-sony-psx",
+    "mipsel-unknown-linux-gnu",
+    "mipsel-unknown-linux-musl",
+    "mipsel-unknown-linux-uclibc",
+    "mipsel-unknown-netbsd",
+    "mipsel-unknown-none",
+    "mipsisa32r6-unknown-linux-gnu",
+    "mipsisa32r6el-unknown-linux-gnu",
+    "mipsisa64r6-unknown-linux-gnuabi64",
+    "mipsisa64r6el-unknown-linux-gnuabi64",
+    "msp430-none-elf",
+    "nvptx64-nvidia-cuda",
+    "powerpc-unknown-freebsd",
+    "powerpc-unknown-helenos",
+    "powerpc-unknown-linux-gnu",
+    "powerpc-unknown-linux-gnuspe",
+    "powerpc-unknown-linux-musl",
+    "powerpc-unknown-linux-muslspe",
+    "powerpc-unknown-netbsd",
+    "powerpc-unknown-openbsd",
+    "powerpc-wrs-vxworks",
+    "powerpc-wrs-vxworks-spe",
+    "powerpc64-ibm-aix",
+    "powerpc64-unknown-freebsd",
+    "powerpc64-unknown-linux-gnu",
+    "powerpc64-unknown-linux-gnuelfv2",
+    "powerpc64-unknown-linux-musl",
+    "powerpc64-unknown-openbsd",
+    "powerpc64-wrs-vxworks",
+    "powerpc64le-unknown-freebsd",
+    "powerpc64le-unknown-linux-gnu",
+    "powerpc64le-unknown-linux-musl",
+    "riscv32-wrs-vxworks",
+    "riscv32e-unknown-none-elf",
+    "riscv32em-unknown-none-elf",
+    "riscv32emc-unknown-none-elf",
+    "riscv32gc-unknown-linux-gnu",
+    "riscv32gc-unknown-linux-musl",
+    "riscv32i-unknown-none-elf",
+    "riscv32im-risc0-zkvm-elf",
+    "riscv32im-unknown-none-elf",
+    "riscv32ima-unknown-none-elf",
+    "riscv32imac-esp-espidf",
+    "riscv32imac-unknown-none-elf",
+    "riscv32imac-unknown-nuttx-elf",
+    "riscv32imac-unknown-xous-elf",
+    "riscv32imafc-esp-espidf",
+    "riscv32imafc-unknown-none-elf",
+    "riscv32imafc-unknown-nuttx-elf",
+    "riscv32imc-esp-espidf",
+    "riscv32imc-unknown-none-elf",
+    "riscv32imc-unknown-nuttx-elf",
+    "riscv32imfc-unknown-none-elf",
+    "riscv64-linux-android",
+    "riscv64-oe-linux-gnu",
+    "riscv64-wrs-vxworks",
+    "riscv64a23-unknown-linux-gnu",
+    "riscv64gc-unknown-freebsd",
+    "riscv64gc-unknown-fuchsia",
+    "riscv64gc-unknown-hermit",
+    "riscv64gc-unknown-linux-gnu",
+    "riscv64gc-unknown-linux-musl",
+    "riscv64gc-unknown-managarm-mlibc",
+    "riscv64gc-unknown-netbsd",
+    "riscv64gc-unknown-none-elf",
+    "riscv64gc-unknown-nuttx-elf",
+    "riscv64gc-unknown-openbsd",
+    "riscv64gc-unknown-redox",
+    "riscv64im-unknown-none-elf",
+    "riscv64imac-unknown-none-elf",
+    "riscv64imac-unknown-nuttx-elf",
+    "s390x-unknown-linux-gnu",
+    "s390x-unknown-linux-musl",
+    "s390x-unknown-none-softfloat",
+    "sparc-unknown-linux-gnu",
+    "sparc-unknown-none-elf",
+    "sparc64-unknown-helenos",
+    "sparc64-unknown-linux-gnu",
+    "sparc64-unknown-netbsd",
+    "sparc64-unknown-openbsd",
+    "sparcv9-sun-solaris",
+    "thumbv4t-none-eabi",
+    "thumbv5te-none-eabi",
+    "thumbv6-none-eabi",
+    "thumbv6m-none-eabi",
+    "thumbv6m-nuttx-eabi",
+    "thumbv7a-none-eabi",
+    "thumbv7a-none-eabihf",
+    "thumbv7a-nuttx-eabi",
+    "thumbv7a-nuttx-eabihf",
+    "thumbv7a-pc-windows-msvc",
+    "thumbv7a-uwp-windows-msvc",
+    "thumbv7a-vex-v5",
+    "thumbv7em-none-eabi",
+    "thumbv7em-none-eabihf",
+    "thumbv7em-nuttx-eabi",
+    "thumbv7em-nuttx-eabihf",
+    "thumbv7m-none-eabi",
+    "thumbv7m-nuttx-eabi",
+    "thumbv7neon-linux-androideabi",
+    "thumbv7neon-unknown-linux-gnueabihf",
+    "thumbv7neon-unknown-linux-musleabihf",
+    "thumbv7r-none-eabi",
+    "thumbv7r-none-eabihf",
+    "thumbv8m.base-none-eabi",
+    "thumbv8m.base-nuttx-eabi",
+    "thumbv8m.main-none-eabi",
+    "thumbv8m.main-none-eabihf",
+    "thumbv8m.main-nuttx-eabi",
+    "thumbv8m.main-nuttx-eabihf",
+    "thumbv8r-none-eabihf",
+    "wasm32-unknown-emscripten",
+    "wasm32-unknown-unknown",
+    "wasm32-wali-linux-musl",
+    "wasm32-wasip1",
+    "wasm32-wasip1-threads",
+    "wasm32-wasip2",
+    "wasm32-wasip3",
+    "wasm32v1-none",
+    "wasm64-unknown-unknown",
+    "x86_64-apple-darwin",
+    "x86_64-apple-ios",
+    "x86_64-apple-ios-macabi",
+    "x86_64-apple-tvos",
+    "x86_64-apple-watchos-sim",
+    "x86_64-fortanix-unknown-sgx",
+    "x86_64-linux-android",
+    "x86_64-lynx-lynxos178",
+    "x86_64-oe-linux-gnu",
+    "x86_64-pc-cygwin",
+    "x86_64-pc-nto-qnx710",
+    "x86_64-pc-nto-qnx710_iosock",
+    "x86_64-pc-qnx",
+    "x86_64-pc-solaris",
+    "x86_64-pc-windows-gnu",
+    "x86_64-pc-windows-gnullvm",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unikraft-linux-musl",
+    "x86_64-unknown-dragonfly",
+    "x86_64-unknown-freebsd",
+    "x86_64-unknown-fuchsia",
+    "x86_64-unknown-haiku",
+    "x86_64-unknown-helenos",
+    "x86_64-unknown-hermit",
+    "x86_64-unknown-hurd-gnu",
+    "x86_64-unknown-illumos",
+    "x86_64-unknown-l4re-uclibc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-linux-gnuasan",
+    "x86_64-unknown-linux-gnumsan",
+    "x86_64-unknown-linux-gnutsan",
+    "x86_64-unknown-linux-gnux32",
+    "x86_64-unknown-linux-musl",
+    "x86_64-unknown-linux-none",
+    "x86_64-unknown-linux-ohos",
+    "x86_64-unknown-managarm-mlibc",
+    "x86_64-unknown-motor",
+    "x86_64-unknown-netbsd",
+    "x86_64-unknown-none",
+    "x86_64-unknown-openbsd",
+    "x86_64-unknown-redox",
+    "x86_64-unknown-trusty",
+    "x86_64-unknown-uefi",
+    "x86_64-uwp-windows-gnu",
+    "x86_64-uwp-windows-msvc",
+    "x86_64-win7-windows-gnu",
+    "x86_64-win7-windows-msvc",
+    "x86_64-wrs-vxworks",
+    "x86_64h-apple-darwin",
+    "xtensa-esp32-espidf",
+    "xtensa-esp32-none-elf",
+    "xtensa-esp32s2-espidf",
+    "xtensa-esp32s2-none-elf",
+    "xtensa-esp32s3-espidf",
+    "xtensa-esp32s3-none-elf",
+];
+
+/// `cargo nextest run`'s own flags beside [`CARGO_TEST_FLAGS`].
+const NEXTEST_RUN_FLAGS: &[&str] = &["--no-capture", "--hide-progress-bar"];
+
+/// `cargo nextest run`'s own valued options beside [`CARGO_TEST_VALUED`].
+const NEXTEST_RUN_VALUED: &[&str] = &[
+    "-E",
+    "--filterset",
+    "--retries",
+    "--test-threads",
+    "--run-ignored",
+    "--status-level",
+    "--final-status-level",
+    "--failure-output",
+    "--success-output",
+];
+
+/// The libtest options a test binary takes after `cargo test --` /
+/// `cargo nextest run --` that pick tests or change how they print.
+const LIBTEST_FLAGS: &[&str] = &[
+    "--nocapture",
+    "--show-output",
+    "--ignored",
+    "--include-ignored",
+    "--exact",
+    "-q",
+    "--quiet",
+    "--list",
+    "--test",
+    "--bench",
+    "--report-time",
+    "--shuffle",
+];
+
+/// The options of [`LIBTEST_FLAGS`] that take a value (`-Z` only as `-Z
+/// unstable-options`). `--logfile` and rustdoc's `--persist-doctests`
+/// write files and are not listed.
+const LIBTEST_VALUED: &[&str] = &[
+    "--test-threads",
+    "--skip",
+    "--color",
+    "--format",
+    "--shuffle-seed",
+    "-Z",
+];
+
+/// Whether the words after `--` only name tests and libtest options of
+/// [`LIBTEST_FLAGS`] / [`LIBTEST_VALUED`]; an option value never starts
+/// with `-`.
+fn libtest_args_only(args: &[&str]) -> bool {
+    let mut i = 0;
+    while i < args.len() {
+        let w = args[i];
+        if LIBTEST_VALUED.contains(&w) {
+            let Some(value) = args.get(i + 1).filter(|v| !v.starts_with('-')) else {
+                return false;
+            };
+            if w == "-Z" && *value != "unstable-options" {
+                return false;
+            }
+            i += 2;
+            continue;
+        }
+        let attached = LIBTEST_VALUED.iter().any(|v| {
+            v.starts_with("--")
+                && w.strip_prefix(v)
+                    .and_then(|r| r.strip_prefix('='))
+                    .is_some_and(|value| !value.is_empty() && !value.starts_with('-'))
+        });
+        if !(attached || LIBTEST_FLAGS.contains(&w) || !w.starts_with('-')) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether `options` holds only the `flags`, the `valued` options (with
+/// their value as the next word or after `=`) and at most `positionals`
+/// other words.
+fn only_options(options: &[&str], flags: &[&str], valued: &[&str], positionals: usize) -> bool {
+    let mut seen = 0;
+    let mut i = 0;
+    while i < options.len() {
+        let w = options[i];
+        if valued.contains(&w) {
+            i += 1;
+        } else if !(flags.contains(&w)
+            || valued
+                .iter()
+                .any(|v| v.starts_with("--") && w.starts_with(&format!("{v}="))))
+        {
+            if w.starts_with('-') {
+                return false;
+            }
+            seen += 1;
+        }
+        i += 1;
+    }
+    seen <= positionals
+}
+
+/// A `--target-dir` that holds only build output: a relative path inside
+/// the project (no `..` segment, no `~`, expansion or glob, no
+/// dot-directory such as `.git` or `.claude`), or a directory under `/tmp/`
+/// or `/var/tmp/`. Anything else (home, `/`, `/usr/local`, `~/.cargo`, a
+/// parent directory) is not.
+fn scratch_target_dir(dir: &str) -> bool {
+    if dir.is_empty() || dir.contains(['$', '`', '~', '*', '?', '[', '{', '\\', '\'', '"', '\n']) {
+        return false;
+    }
+    let (rest, absolute) = ["/tmp/", "/var/tmp/"]
+        .iter()
+        .find_map(|p| dir.strip_prefix(p))
+        .map_or((dir, false), |r| (r, true));
+    if !absolute && dir.starts_with('/') {
+        return false;
+    }
+    let mut parts = rest.split('/').filter(|p| !p.is_empty() && *p != ".");
+    parts.clone().next().is_some() && parts.all(|p| !p.starts_with('.'))
+}
+
+/// `shellfirm ARGS` only prints: `status`, `check`, `--help` / `--version`,
+/// the `config` forms of [`config_only_reads`], `policy show|validate` and
+/// `audit show` with their own options.
+fn shellfirm_prints_only(args: &[&str]) -> bool {
+    match args {
+        ["status", flags @ ..] => flags.iter().all(|f| f.starts_with('-')),
+        ["check", ..] | ["--help" | "-h" | "--version" | "-V"] => true,
+        ["config", rest @ ..] => config_only_reads(&rest.join(" ")),
+        ["policy", "show", rest @ ..] => only_options(rest, &[], &["--format"], 0),
+        ["policy", "validate", rest @ ..] => only_options(rest, &["--strict"], &["--format"], 1),
+        ["audit", "show", rest @ ..] => only_options(
+            rest,
+            &["--all-records"],
+            &[
+                "--format",
+                "--since",
+                "--outcome",
+                "--severity",
+                "--limit",
+                "-n",
+            ],
+            0,
+        ),
+        _ => false,
+    }
+}
+
+/// Whether `VAR=v prog …` changes `VAR` (`vars` are the prefix names) for a
+/// program that only prints or runs tests: a print-only `shellfirm`
+/// subcommand ([`shellfirm_prints_only`]), `cargo test`, `cargo nextest
+/// run`, or the dev build `cargo run -- <print-only>`. Shells, agents,
+/// wrappers and scripts are not listed.
+///
+/// cargo starts any program it is told about (`--config
+/// target.….runner=…`, `-Z`, a `+toolchain`, `RUSTC_WRAPPER=`,
+/// `CARGO_TARGET_…_RUNNER=`, another manifest, a nextest archive or tool
+/// config), so its own options come from [`CARGO_TEST_FLAGS`] /
+/// [`CARGO_TEST_VALUED`] (and the nextest lists for `nextest run`), and
+/// every other prefix variable is a config-location one or one of
+/// [`OUTPUT_ONLY_VARS`].
+fn prefix_scoped_program(vars: &[&str], words: &[&str]) -> bool {
+    let Some((prog, args)) = words.split_first() else {
+        return false;
+    };
+    if !vars
+        .iter()
+        .all(|v| is_config_location_var(v) || OUTPUT_ONLY_VARS.contains(v))
+    {
+        return false;
+    }
+    // cargo's own options end at `--`; the rest goes to the test binary
+    // ([`libtest_args_only`]). Test-name filters are the only other words.
+    // `--target` is one of rustc's built-in triples, not a target spec file
+    // (which can name a linker), and `--target-dir` a build directory of
+    // [`scratch_target_dir`]; it is also checked as a write into that
+    // directory ([`segment_write_targets`]).
+    let cargo_test_options = |options: &[&str], nextest: bool| {
+        let dash = options.iter().position(|w| *w == "--");
+        let (options, binary_args) =
+            dash.map_or((options, &[][..]), |d| (&options[..d], &options[d + 1..]));
+        let mut flags = CARGO_TEST_FLAGS.to_vec();
+        let mut valued = CARGO_TEST_VALUED.to_vec();
+        if nextest {
+            flags.extend(NEXTEST_RUN_FLAGS);
+            valued.extend(NEXTEST_RUN_VALUED);
+        }
+        let triple = |t: &str| RUSTC_BUILTIN_TARGETS.binary_search(&t).is_ok();
+        let listed = |opt: &str, ok: &dyn Fn(&str) -> bool| {
+            options.iter().enumerate().all(|(i, w)| {
+                if *w == opt {
+                    options.get(i + 1).is_some_and(|v| ok(v))
+                } else {
+                    w.strip_prefix(opt)
+                        .and_then(|r| r.strip_prefix('='))
+                        .is_none_or(ok)
+                }
+            })
+        };
+        listed("--target", &triple)
+            && listed("--target-dir", &scratch_target_dir)
+            && only_options(options, &flags, &valued, usize::MAX)
+            && libtest_args_only(binary_args)
+    };
+    match (prog.rsplit('/').next().unwrap_or(prog), args) {
+        ("shellfirm", args) => shellfirm_prints_only(args),
+        ("cargo", ["test", rest @ ..]) => cargo_test_options(rest, false),
+        ("cargo", ["nextest", "run", rest @ ..]) => cargo_test_options(rest, true),
+        ("cargo", ["run", rest @ ..]) => {
+            let Some(dash) = rest.iter().position(|w| *w == "--") else {
+                return false;
+            };
+            let (options, program_args) = (&rest[..dash], &rest[dash + 1..]);
+            let mut i = 0;
+            while i < options.len() {
+                match options[i] {
+                    "-q" | "--quiet" | "--release" => i += 1,
+                    "-p" | "--package" | "--bin" if options.get(i + 1) == Some(&"shellfirm") => {
+                        i += 2;
+                    }
+                    _ => return false,
+                }
+            }
+            shellfirm_prints_only(program_args)
+        }
+        _ => false,
+    }
+}
+
+/// `command` with the spans that are only data blanked out, for the rules
+/// read from the command itself (`VAR=x`, `trap`, hook tampering):
+///
+/// - quoted literal arguments of programs that print or search them
+///   (`echo`, `printf`, `grep`, `rg`, `git grep|log`) and the quoted
+///   literal message values of git / gh ([`message_values`]);
+/// - literal heredoc bodies ([`heredoc_is_literal`]) read by `cat` / `tee`
+///   or taken as a message from stdin (`git commit -F -`);
+/// - the `VAR=` of a prefix scoped to a print-only program
+///   ([`prefix_scoped_program`]).
+///
+/// Nothing is blanked when that text may still run: the command writes a
+/// file a shell or env loader reads later ([`is_autoload_path`]), writes a
+/// file beside a part that does more than show something
+/// ([`written_text_may_run`]), runs `source`, `.`, `eval`, `exec`, a shell
+/// or `xargs`, pipes data into anything but a reader, or the view is
+/// opaque.
+#[allow(clippy::too_many_lines)]
+fn data_blanked(command: &str, opaque: bool) -> std::borrow::Cow<'_, str> {
+    const EXECUTORS: &[&str] = &[
+        "source", ".", "eval", "exec", "bash", "sh", "zsh", "dash", "ksh", "mksh", "ash", "fish",
+        "csh", "tcsh", "xargs", "tmux", "screen",
+    ];
+    const PRINTERS: &[&str] = &["echo", "printf"];
+    const SEARCHERS: &[&str] = &["grep", "egrep", "fgrep", "rg", "ag"];
+    const SAFE_SINKS: &[&str] = &[
+        "tee", "cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "wc", "sort",
+        "uniq", "cut", "column", "nl",
+    ];
+    let unchanged = std::borrow::Cow::Borrowed(command);
+    if opaque {
+        return unchanged;
+    }
+    let Some(cmds) = raw_commands(command) else {
+        return unchanged;
+    };
+    let base = |w: &str| w.rsplit('/').next().unwrap_or(w).to_string();
+    let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut data_words: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut written: Vec<String> = Vec::new();
+    for (n, cmd) in cmds.iter().enumerate() {
+        let first = cmd.words.iter().position(|w| {
+            w.quoted
+                || !w
+                    .text
+                    .split_once('=')
+                    .is_some_and(|(v, _)| is_shell_name(v))
+        });
+        let Some(first) = first else { continue };
+        let (assigns, rest) = cmd.words.split_at(first);
+        let texts: Vec<&str> = rest.iter().map(|w| w.text.as_str()).collect();
+        let prog_word = &rest[0];
+        let prog = base(&prog_word.text);
+        if prog == "tee" {
+            written.extend(
+                texts[1..]
+                    .iter()
+                    .filter(|t| !t.starts_with('-'))
+                    .map(|t| (*t).to_string()),
+            );
+        }
+        if prog_word.quoted || !prog_word.literal {
+            continue;
+        }
+        let vars: Vec<&str> = assigns
+            .iter()
+            .map(|w| w.text.split_once('=').map_or("", |(v, _)| v))
+            .collect();
+        if prefix_scoped_program(&vars, &texts) {
+            for w in assigns {
+                let eq = command[w.span.clone()].find('=').unwrap_or(0);
+                spans.push(w.span.start..w.span.start + eq + 1);
+            }
+        }
+        // Data piped on must reach a reader, not a program that runs it.
+        if cmd.piped
+            && !cmds
+                .get(n + 1)
+                .and_then(|next| next.words.first())
+                .is_some_and(|w| SAFE_SINKS.contains(&base(&w.text).as_str()))
+        {
+            continue;
+        }
+        let data = |w: &RawWord| w.quoted && w.literal;
+        let sub = texts.get(1).copied().unwrap_or("");
+        let mut values: Vec<&RawWord> = Vec::new();
+        // Heredoc bodies read as text: written by `cat` / `tee`, or the
+        // message of `git commit -F -` / `gh … --body-file -`.
+        let mut text_stdin = matches!(prog.as_str(), "cat" | "tee");
+        if PRINTERS.contains(&prog.as_str())
+            || SEARCHERS.contains(&prog.as_str())
+            || (prog == "git" && matches!(sub, "grep" | "log"))
+        {
+            values.extend(rest[1..].iter().filter(|w| data(w)));
+        } else if let Some((messages, from_stdin)) = message_values(rest) {
+            values.extend(messages.into_iter().filter(|w| data(w)));
+            text_stdin |= from_stdin;
+        }
+        for w in values {
+            spans.push(w.span.clone());
+            data_words.push(w.span.clone());
+        }
+        if text_stdin {
+            spans.extend(
+                cmd.heredocs
+                    .iter()
+                    .filter(|(quoted, body)| heredoc_is_literal(command, *quoted, body))
+                    .map(|(_, body)| body.clone()),
+            );
+        }
+    }
+    written.extend(cmds.iter().flat_map(|c| c.writes.iter().cloned()));
+    // Every word that is not data: a shell or `eval`, or an auto-loaded
+    // file anywhere (`cp a.md ~/.bashrc`).
+    for cmd in &cmds {
+        for w in &cmd.words {
+            if data_words.contains(&w.span) {
+                continue;
+            }
+            let b = base(&w.text);
+            if EXECUTORS.contains(&b.as_str()) || is_autoload_path(&w.text) {
+                return unchanged;
+            }
+        }
+    }
+    // Text written to a file stays data only beside parts that just show
+    // something ([`written_text_may_run`]).
+    if written_text_may_run(&cmds)
+        || written.iter().any(|w| is_autoload_path(w))
+        || ["send-keys", "/dev/stdin", "/dev/fd/0"]
+            .iter()
+            .any(|w| command.contains(w))
+    {
+        return unchanged;
+    }
+    if spans.is_empty() {
+        return unchanged;
+    }
+    let mut out = command.as_bytes().to_vec();
+    for span in spans {
+        for byte in &mut out[span] {
+            if *byte != b'\n' {
+                *byte = b' ';
+            }
+        }
+    }
+    // Only whole UTF-8 sequences were replaced (spans start and end on
+    // ASCII boundaries), but stay safe if one did not.
+    std::borrow::Cow::Owned(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// A shell variable name (`HOME`, `_x1`).
+fn is_shell_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Whether `command` writes a bare `VAR=value` line (or TOML `VAR =
+/// "value"`) of a config-location variable into a file an env loader reads
+/// on its own ([`is_autoload_path`]: `.env*`, `environment.d`, mise
+/// config): `echo 'HOME=/tmp/h' >> .env`. The text of every command of the
+/// pipeline that writes the file (its words and heredoc bodies) is read.
+fn autoload_env_assignment(command: &str) -> bool {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(
+            r#"(?:^|\\n|[\s;{,'"])(?:export\s+)?["']?(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|SHELLFIRM_[A-Z0-9_]+)["']?\s*="#,
+        )
+        .unwrap()
+    });
+    if !command.contains('=') {
+        return false;
+    }
+    let Some(cmds) = raw_commands(command) else {
+        return false;
+    };
+    let tee_targets = |cmd: &RawCmd| -> Vec<String> {
+        let is_tee = cmd
+            .words
+            .first()
+            .is_some_and(|w| w.text.rsplit('/').next() == Some("tee"));
+        if !is_tee {
+            return Vec::new();
+        }
+        cmd.words[1..]
+            .iter()
+            .filter(|w| !w.text.starts_with('-'))
+            .map(|w| w.text.clone())
+            .collect()
+    };
+    let mut start = 0;
+    for (n, cmd) in cmds.iter().enumerate() {
+        if cmd.piped {
+            continue;
+        }
+        let pipeline = &cmds[start..=n];
+        start = n + 1;
+        let loads = pipeline.iter().any(|c| {
+            c.writes
+                .iter()
+                .chain(tee_targets(c).iter())
+                .any(|t| is_autoload_path(t))
+        });
+        if !loads {
+            continue;
+        }
+        let assigns = |text: &str| {
+            re.captures_iter(text)
+                .any(|c| is_config_location_var(c.get(1).map_or("", |m| m.as_str())))
+        };
+        if pipeline.iter().any(|c| {
+            c.words.iter().skip(1).any(|w| assigns(&w.text))
+                || c.heredocs
+                    .iter()
+                    .any(|(_, body)| assigns(command.get(body.clone()).unwrap_or("")))
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
+/// A program reading a pipe that only prints what it reads: the `grep`
+/// family, `head`, `tail`, `wc`, `cut`, `tr`, `column`, `nl`, `cat`,
+/// `less` / `more` without a log file, `sort` without an output file or
+/// compressor, `uniq` with at most one operand (a second one is written).
+fn pure_text_filter(prog: &str, args: &[&str]) -> bool {
+    let short_has = |w: &str, letters: &[char]| {
+        w.starts_with('-') && !w.starts_with("--") && w.contains(letters)
+    };
+    match prog {
+        "grep" | "egrep" | "fgrep" | "rg" | "head" | "tail" | "wc" | "cut" | "tr" | "column"
+        | "nl" | "cat" => true,
+        "less" | "more" => !args
+            .iter()
+            .any(|w| short_has(w, &['o', 'O']) || w.to_ascii_lowercase().starts_with("--log-file")),
+        "sort" => !args.iter().any(|w| {
+            short_has(w, &['o']) || w.starts_with("--output") || w.starts_with("--compress-program")
+        }),
+        "uniq" => {
+            args.iter()
+                .filter(|w| !w.starts_with('-') || **w == "-")
+                .count()
+                <= 1
+        }
+        _ => false,
+    }
+}
+
+/// A program on the shared pipe-sink list: what it reads from a pipe is
+/// only printed, hashed, encoded or stored as a message, never run. Its
+/// own output is judged again at the next pipe. A [`pure_text_filter`],
+/// or:
+///
+/// - `col`, `paste`, `diff`, `cmp`, the hashers, `base64` / `base32`,
+///   `od`, `hexdump`, `xxd` with at most one operand (a second one is
+///   written);
+/// - `rg` without `--pre` / `--pre-glob`;
+/// - `jq` with a filter and only the options that change how it prints;
+/// - `python[3] -m json.tool` reading `-` (no output file);
+/// - `shellfirm check` / `pre-command` reading the text;
+/// - `git commit -F -` and `gh … --body-file -` / `--notes-file -`, which
+///   store it as a message.
+///
+/// The word list is the program name as written: a prefix assignment
+/// (`LESSOPEN=… less`) or a wrapper (`sudo tee`) is not a sink.
+fn text_sink(prog: &str, args: &[&str]) -> bool {
+    const HASHERS: &[&str] = &[
+        "md5sum",
+        "sha1sum",
+        "sha224sum",
+        "sha256sum",
+        "sha384sum",
+        "sha512sum",
+        "shasum",
+        "b2sum",
+        "cksum",
+    ];
+    const JQ_FLAGS: &[&str] = &[
+        "-r", "-R", "-s", "-c", "-j", "-e", "-S", "-M", "-C", "--tab",
+    ];
+    let has_option = |names: &[&str]| {
+        args.iter().any(|w| {
+            names
+                .iter()
+                .any(|n| w == n || w.strip_prefix(n).is_some_and(|r| r.starts_with('=')))
+        })
+    };
+    if prog == "rg" {
+        return !has_option(&["--pre", "--pre-glob"]);
+    }
+    if pure_text_filter(prog, args) || HASHERS.contains(&prog) {
+        return true;
+    }
+    let is_python = prog == "python"
+        || prog
+            .strip_prefix("python")
+            .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'));
+    match prog {
+        "col" | "paste" | "diff" | "cmp" | "base64" | "base32" | "od" | "hexdump" => true,
+        "xxd" => {
+            args.iter()
+                .filter(|w| !w.starts_with('-') || **w == "-")
+                .count()
+                <= 1
+        }
+        "jq" => only_options(args, JQ_FLAGS, &[], 1),
+        "shellfirm" => match args {
+            ["check", rest @ ..] => only_options(
+                rest,
+                &["--stdin"],
+                &["-c", "--command", "--format", "--hook"],
+                0,
+            ),
+            ["pre-command", rest @ ..] => {
+                only_options(rest, &["--stdin"], &["-t", "-c", "--command"], 0)
+            }
+            _ => false,
+        },
+        "git" => {
+            args.first() == Some(&"commit")
+                && (args.windows(2).any(|p| matches!(p, ["-F" | "--file", "-"]))
+                    || args.iter().any(|t| matches!(*t, "-F-" | "--file=-")))
+        }
+        "gh" => {
+            matches!(
+                args,
+                ["pr" | "issue", "create" | "comment" | "edit" | "review", ..]
+                    | ["release", "create" | "edit", ..]
+            ) && args
+                .windows(2)
+                .any(|p| matches!(p, ["-F" | "--body-file" | "--notes-file", "-"]))
+        }
+        _ if is_python => match args {
+            ["-m", "json.tool", rest @ ..] => {
+                let mut positional = 0;
+                let mut i = 0;
+                while i < rest.len() {
+                    match rest[i] {
+                        "--sort-keys" | "--tab" | "--compact" | "--no-ensure-ascii"
+                        | "--json-lines" => {}
+                        "--indent" => i += 1,
+                        w if w.starts_with("--indent=") => {}
+                        "-" => positional += 1,
+                        _ => return false,
+                    }
+                    i += 1;
+                }
+                positional <= 1
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// A part of the input that only shows something (the inspection rule for
+/// text written to a file): `cat`, `less` / `more` (as in
+/// [`pure_text_filter`]), `head`, `tail`, `wc`, the `grep` family, `rg`
+/// without `--pre`, `diff`, `cmp`, `ls`, `echo` / `printf` to the
+/// terminal, `true`, `cd DIR`, or `git diff|status|log|show|add` with no
+/// git global option. It has no prefix assignment or wrapper, nothing that
+/// expands to a command, no write other than to `/dev/null`, and pipes only
+/// into a [`text_sink`]. `pipeline` holds its commands in order.
+fn inspection_pipeline(pipeline: &[RawCmd]) -> bool {
+    pipeline.iter().enumerate().all(|(n, cmd)| {
+        let Some(prog) = cmd.words.first() else {
+            return false;
+        };
+        if prog.quoted
+            || cmd.background
+            || cmd.words.iter().any(|w| !w.literal)
+            || cmd.writes.iter().any(|t| t != "/dev/null")
+        {
+            return false;
+        }
+        let texts: Vec<&str> = cmd.words.iter().map(|w| w.text.as_str()).collect();
+        let prog = prog.text.rsplit('/').next().unwrap_or(&prog.text);
+        if n > 0 {
+            return text_sink(prog, &texts[1..]);
+        }
+        match prog {
+            "cat" | "less" | "more" | "head" | "tail" | "wc" | "grep" | "egrep" | "fgrep"
+            | "rg" => text_sink(prog, &texts[1..]),
+            "diff" | "cmp" | "ls" | "echo" | "printf" | "true" => true,
+            "cd" => texts.len() <= 2,
+            "git" => {
+                matches!(
+                    texts.get(1),
+                    Some(&("diff" | "status" | "log" | "show" | "add"))
+                ) && !texts
+                    .iter()
+                    .any(|t| *t == "--output" || t.starts_with("--output="))
+            }
+            _ => false,
+        }
+    })
+}
+
+/// The pipelines of `cmds` (each ends at a command whose stdout is not
+/// piped on).
+fn pipelines(cmds: &[RawCmd]) -> Vec<&[RawCmd]> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (n, cmd) in cmds.iter().enumerate() {
+        if !cmd.piped {
+            out.push(&cmds[start..=n]);
+            start = n + 1;
+        }
+    }
+    if start < cmds.len() {
+        out.push(&cmds[start..]);
+    }
+    out
+}
+
+/// Whether a pipeline writes a file: a redirect other than to `/dev/null`,
+/// or a `tee` operand.
+fn pipeline_writes(pipeline: &[RawCmd]) -> bool {
+    pipeline.iter().any(|c| {
+        c.writes.iter().any(|t| t != "/dev/null")
+            || (c
+                .words
+                .first()
+                .is_some_and(|w| w.text.rsplit('/').next() == Some("tee"))
+                && c.words[1..].iter().any(|w| !w.text.starts_with('-')))
+    })
+}
+
+/// Whether text the input writes to a file may run in the same input: some
+/// pipeline writes a file, and another pipeline is not an
+/// [`inspection_pipeline`] or a job runs in the background. No file name is
+/// compared: `source /tmp/x.s*`, `at -f`, a walk or a later job may run the
+/// file under any spelling.
+fn written_text_may_run(cmds: &[RawCmd]) -> bool {
+    let parts = pipelines(cmds);
+    let writing = parts.iter().filter(|p| pipeline_writes(p)).count();
+    writing > 0
+        && (cmds.iter().any(|c| c.background)
+            || writing > 1
+            || parts
+                .iter()
+                .any(|p| !pipeline_writes(p) && !inspection_pipeline(p)))
+}
+
+/// The text `echo` / `printf` print where it may run as code: piped into a
+/// program that is not a [`text_sink`] (or `tee`), or written to a file
+/// while [`written_text_may_run`] (`echo 'trap - DEBUG' > /tmp/x.sh &&
+/// source /tmp/x.s*`). One line per printing command, its words unquoted.
+fn printed_text_that_runs(command: &str) -> String {
+    let Some(cmds) = raw_commands(command) else {
+        return String::new();
+    };
+    let file_runs = written_text_may_run(&cmds);
+    let mut out: Vec<String> = Vec::new();
+    for pipeline in pipelines(&cmds) {
+        let piped_on = pipeline.iter().skip(1).any(|c| {
+            let texts: Vec<&str> = c.words.iter().map(|w| w.text.as_str()).collect();
+            let Some((prog, args)) = texts.split_first() else {
+                return true;
+            };
+            let prog = prog.rsplit('/').next().unwrap_or(prog);
+            prog != "tee" && !text_sink(prog, args)
+        });
+        if !(piped_on || (file_runs && pipeline_writes(pipeline))) {
+            continue;
+        }
+        for cmd in pipeline {
+            let words: Vec<&str> = cmd
+                .words
+                .iter()
+                .map(|w| w.text.as_str())
+                .skip_while(|w| matches!(*w, "do" | "then" | "else" | "{"))
+                .collect();
+            if let Some((prog, args)) = words.split_first() {
+                if matches!(prog.rsplit('/').next(), Some("echo" | "printf")) {
+                    out.push(args.join(" "));
+                }
+            }
+        }
+    }
+    out.join("\n")
+}
+
+/// `view` with the git / gh message values ([`message_values`]) of each
+/// line blanked, unless a value expands to a command (`$(…)`). The view
+/// has lost its quotes, so with `quotes_read` (every message value of the
+/// command as written is literal: [`literal_messages_only`]) a backtick or
+/// `$(` left in a value is text and the value is blanked too.
+fn view_messages_blanked(view: &str, quotes_read: bool) -> String {
+    view.lines()
+        .map(|line| {
+            let mut words = Vec::new();
+            let mut at = 0;
+            for w in line.split(' ') {
+                if !w.is_empty() {
+                    words.push(RawWord {
+                        span: at..at + w.len(),
+                        text: crate::parser::desentinel(w),
+                        quoted: false,
+                        quote_start: None,
+                        literal: quotes_read || (!w.contains("$(") && !w.contains('`')),
+                    });
+                }
+                at += w.len() + 1;
+            }
+            let mut out = line.to_string();
+            if let Some((values, _)) = message_values(&words) {
+                for v in values.into_iter().filter(|v| v.literal) {
+                    out.replace_range(v.span.clone(), &" ".repeat(v.span.len()));
+                }
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Whether every git / gh message value ([`message_values`]) of `command`
+/// is literal as written: a backtick or `$(` in it sits inside `'…'` or
+/// `$'…'`, after a backslash or in a quoted-delimiter heredoc
+/// (`"$(cat <<'EOF' … EOF)"`), where the shell never expands it.
+fn literal_messages_only(command: &str) -> bool {
+    raw_commands(command).is_some_and(|cmds| {
+        cmds.iter().all(|cmd| {
+            let first = cmd
+                .words
+                .iter()
+                .position(|w| {
+                    w.quoted
+                        || !w
+                            .text
+                            .split_once('=')
+                            .is_some_and(|(v, _)| is_shell_name(v))
+                })
+                .unwrap_or(cmd.words.len());
+            message_values(&cmd.words[first..])
+                .is_none_or(|(values, _)| values.iter().all(|v| v.literal))
+        })
+    })
+}
+
+/// Whether the `disableAllHooks` tripwire can be skipped: every part only
+/// reads and prints, and nothing is written or run (no `>` other than to
+/// `/dev/null`, heredoc, substitution, `xargs`, shell or other program). A
+/// part is:
+///
+/// - a search or read: the `grep` family, `rg`, `ag`, `ack`, `git
+///   grep|log|show|diff`, `cat`, `jq`, `gh search code`;
+/// - a git / gh message ([`message_values`]) where the word sits only in
+///   the literal message;
+/// - `echo` / `printf` to the terminal, or `true`;
+/// - a [`text_sink`] the output above is piped into.
+fn hook_text_only_searched(command: &str) -> bool {
+    const SEARCHERS: &[&str] = &["grep", "egrep", "fgrep", "rg", "ag", "ack"];
+    let Some(cmds) = raw_commands(command) else {
+        return false;
+    };
+    cmds.iter().enumerate().all(|(n, cmd)| {
+        let Some(prog) = cmd.words.first() else {
+            return false;
+        };
+        if cmd.writes.iter().any(|t| t != "/dev/null")
+            || !cmd.heredocs.is_empty()
+            || cmd.words.iter().any(|w| !w.literal)
+            || prog.quoted
+        {
+            return false;
+        }
+        let texts: Vec<&str> = cmd.words.iter().map(|w| w.text.as_str()).collect();
+        // Options that run a program (`rg --pre`, `ack --pager`) or write
+        // a file (`git diff --output`).
+        if texts.iter().any(|t| {
+            ["--pre", "--pager", "--output"]
+                .iter()
+                .any(|o| t == o || t.strip_prefix(o).is_some_and(|r| r.starts_with('=')))
+        }) {
+            return false;
+        }
+        let prog = prog.text.rsplit('/').next().unwrap_or(&prog.text);
+        if n > 0 && cmds[n - 1].piped {
+            return text_sink(prog, &texts[1..]);
+        }
+        let sub = texts.get(1).copied().unwrap_or("");
+        if SEARCHERS.contains(&prog)
+            || matches!(prog, "cat" | "jq")
+            || texts == ["true"]
+            || (matches!(prog, "echo" | "printf") && !cmd.piped)
+            || (prog == "git" && matches!(sub, "grep" | "log" | "show" | "diff"))
+            || texts.starts_with(&["gh", "search", "code"])
+        {
+            return true;
+        }
+        message_values(&cmd.words).is_some_and(|(values, _)| {
+            cmd.words.iter().all(|w| {
+                !w.text.contains("disableAllHooks") || values.iter().any(|v| v.span == w.span)
+            })
+        })
+    })
 }
 
 /// Detect commands that would disable or weaken shellfirm itself, with the
@@ -725,26 +2588,40 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
         }
     };
 
-    // Also match the parser's normalized segments: argv0 is unquoted and
-    // reduced to its base name there (`"shellfirm" config`, `\shellfirm`,
-    // `/usr/local/bin/shellfirm`, `$(which shellfirm)`).
-    let mut texts: Vec<String> = vec![command.to_string()];
-    texts.extend(
-        crate::parser::parse(command)
-            .segments
-            .iter()
-            .map(|s| crate::parser::desentinel(s)),
+    // Match what runs, not text that is only data (see `self_protection_view`),
+    // and printed text that may run (see `printed_text_that_runs`).
+    let mut view = self_protection_view(command);
+    let printed = printed_text_that_runs(command);
+    if !printed.is_empty() {
+        view.push('\n');
+        view.push_str(&printed);
+    }
+    let view_hay = Haystack::new(&view);
+    // Shapes the parser's segments drop (`VAR=x cmd`, `trap '' DEBUG`,
+    // `PROMPT_COMMAND=`) are still read from the command itself, without
+    // the parts that are only data (see `data_blanked`). The view's message
+    // values go too when those parts were blanked: a quoted `"HOME=…"` is
+    // never an assignment.
+    let raw = data_blanked(
+        command,
+        view.contains(crate::parser::UNKNOWN_PAYLOAD_MARKER),
     );
-    let texts: Vec<Haystack<'_>> = texts.iter().map(|t| Haystack::new(t)).collect();
-    let hay = Haystack::new(command);
-    for caps in texts.iter().flat_map(|t| r.shellfirm_sub.captures_iter(t)) {
+    let hay = Haystack::new(&raw);
+    let view_text = if matches!(raw, std::borrow::Cow::Owned(_)) {
+        view_messages_blanked(&view, literal_messages_only(command))
+    } else {
+        view.clone()
+    };
+    let view_text_hay = Haystack::new(&view_text);
+    let texts = [&hay, &view_text_hay];
+    for caps in r.shellfirm_sub.captures_iter(&view_hay) {
         let sub = caps.get(1).map_or("", |m| m.as_str());
         let rest = caps.get(2).map_or("", |m| m.as_str());
         let mut tokens = rest.split_whitespace();
         let first = tokens.next().unwrap_or("");
         let has_uninstall = rest.split_whitespace().any(|t| t == "--uninstall");
         match sub {
-            "config" if !matches!(first, "show" | "-h" | "--help") => push(
+            "config" if !config_only_reads(rest) => push(
                 "shellfirm-self:config_change",
                 "Changes shellfirm's configuration (can weaken protection)",
             ),
@@ -756,33 +2633,25 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
                 "shellfirm-self:init_uninstall",
                 "Removes shellfirm's shell hook",
             ),
-            "audit" if first == "clear" => {
+            "audit" if first == "clear" && !tokens.any(|t| matches!(t, "-h" | "--help")) => {
                 push("shellfirm-self:audit_clear", "Erases shellfirm's audit log");
             }
             _ => {}
         }
     }
 
-    if r.pkg_uninstall.is_match(&hay) {
+    if r.pkg_uninstall.is_match(&view_hay) {
         push(
             "shellfirm-self:uninstall_binary",
             "Uninstalls the shellfirm binary",
         );
     }
 
-    // Pipeline parts that only read (`cat .shellfirm.yaml | tee /tmp/x`,
-    // `tee /tmp/x < .shellfirm.yaml`, `vim -R`, a `python3 -c` that only
-    // opens files for reading) do not make the protected file a target.
-    let reduced = strip_read_only_parts(command);
-    let reduced_hay = Haystack::new(&reduced);
-    let without_dev_null = r.dev_null.replace_all(&reduced_hay, " ");
-    // A redirect to an ordinary file (`cat .shellfirm.yaml > /tmp/p`) only
-    // reads the protected file; redirects *to* a protected file are kept.
-    let without_harmless = strip_harmless_redirects(&without_dev_null);
-    let writes = r.write_op.is_match(&Haystack::new(&without_harmless));
     let cwd = env.current_dir().ok();
     let home = env.home_dir();
-    if (writes && r.protected_files.is_match(&reduced_hay))
+    if view
+        .lines()
+        .any(|s| segment_text_writes(s, &r.protected_files))
         || segment_writes_protected(command, cwd.as_deref(), home.as_deref())
     {
         push(
@@ -802,9 +2671,14 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
              cron, systemd/launchd units, git hooks or .git/config)",
         );
     }
-    if texts
+    // Persistence values are run later by git / cron (`core.pager 'less; …'`),
+    // so their quoted text is read too; these rules always stay on.
+    let mut persistence_texts = vec![command.to_string()];
+    persistence_texts.extend(view.lines().map(crate::parser::desentinel));
+    if persistence_texts
         .iter()
-        .any(|t| r.persistence_cmd.is_match(t) && installs_persistence(&r.persistence_cmd, t))
+        .map(|t| Haystack::new(t))
+        .any(|t| r.persistence_cmd.is_match(&t) && installs_persistence(&r.persistence_cmd, &t))
     {
         push(
             PERSISTENCE_INSTALL_RULE,
@@ -823,22 +2697,33 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
             "Edits an AI-agent instruction file (AGENTS.md, CLAUDE.md, ...)",
         );
     }
-    if r.agent_bypass.is_match(&hay) {
+    // `disableAllHooks` is read anywhere: a settings file written now
+    // (`echo '{"disableAllHooks": true}' > /tmp/s.json`) is used later.
+    // Only a command that writes and runs nothing (a search, a commit
+    // message) may name it.
+    let hook_text = command.contains("disableAllHooks");
+    let only_searched = hook_text && hook_text_only_searched(command);
+    if !only_searched && (r.agent_bypass.is_match(&view_hay) || hook_text) {
         push(
             "shellfirm-self:agent_hooks_bypass",
             "Starts an AI agent with hooks or permission checks disabled or replaced",
         );
     }
-    if r.other_version.is_match(&hay) {
+    if r.other_version.is_match(&view_hay) {
         push(
             "shellfirm-self:install_other_version",
             "Installs a specific (possibly older, weaker) shellfirm version",
         );
     }
+    let rewriting: String = view
+        .lines()
+        .filter(|s| !patch_inspection_only(s))
+        .collect::<Vec<_>>()
+        .join("\n");
     let bulk_here = r
         .bulk_rewrite
-        .is_match(&Haystack::new(&without_unzip_listing(command)))
-        && !r.extract_elsewhere.is_match(&hay)
+        .is_match(&Haystack::new(&without_unzip_listing(&rewriting)))
+        && !r.extract_elsewhere.is_match(&view_hay)
         && cwd
             .as_deref()
             .is_some_and(|d| dir_holds_protected_files(env, d));
@@ -849,10 +2734,10 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
              files in this directory",
         );
     }
-    if writes
-        && r.rc_files.is_match(&hay)
-        && (command.contains("shellfirm") || r.rc_env_line.is_match(&hay))
-    {
+    if view.lines().any(|s| {
+        segment_text_writes(s, &r.rc_files)
+            && (s.contains("shellfirm") || r.rc_env_line.is_match(&hay))
+    }) {
         push(
             "shellfirm-self:rc_hook_edit",
             "Edits the shell startup file lines that load the shellfirm hook",
@@ -869,20 +2754,24 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
         );
     }
 
-    for regex in &r.env_override {
-        for caps in regex.captures_iter(&hay) {
-            let var = caps.get(1).map_or("", |m| m.as_str());
-            if is_config_location_var(var) {
-                push(
-                    "shellfirm-self:config_env_override",
-                    "Changes HOME/XDG_CONFIG_HOME/SHELLFIRM_* (where shellfirm finds its \
-                     settings, policy and audit log)",
-                );
-            }
-        }
+    let env_override = r.env_override.iter().any(|regex| {
+        texts
+            .iter()
+            .flat_map(|t| regex.captures_iter(t))
+            .any(|caps| is_config_location_var(caps.get(1).map_or("", |m| m.as_str())))
+    });
+    // A bare `VAR=` line needs no `export` where an env loader reads it.
+    if env_override || autoload_env_assignment(command) {
+        push(
+            "shellfirm-self:config_env_override",
+            "Changes HOME/XDG_CONFIG_HOME/SHELLFIRM_* (where shellfirm finds its settings, \
+             policy and audit log)",
+        );
     }
 
-    for caps in r.trap.captures_iter(&hay) {
+    // The view also opens `eval 'trap - DEBUG'` and a file written and
+    // sourced in the same command.
+    for caps in texts.iter().flat_map(|t| r.trap.captures_iter(t)) {
         let args = caps.get(1).map_or("", |m| m.as_str());
         let first = args.split_whitespace().next().unwrap_or("");
         if !matches!(first, "-p" | "-l") && args.split_whitespace().any(|t| t == "DEBUG") {
@@ -894,7 +2783,7 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
     }
 
     for (regex, id, description) in &r.hook_tamper {
-        if regex.is_match(&hay) {
+        if texts.iter().any(|t| regex.is_match(t)) {
             push(id, description);
         }
     }
@@ -1247,18 +3136,18 @@ fn subshell_pieces(command: &str) -> Vec<ShellPiece<'_>> {
     out
 }
 
-/// The files a segment writes (or removes / moves away), unresolved.
-#[allow(clippy::too_many_lines)]
-fn segment_write_targets(words: &[String]) -> Vec<String> {
+/// A segment's words split into the files its redirections write and the
+/// command words without any redirection (input ones included).
+///
+/// Every redirect the local shell opens comes through here, in any position
+/// (`cat x > F`, `> F cat x`) and whatever program it follows: the outer,
+/// unquoted redirect of `docker|podman exec`, `kubectl exec` or `ssh` is
+/// its own segment (`> F`), so it is judged by the same write rules as the
+/// plain form.
+fn split_redirect_targets(words: &[String]) -> (Vec<String>, Vec<String>) {
     let mut targets: Vec<String> = Vec::new();
-    let mut operands: Vec<&str> = Vec::new();
-    let mut i = 1;
-    let prog = words
-        .first()
-        .map(|w| w.rsplit('/').next().unwrap_or(w).to_string())
-        .unwrap_or_default();
-    let mut target_dir: Option<&str> = None;
-    let mut out_file: Option<&str> = None;
+    let mut rest: Vec<String> = Vec::with_capacity(words.len());
+    let mut i = 0;
     while i < words.len() {
         let w = words[i].as_str();
         if crate::parser::is_redirect_word(w) {
@@ -1277,13 +3166,34 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
             i += 2;
             continue;
         }
-        if let Some(rest) = w.strip_prefix('>') {
-            if !rest.is_empty() {
-                targets.push(rest.trim_start_matches(['>', '|']).to_string());
+        if let Some(target) = w.strip_prefix('>') {
+            if !target.is_empty() {
+                targets.push(target.trim_start_matches(['>', '|']).to_string());
             }
             i += 1;
             continue;
         }
+        rest.push(words[i].clone());
+        i += 1;
+    }
+    (targets, rest)
+}
+
+/// The files a segment writes (or removes / moves away), unresolved.
+#[allow(clippy::too_many_lines)]
+fn segment_write_targets(words: &[String]) -> Vec<String> {
+    let (mut targets, words) = split_redirect_targets(words);
+    let words = words.as_slice();
+    let mut operands: Vec<&str> = Vec::new();
+    let mut i = 1;
+    let prog = words
+        .first()
+        .map(|w| w.rsplit('/').next().unwrap_or(w).to_string())
+        .unwrap_or_default();
+    let mut target_dir: Option<&str> = None;
+    let mut out_file: Option<&str> = None;
+    while i < words.len() {
+        let w = words[i].as_str();
         match (prog.as_str(), w) {
             ("cp" | "install" | "rsync" | "mv", "-t") => {
                 target_dir = words.get(i + 1).map(String::as_str);
@@ -1295,7 +3205,10 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
                 i += 2;
                 continue;
             }
-            ("tar", "-C" | "--directory") | ("unzip", "-d") => {
+            // psql's query output and session log files.
+            ("tar", "-C" | "--directory")
+            | ("unzip", "-d")
+            | ("psql", "-o" | "--output" | "-L" | "--log-file") => {
                 if let Some(d) = words.get(i + 1) {
                     targets.push(d.clone());
                 }
@@ -1312,6 +3225,17 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
         {
             out_file = Some(v);
         } else if let Some(v) = w.strip_prefix("of=").filter(|_| prog == "dd") {
+            targets.push(v.to_string());
+        } else if let Some(v) = (prog == "psql")
+            .then(|| {
+                w.strip_prefix("--log-file=").or_else(|| {
+                    w.strip_prefix("-o")
+                        .or_else(|| w.strip_prefix("-L"))
+                        .filter(|v| !v.is_empty())
+                })
+            })
+            .flatten()
+        {
             targets.push(v.to_string());
         } else if w.len() > 2
             && ((prog == "curl" && w.starts_with("-o")) || (prog == "wget" && w.starts_with("-O")))
@@ -1342,6 +3266,14 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
     // `rclone copy|copyto|sync|move SRC DEST`: the subcommand is not a path.
     if prog == "rclone" && !operands.is_empty() {
         operands.remove(0);
+    }
+    if prog == "cargo" {
+        targets.extend(cargo_write_targets(&words[1..]));
+    }
+    // `docker|podman [container] cp SRC DEST`, `kubectl cp SRC DEST`: a
+    // local destination (no `NAME:` prefix) is written like `cp`'s.
+    if matches!(prog.as_str(), "docker" | "podman" | "kubectl") {
+        targets.extend(container_cp_local_targets(&operands));
     }
     // `gio trash FILE`, `gio remove FILE`, `gio move SRC DEST`.
     let gio_sub = (prog == "gio").then(|| operands.first().copied()).flatten();
@@ -1406,6 +3338,71 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
     targets
 }
 
+/// The local paths a `docker|podman [container] cp` or `kubectl cp` writes,
+/// from its operands (the words that are not options): every operand after
+/// the source that does not name a container path (`NAME:PATH`). An option
+/// value after `cp` counts too, which only adds a path to judge.
+fn container_cp_local_targets(operands: &[&str]) -> Vec<String> {
+    // Before `cp`: only `container` and a global option's address value
+    // (`-H tcp://host`).
+    let Some(at) = operands.iter().position(|w| *w == "cp").filter(|&at| {
+        operands[..at]
+            .iter()
+            .all(|w| *w == "container" || w.contains("://"))
+    }) else {
+        return Vec::new();
+    };
+    let in_container = |w: &str| w.contains(':') && !w.starts_with(['/', '.', '~']);
+    operands
+        .iter()
+        .skip(at + 2)
+        .filter(|w| !in_container(w))
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// The files `cargo ARGS` writes besides its build output: the test binary's
+/// `--logfile PATH` (libtest creates or truncates it) after `--`, and the
+/// directories it writes into, rustdoc's `--persist-doctests DIR` after `--`
+/// and cargo's own `--target-dir DIR`. A directory stands for the names
+/// written into it (`DIR/x`), including a settings or config file there.
+fn cargo_write_targets(args: &[String]) -> Vec<String> {
+    let dash = args.iter().position(|w| w == "--").unwrap_or(args.len());
+    let mut files: Vec<&str> = Vec::new();
+    let mut dirs: Vec<&str> = Vec::new();
+    for (n, w) in args.iter().enumerate() {
+        let after_dash = n > dash;
+        let opts: &[&str] = if after_dash {
+            &["--logfile", "--persist-doctests"]
+        } else {
+            &["--target-dir"]
+        };
+        for opt in opts {
+            let value = if w == opt {
+                args.get(n + 1).map(String::as_str)
+            } else {
+                w.strip_prefix(opt).and_then(|r| r.strip_prefix('='))
+            };
+            if let Some(v) = value.filter(|v| !v.is_empty()) {
+                if *opt == "--logfile" {
+                    files.push(v);
+                } else {
+                    dirs.push(v);
+                }
+            }
+        }
+    }
+    let mut out: Vec<String> = files.into_iter().map(str::to_string).collect();
+    for d in dirs {
+        let d = d.trim_end_matches('/');
+        out.push(d.to_string());
+        for name in ["x", "settings.json", "config"] {
+            out.push(format!("{d}/{name}"));
+        }
+    }
+    out
+}
+
 /// `true` when a segment of `command` writes, removes or moves a protected
 /// shellfirm / agent-settings path (resolved against `cd`s in the command).
 fn segment_writes_protected(command: &str, cwd: Option<&Path>, home: Option<&Path>) -> bool {
@@ -1437,15 +3434,19 @@ fn segment_writes_kind(
                     return false;
                 }
             }
-            // `cp AGENTS.md /tmp/` makes a scratch copy no agent reads as
-            // its instructions (unless it works in that directory).
-            if kind == ProtectedKind::Instructions
-                && in_temp_dir(&abs)
-                && !seg.dir.as_deref().is_some_and(|d| path_within(&abs, d))
-            {
-                return false;
-            }
-            protected_kind(&abs, None, None) == Some(kind)
+            // The path as written and what it resolves to (`> /tmp/p.json`
+            // where that is a symlink to a settings file).
+            resolved_tool_paths(&abs, None).iter().any(|abs| {
+                // `cp AGENTS.md /tmp/` makes a scratch copy no agent reads as
+                // its instructions (unless it works in that directory).
+                if kind == ProtectedKind::Instructions
+                    && in_temp_dir(abs)
+                    && !seg.dir.as_deref().is_some_and(|d| path_within(abs, d))
+                {
+                    return false;
+                }
+                protected_kind(abs, None, None) == Some(kind)
+            })
         })
     })
 }
@@ -1499,6 +3500,67 @@ fn without_unzip_listing(command: &str) -> std::borrow::Cow<'_, str> {
             .expect("valid unzip listing regex")
     });
     re.replace_all(command, "unzlist$1")
+}
+
+/// Whether one segment of [`self_protection_view`] only inspects a patch
+/// and writes nothing:
+///
+/// - `git apply` with `--check`, `--stat`, `--numstat` or `--summary`,
+///   other options only from `-v`, `-q`, `-p<n>`, `-z`, `--recount`, and
+///   no `--apply` (which writes in any position);
+/// - `patch --dry-run` without an output or reject file (`-o`, `-r`);
+/// - `git am --show-current-patch[=diff|raw]` alone.
+///
+/// The patch may come from stdin (`< fix.patch`); any other redirect keeps
+/// the segment.
+fn patch_inspection_only(segment: &str) -> bool {
+    let all = segment_words(segment);
+    let mut words: Vec<&str> = Vec::with_capacity(all.len());
+    let mut i = 0;
+    while i < all.len() {
+        let w = all[i].as_str();
+        if w == "<" || w == "0<" {
+            i += 2;
+            continue;
+        }
+        if w.contains(['<', '>', '`', '$']) {
+            return false;
+        }
+        words.push(w);
+        i += 1;
+    }
+    match words.as_slice() {
+        ["git", "apply", rest @ ..] => {
+            let mut inspects = false;
+            for w in rest {
+                match *w {
+                    "--check" | "--stat" | "--numstat" | "--summary" => inspects = true,
+                    "-v" | "--verbose" | "-q" | "--quiet" | "-z" | "--recount" => {}
+                    w if w.len() > 2
+                        && w.starts_with("-p")
+                        && w[2..].chars().all(|c| c.is_ascii_digit()) => {}
+                    w if w.starts_with('-') => return false,
+                    _ => {}
+                }
+            }
+            inspects
+        }
+        ["patch", rest @ ..] => {
+            rest.contains(&"--dry-run")
+                && !rest.iter().any(|w| {
+                    (w.starts_with('-') && !w.starts_with("--") && w.contains(['o', 'r']))
+                        || w.starts_with("--output")
+                        || w.starts_with("--reject-file")
+                })
+        }
+        ["git", "am", flag] => {
+            matches!(
+                *flag,
+                "--show-current-patch" | "--show-current-patch=diff" | "--show-current-patch=raw"
+            )
+        }
+        _ => false,
+    }
 }
 
 /// `true` when an archive extraction (`tar -x … -C DIR`, `unzip … -d DIR`,
@@ -3828,9 +5890,129 @@ mod tests {
             "$(command -v shellfirm) audit clear",
             "/usr/local/bin/shellfirm config ignore x",
             "sudo \"/usr/local/bin/shellfirm\" connect claude-code --uninstall",
+            // help only counts when it is the command's own word
+            "shellfirm audit clear && shellfirm audit clear --help",
+            // listings take no other word
+            "shellfirm config context",
+            "shellfirm config context branches --add develop",
+            "shellfirm config context branches --remove main",
+            "shellfirm config context branches --list --remove main",
+            "shellfirm config context branches develop",
+            "shellfirm config context k8s --remove prod",
+            "shellfirm config context env --remove NODE_ENV",
+            "shellfirm config context escalation --critical Enter",
+            "shellfirm config escalation severity --enabled false",
+            "shellfirm config escalation group fs Enter",
+            "shellfirm config escalation check git:force_push Enter",
+            "shellfirm config context branches; shellfirm config reset",
+            // hook tampering that runs, or is written where a shell loads it
+            "zle -N accept-line my-accept",
+            "add-zsh-hook -d preexec _shellfirm",
+            "unset -f _shellfirm_preexec",
+            "shopt -u extdebug",
+            "bind -r '\\C-m'",
+            "export PROMPT_COMMAND=\"history -a\"",
+            "echo 'alias shellfirm=true' >> ~/.zshrc",
+            "echo 'alias shellfirm=true' >> ~/.bash_aliases",
+            "echo 'alias shellfirm=true' > ~/.oh-my-zsh/custom/sf.zsh",
+            "echo 'unset -f _shellfirm_preexec' >> /etc/bash.bashrc",
+            "echo 'trap - DEBUG' >> ~/.bashrc.d/x.sh",
+            "tmux send-keys -t 0 'unset -f _shellfirm_preexec' Enter",
+            "grep -rn 'bind -r' docs/ ; bind -r '\\C-m'",
+            "echo 'shopt -u extdebug' | sh",
+            "echo 'alias shellfirm=true' >> docs/threats.md && source docs/threats.md",
+            "echo 'alias shellfirm=true' >> docs/threats.md && source docs/t*.md",
+            "echo 'PROMPT_COMMAND=' > /tmp/x.sh && . /tmp/x.s*",
+            "echo 'shellfirm config reset' > /tmp/x.sh && bash /tmp/x.s*",
+            "echo 'rm ~/.claude/settings.json' > /tmp/x.sh && sh /tmp/x.s*",
+            "git commit -m \"docs: $(alias shellfirm=true)\"",
+            // `disableAllHooks` written anywhere, or handed to an agent
+            "echo '{\"disableAllHooks\": true}' > /tmp/s.json",
+            "echo '{\"disableAllHooks\": true}' > docs/example.json",
+            "printf '{\"disableAllHooks\":true}' | tee /tmp/s.json",
+            "claude --settings '{\"disableAllHooks\":true}'",
+            "jq '.disableAllHooks=true' ~/.claude/settings.json > /tmp/s && mv /tmp/s ~/.claude/settings.json",
+            "git commit -m 'x' && echo '{\"disableAllHooks\": true}' > /tmp/s.json",
+            "grep -rn disableAllHooks docs/ && echo '{\"disableAllHooks\": true}' > /tmp/s.json",
+            "grep -l disableAllHooks docs/*.json | xargs -I{} cp {} ~/.claude/settings.json",
+            "git commit -m \"$(echo '{\\\"disableAllHooks\\\":true}' > /tmp/s.json)\"",
+            "cat > docs/claude.md <<'EOF'\nNever run claude --dangerously-skip-permissions\nor set \"disableAllHooks\": true\nEOF",
+            // message values that run, or a command that writes besides
+            "gh pr create -t x -b \"$(echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json)\"",
+            "git commit --message=\"$(echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json)\"",
+            "git notes add -m 'x' && echo '{\"disableAllHooks\":true}' > .claude/settings.local.json",
+            "git stash push -m 'disableAllHooks' -- .claude/settings.json",
+            "git merge -m 'disableAllHooks' --no-edit feature/login; echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json",
+            "git tag -a v1.1 -m 'docs: disableAllHooks' && echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json",
+            "gh api -F 'x=disableAllHooks' repos/o/r/contents/s.json",
+            // a search whose output is written, kept or run
+            "grep -rn disableAllHooks docs/ | tee ~/.claude/settings.json",
+            "grep -h disableAllHooks docs/example.json > .claude/settings.local.json",
+            "grep -rn disableAllHooks docs/ | head; echo '{\"disableAllHooks\":true}' > ~/.claude/settings.local.json",
+            "grep -rn disableAllHooks docs/ | sort -o ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | sort -uo ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | sort --output=/tmp/s.json",
+            "grep -rn disableAllHooks docs/ | uniq - ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | head -20 > ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | xargs -I{} cp docs/x.json ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | sh",
+            "awk 'BEGIN{print \"{\\\"disableAllHooks\\\":true}\" > \"/home/dev/.claude/settings.json\"}'",
+            "sed -n '/disableAllHooks/w /home/dev/.claude/settings.json' docs/hooks.md",
+            "grep -rn disableAllHooks docs/ | tee -a ~/.claude/settings.json | head",
+            "grep -rn disableAllHooks docs/ | head -20 | tee .claude/settings.local.json",
+            "cat docs/x.json | grep disableAllHooks > .claude/settings.local.json",
+            "git show HEAD:docs/x.json | grep disableAllHooks | tee ~/.claude/settings.json",
+            "git diff --output=/tmp/s.json -S disableAllHooks",
+            "rg --pre ./x.sh disableAllHooks docs",
+            "jq '.disableAllHooks' docs/x.json > /tmp/s.json",
+            "true | sh -c 'echo disableAllHooks'",
+            // a search beside a write, or piped on into a writer or a shell
+            "grep -rn disableAllHooks docs/ 2>/dev/null > ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ 2>/dev/null | tee ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ > /dev/null && echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ 2> ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ &> ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ 2>/dev/null; echo '{\"disableAllHooks\":true}' >> ~/.claude/settings.json",
+            "rg --json disableAllHooks docs | jq -r . > ~/.claude/settings.json",
+            "rg --json disableAllHooks docs | jq -r . | tee ~/.claude/settings.json",
+            "rg --pre sh disableAllHooks docs",
+            "rg -c disableAllHooks docs && echo ok > ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ 2>/dev/null | sudo tee ~/.claude/settings.json",
+            "grep -rn disableAllHooks docs/ | head | sh",
+            "rg --json disableAllHooks docs | jq -r . --arg x y",
+            "rg disableAllHooks docs | LESSOPEN='|-sh %s' less",
+            "echo disableAllHooks | sh",
+            // message values that run, or a write beside them
+            "git commit -m\"$(echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json)\"",
+            "gh pr merge 12 --squash --subject x && echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json",
+            "git commit -m 'x' --trailer \"x: $(echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json)\"",
+            "gh gist create -d 'x' ~/.claude/settings.json && echo '{\"disableAllHooks\":true}' > ~/.claude/settings.json",
         ];
         for c in cases {
             assert!(!self_protection_hits(c).is_empty(), "expected hit for: {c}");
+        }
+        // The DEBUG trap is read where it runs: `eval` and a sourced file.
+        for c in [
+            "trap - DEBUG",
+            "eval 'trap - DEBUG'",
+            "echo 'trap - DEBUG' > /tmp/x.sh && source /tmp/x.sh",
+            // Printed text written to a file is code beside anything that
+            // does more than show something, whatever name runs it.
+            "echo 'trap - DEBUG' > /tmp/x.sh && source /tmp/x.s*",
+            "echo 'trap - DEBUG' > /tmp/x.sh; . /tmp/x.s?",
+            "printf '%s\\n' 'trap - DEBUG' > /tmp/x.sh && bash \"$(ls /tmp/x.*)\"",
+            "echo 'trap - DEBUG' | tee /tmp/x.sh > /dev/null; source /tmp/x.s*",
+            "echo 'trap - DEBUG' > /tmp/x.sh && at -f /tmp/x.s* now",
+            "for f in a; do echo 'trap - DEBUG' > /tmp/x.sh; done; source /tmp/x.s*",
+            "sleep 1 & echo 'trap - DEBUG' > /tmp/x.sh",
+            "echo 'trap - DEBUG' > /tmp/x.sh && cat /tmp/x.sh && source /tmp/x.s*",
+            "echo 'trap - DEBUG' | sh",
+        ] {
+            let hits = self_protection_hits(c);
+            assert!(
+                hits.iter().any(|h| h.id == "shellfirm-self:trap_debug"),
+                "expected trap_debug for {c:?}: {hits:?}"
+            );
         }
     }
 
@@ -3850,12 +6032,232 @@ mod tests {
             "git push origin feature",
             "trap -p DEBUG",
             "trap 'echo bye' EXIT",
+            "shellfirm audit clear --help",
+            "shellfirm audit clear -h",
+            "shellfirm config context branches",
+            "shellfirm config context k8s",
+            "shellfirm config context paths",
+            "shellfirm config context env",
+            "shellfirm config context escalation",
+            "shellfirm config escalation",
+            "shellfirm config escalation severity",
+            "shellfirm config escalation group",
+            "shellfirm config escalation check",
+            "shellfirm config context branches --list",
+            "python3 -m json.tool .claude/settings.json",
+            "python3 -m json.tool --sort-keys ~/.claude/settings.json",
+            "python -m json.tool --indent 4 .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json > /dev/null && echo valid",
+            "python3 -m json.tool .claude/settings.json >/dev/null 2>&1 || echo \"invalid JSON\"",
+            "python3 -m json.tool ~/.claude/settings.json > /tmp/pretty.json",
+            "python3 -m json.tool ~/.claude/settings.json 2>/dev/null >> build/pretty.json",
         ];
         for c in cases {
             assert!(
                 self_protection_hits(c).is_empty(),
                 "unexpected hit for: {c}: {:?}",
                 self_protection_hits(c)
+            );
+        }
+    }
+
+    #[test]
+    fn self_protection_ignores_text_that_is_only_data() {
+        // The shellfirm command or protected path is an argument of another
+        // program, a heredoc written to an ordinary file, or a read-only use.
+        let cases = [
+            "echo 'shellfirm config groups --disable shell'",
+            "printf '%s\\n' 'shellfirm audit clear --yes'",
+            "git commit -m 'docs: explain shellfirm config severity High'",
+            "grep -rn 'shellfirm connect claude-code --uninstall' docs/",
+            "./run.sh sh box 'shellfirm config groups --disable shell'",
+            "SF_IMAGE=img:feature ./run.sh sh box 'cd /tmp; shellfirm config groups --disable shell; \
+             shellfirm config groups --enable shell'",
+            "sed -n 1,2p src/agent.rs; ./run.sh sh box 'shellfirm config llm --help' 2>&1 | head -40",
+            "cat > /work/t.sh <<'EOF'\nshellfirm config severity Critical\nshellfirm audit clear --yes\nEOF",
+            "D=/work/run; cat > $D/t4.sh <<'EOF'\ncd ~/projects/webapp\n\
+             cat > ~/.config/shellfirm/settings.yaml <<'Y'\nmin_severity: Critical\nY\nEOF\n\
+             ./run.sh script box $D/t4.sh 2>&1",
+            "cd /work && cat > weak.sh <<'EOF'\ncp ~/.config/shellfirm/settings.yaml /tmp/s.bak\n\
+             cat >> ~/.config/shellfirm/settings.yaml <<'Y'\nagent:\n  self_protection: false\nY\n\
+             EOF\n./run.sh script box /work/weak.sh",
+            "tee notes.md <<'EOF'\nrun `shellfirm init --uninstall` to remove the hook\nEOF",
+            "shellfirm config llm --help",
+            "shellfirm config severity -h",
+            "shellfirm config escalation group --help",
+            "shellfirm config groups",
+            "shellfirm config severity",
+            "shellfirm config challenge",
+            "shellfirm config ignore",
+            "shellfirm config deny",
+            "shellfirm config approved-notice",
+            "shellfirm config impact-budget",
+            "./run.sh sh box 'echo x >> ~/.config/shellfirm/settings.yaml'",
+            "./run.sh sh box 'cat /tmp/s.bak | tee ~/.claude/settings.json'",
+            "git commit -m 'stop rewriting ~/.claude/settings.json > on every run'",
+            "cat ~/.claude/settings.json && rm build.log",
+            // Assignments and hook text in messages, search patterns and
+            // files that no shell loads.
+            "cat > tests/e2e/run.sh <<'EOF'\n#!/bin/bash\nset -euo pipefail\n\
+             export SHELLFIRM_CONFIG_DIR=\"$(mktemp -d)\"\nshellfirm config challenge Yes\n\
+             shellfirm check -c 'git push --force'\nEOF",
+            "git commit -m \"test: run e2e with HOME=/tmp/fakehome\"",
+            "printf '%s\\n' 'export HOME=$(mktemp -d)' 'cargo test' > scripts/ci-test.sh",
+            "cat > Dockerfile <<'EOF'\nFROM node:20\nENV HOME=/home/app\nWORKDIR /app\nEOF",
+            "gh pr create --title t --body 'CI now sets `export SHELLFIRM_CONFIG_DIR=$(mktemp -d)` before e2e'",
+            "tee docs/testing.md <<'EOF'\nRun e2e with:\nexport SHELLFIRM_CONFIG_DIR=$(mktemp -d)\nEOF",
+            "git commit -m 'docs: explain SHELLFIRM_DISABLE=1 escape hatch'",
+            "echo 'export HOME=/tmp/demo' >> docs/demo.md",
+            "cat > docs/env.md <<'EOF'\nexport SHELLFIRM_LOG=debug\nunset SHELLFIRM_DISABLE\nEOF",
+            // `env.md` is a doc, not an auto-loaded `.env` file
+            "cat > docs/env.md <<'EOF'\nexport SHELLFIRM_LOG=debug\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF",
+            "grep -rn 'bind -r' docs/",
+            "rg 'shopt -u extdebug' docs",
+            "echo 'alias shellfirm=true' >> docs/threats.md",
+            "git commit -m 'docs: an attacker could do alias shellfirm=true'",
+            "echo 'zle -N accept-line my-accept' >> docs/zsh.md",
+            "echo 'add-zsh-hook -d preexec _shellfirm' >> docs/zsh.md",
+            "echo 'unset -f _shellfirm_preexec' >> docs/threats.md",
+            "echo 'export PROMPT_COMMAND=\"history -a\"' >> docs/bash-tips.md",
+            "git commit -m 'docs: shellfirm uses trap DEBUG in bash'",
+            "git commit -m \"$(cat <<'EOF'\ndocs: explain trap DEBUG hook\nEOF\n)\"",
+            "grep -rn 'disableAllHooks' docs/",
+            "rg -n disableAllHooks .",
+            "git commit -m 'docs: document disableAllHooks'",
+            // message values of git and gh, whatever flag carries them
+            "git commit -F - <<'EOF'\ntest: run e2e with HOME=/tmp/fakehome\nEOF",
+            "git commit -F- <<'EOF'\ntest: e2e uses SHELLFIRM_CONFIG_DIR=/tmp/sf\nEOF",
+            "gh issue create --title t --body-file - <<'EOF'\nRepro: export SHELLFIRM_CONFIG_DIR=/tmp/sf\nEOF",
+            "gh release create v0.4.1 --notes-file - <<'EOF'\nTests now run with SHELLFIRM_CONFIG_DIR=/tmp/sf cargo test\nEOF",
+            "gh pr create --title t --body-file - <<'EOF'\nCI sets HOME=/tmp/fakehome for e2e\nEOF",
+            "gh pr create -t 'docs: disableAllHooks' -b 'Documents the disableAllHooks setting'",
+            "gh issue comment 5 -b 'See disableAllHooks in docs/hooks.md'",
+            "git commit --message='docs: disableAllHooks'",
+            "git notes add -m 'mentions disableAllHooks'",
+            "git stash push -m 'wip: disableAllHooks docs'",
+            "git merge -m 'docs: disableAllHooks' docs/hooks",
+            "gh release create v1.0 --notes 'Fixed: export SHELLFIRM_DISABLE=1 now warns'",
+            "git notes add -m 'export HOME=/tmp/demo'",
+            // an unquoted heredoc with nothing to expand
+            "cat > docs/e2e.md <<EOF\nRun the suite with: export SHELLFIRM_CONFIG_DIR=/tmp/sf-e2e\nEOF",
+            "cat > tests/e2e/run.sh <<EOF\n#!/bin/bash\nexport SHELLFIRM_CONFIG_DIR=/tmp/sf-e2e\nshellfirm config show\nEOF",
+            "cat > docs/env.md <<EOF\nunset SHELLFIRM_DISABLE\nEOF",
+            // searches of the text, piped into filters that only print
+            "grep -rn 'disableAllHooks' docs/ | head -20",
+            "grep -rn disableAllHooks docs/ | wc -l",
+            "rg -l disableAllHooks | sort",
+            "grep -rn disableAllHooks docs/ || true",
+            "cat docs/hooks.md | grep disableAllHooks",
+            "git show HEAD -- docs/hooks.md | grep disableAllHooks",
+            "git diff main -- docs/ | grep -n disableAllHooks",
+            "ack disableAllHooks docs/",
+            "gh search code disableAllHooks",
+            "jq '.disableAllHooks' ~/.claude/settings.json",
+            "rg disableAllHooks docs | sort -u | uniq -c | cut -c1-80 | tr a-z A-Z | nl | tail -3",
+            "git log -S disableAllHooks --oneline | less",
+            // stderr / stdout to `/dev/null`, a note to the terminal, a
+            // pipe into another printer
+            "grep -rn disableAllHooks docs/ 2>/dev/null | head",
+            "grep -rn disableAllHooks docs/ > /dev/null && echo found",
+            "rg -c disableAllHooks docs && echo ok",
+            "rg --json disableAllHooks docs | jq -r '.data.path.text?'",
+            "grep -rn disableAllHooks docs/ 2>&1 | sha256sum",
+            // message values under every flag that carries them
+            "git commit -m\"docs: disableAllHooks\"",
+            "git commit -am'docs: disableAllHooks'",
+            "gh pr create -b\"Adds disableAllHooks docs\" -t docs",
+            "git commit -m 'docs: x' --trailer 'Refs: disableAllHooks'",
+            "gh pr merge 12 --squash --subject 'docs: disableAllHooks' --body 'x'",
+            "gh gist create -d 'disableAllHooks example' docs/hooks.md",
+            "gh release create v1.0.0 -n 'export SHELLFIRM_DISABLE=1 now warns'",
+            // printed text in a file next to parts that only show something
+            "echo 'trap - DEBUG' > docs/x.md && git diff --stat && ls docs",
+        ];
+        for c in cases {
+            let hits = self_protection_hits(c);
+            assert!(hits.is_empty(), "unexpected hit for {c:?}: {hits:?}");
+        }
+    }
+
+    #[test]
+    fn self_protection_still_catches_executed_payloads() {
+        let id = "shellfirm-self:config_change";
+        let cases = [
+            "sh -c 'shellfirm config groups --disable shell'",
+            "bash -c \"shellfirm config severity Critical\"",
+            "sudo -u dev sh -c 'shellfirm config challenge Enter'",
+            "ssh host 'shellfirm config groups --disable git'",
+            "docker exec box sh -c 'shellfirm config ignore git:force_push'",
+            "eval 'shellfirm config deny --remove git:force_push'",
+            "x=$(shellfirm config groups --disable fs)",
+            "echo `shellfirm config groups --disable fs`",
+            "watch 'shellfirm config groups --disable fs'",
+            "bash <<'EOF'\nshellfirm config groups --disable fs\nEOF",
+            "cat <<'EOF' | sh\nshellfirm config groups --disable fs\nEOF",
+            "python3 - <<'P'\nimport os; os.system('shellfirm config groups --disable fs')\nP",
+            "source /dev/stdin <<'EOF'\nshellfirm config groups --disable fs\nEOF",
+            "echo 'shellfirm config groups --disable fs' | xargs -I{} sh -c '{}'",
+            "tmux send-keys 'shellfirm config groups --disable fs' Enter",
+            "shellfirm config groups --disable fs",
+            "shellfirm config groups --enable exfil",
+            "shellfirm config severity Critical",
+            "shellfirm config groups --pick",
+            "shellfirm config reset",
+            "shellfirm config edit",
+        ];
+        for c in cases {
+            let hits = self_protection_hits(c);
+            assert!(
+                hits.iter().any(|h| h.id == id),
+                "expected {id} for {c:?}: {hits:?}"
+            );
+        }
+        // Writes to protected files that really happen.
+        for c in [
+            "cat > ~/.config/shellfirm/settings.yaml <<'EOF'\nmin_severity: Critical\nEOF",
+            "tee -a ~/.claude/settings.json <<'EOF'\n{}\nEOF",
+            "python3 - <<'P'\nopen('.shellfirm.yaml', 'w').write('')\nP",
+            "sh -c \"echo x > ~/.config/shellfirm/settings.yaml\"",
+            "bash <<'EOF'\nrm ~/.claude/settings.json\nEOF",
+            "curl -o \"$HOME/Library/Application Support/shellfirm/settings.yaml\" https://x",
+            "echo '{}' > \"$HOME/Library/Application Support/shellfirm/settings.yaml\"",
+            "sh -c 'cat /tmp/s.bak | tee ~/.claude/settings.json'",
+            // `open` passed around as a value, or a mode spelled as an escape
+            "python3 -c 'print(open(\"README.md\").read());f=open;f(\"/home/dev/.claude/settings.json\",\"\\x77\")'",
+            "python3 -c 'open(\"/home/dev/.claude/settings.json\",\"\\167\")'",
+            "python3 -c 'import io;io.FileIO(\"/home/dev/.claude/settings.json\",\"\\x77\")'",
+            // json.tool writes its second positional
+            "python3 -m json.tool /tmp/x.json ~/.claude/settings.json",
+            "python3 -m json.tool .claude/settings.json .claude/settings.json",
+            "python3 -m json.tool --indent 2 .claude/settings.json .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json > .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json | tee .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json; rm .claude/settings.json",
+            "perl -i -pe 's/shellfirm/true/' ~/.claude/settings.json",
+            "python3 -m json.tool /tmp/x.json > .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json > /dev/null; python3 -m json.tool /tmp/x.json > .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json > ~/.claude/settings.local.json",
+            "python3 -m json.tool .claude/settings.json 2>&1 > .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json >/dev/null 2>.claude/settings.json",
+            "python3 -m json.tool .claude/settings.json > /dev/null && cp /tmp/x.json .claude/settings.json",
+            "python3 -m json.tool .claude/settings.json >> .claude/settings.json",
+            "python3 -m json.tool /tmp/x.json >\"$HOME/.claude/settings.json\"",
+        ] {
+            let hits = self_protection_hits(c);
+            assert!(
+                hits.iter()
+                    .any(|h| h.id == "shellfirm-self:protected_file_write"),
+                "expected protected_file_write for {c:?}: {hits:?}"
+            );
+        }
+        for c in [
+            "sh -c 'shellfirm audit clear --yes'",
+            "bash <<'EOF'\nshellfirm audit clear\nEOF",
+        ] {
+            let hits = self_protection_hits(c);
+            assert!(
+                hits.iter().any(|h| h.id == "shellfirm-self:audit_clear"),
+                "expected audit_clear for {c:?}: {hits:?}"
             );
         }
     }
@@ -3896,6 +6298,176 @@ mod tests {
             "unset XDG_CONFIG_HOME",
             "env -u HOME bash",
             "cd /tmp && CLAUDE_CONFIG_DIR=/tmp/c claude",
+            // assignments that run, or are written where a shell loads them
+            "export SHELLFIRM_CONFIG_DIR=/tmp/x",
+            "export HOME=/tmp/demo",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> ~/.bashrc",
+            "cat >> ~/.bashrc <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> .envrc",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> .env.local",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> ~/.bash_aliases",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> ~/.zshrc.local",
+            "echo 'export HOME=/tmp/x' >> ~/.pam_environment",
+            "echo 'export HOME=/tmp/x' > a.md && cp a.md ~/.zsh_aliases",
+            "cat > ~/.oh-my-zsh/custom/sf.zsh <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' > /tmp/sf.sh && . /tmp/sf.sh && claude",
+            "cat > /tmp/e.sh <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF\nsource /tmp/e.sh",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' >> docs/env.sh && . docs/env.sh",
+            "cat > tests/e2e/run.sh <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF\n\
+             source tests/e2e/run.sh && claude",
+            "cat > run.sh <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nclaude\nEOF\nchmod +x run.sh && ./run.sh",
+            "bash -c 'export SHELLFIRM_CONFIG_DIR=/tmp/x; claude'",
+            "eval \"export HOME=/tmp/h\"",
+            "echo 'export SHELLFIRM_CONFIG_DIR=/tmp/x' | bash",
+            "bash <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nclaude\nEOF",
+            "tmux send-keys -t 0 'export SHELLFIRM_CONFIG_DIR=/tmp/x' Enter",
+            "HOME=/tmp/h; claude",
+            "git commit -m \"x $(export HOME=/tmp/h; claude)\"",
+            "echo \"export HOME=$(HOME=/tmp/h claude)\" >> docs/x.md",
+            "cat > docs/env.md <<EOF\nexport HOME=$(HOME=/tmp/h claude)\nEOF",
+            "cat > docs/env.md <<'EOF'\nexport SHELLFIRM_LOG=debug\nEOF\nexport SHELLFIRM_CONFIG_DIR=/tmp/x",
+            // a prefix counts unless the program only prints or runs tests
+            "SHELLFIRM_CONFIG_DIR=/tmp/empty bash -i",
+            "env SHELLFIRM_CONFIG_DIR=/tmp/empty bash",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e shellfirm wrap bash",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e shellfirm mcp",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e exec zsh",
+            "HOME=/tmp/h cargo run -- wrap bash",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e shellfirm config show && SHELLFIRM_CONFIG_DIR=/tmp/e zsh",
+            "SHELLFIRM_CONFIG_DIR=$(mktemp -d) shellfirm config show; SHELLFIRM_CONFIG_DIR=/tmp/e bash -i",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e tmux new -s x",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e nohup bash -i",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e npx some-agent",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e codex",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e ./start-dev.sh",
+            "SHELLFIRM_CONFIG_DIR=/tmp/e shellfirm config groups --disable fs",
+            "HOME=/tmp/h cargo test && HOME=/tmp/h claude",
+            "HOME=$(export HOME=/tmp/h; claude) shellfirm status",
+            "git commit -m 'x' &&export HOME=/tmp/h",
+            "echo 'x' & export HOME=/tmp/h &",
+            // cargo can start a program it is told about (a runner, a
+            // wrapper, a toolchain) under the changed variable
+            "HOME=/tmp/h cargo test --config 'target.x86_64-unknown-linux-gnu.runner=\"bash -c claude\"'",
+            "HOME=/tmp/h RUSTC_WRAPPER=/tmp/w cargo test",
+            "HOME=/tmp/h CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER='bash -c claude' cargo test",
+            "HOME=/tmp/h RUSTC=/tmp/rc cargo test",
+            "HOME=/tmp/h RUSTFLAGS='-C linker=/tmp/l' cargo nextest run",
+            "HOME=/tmp/h CARGO_HOME=/tmp/c cargo test",
+            "HOME=/tmp/h cargo +nightly test",
+            "HOME=/tmp/h cargo test -Zunstable-options",
+            "HOME=/tmp/h cargo test -Z unstable-options",
+            "HOME=/tmp/h cargo test --config=build.rustc-wrapper=\"/tmp/w\"",
+            // cargo / nextest options outside the test allowlist: another
+            // project, a tool config, a runner, binaries named by a file
+            "HOME=/tmp/h cargo nextest run --tool-config-file my-tool:/tmp/t.toml",
+            "HOME=/tmp/h cargo nextest run --tool-config-file=my-tool:/tmp/t.toml",
+            "HOME=/tmp/h cargo nextest run --tool-config-file my-tool:/tmp/t.toml -E 'test(x)'",
+            "HOME=/tmp/h cargo nextest run --target-runner claude",
+            "HOME=/tmp/h cargo test --manifest-path /tmp/evil/Cargo.toml",
+            "HOME=/tmp/h cargo test --manifest-path=/tmp/evil/Cargo.toml",
+            "HOME=/tmp/h cargo nextest run --workspace-remap /tmp/w",
+            "HOME=/tmp/h cargo nextest run --archive-file /tmp/a.tar.zst",
+            "HOME=/tmp/h cargo nextest run --cargo-metadata /tmp/m.json",
+            "HOME=/tmp/h cargo nextest run --binaries-metadata /tmp/b.json",
+            "HOME=/tmp/h cargo test --tool-config-file x:/tmp/t.toml",
+            "HOME=/tmp/h cargo nextest run --hide-progress-bar --tool-config-file x:/tmp/t.toml",
+            "HOME=/tmp/h cargo test --manifest-path shellfirm/Cargo.toml",
+            "HOME=$(mktemp -d) cargo test -p shellfirm --timings",
+            "HOME=/tmp/h cargo test -C /tmp/other",
+            "HOME=/tmp/h cargo test --retries 2",
+            "HOME=/tmp/h cargo test -pshellfirm",
+            // the words after `--` reach the test binary: only test-name
+            // filters and the libtest options that print or pick tests
+            "HOME=/tmp/h cargo test -- --logfile /tmp/l",
+            "HOME=/tmp/h cargo test -- --config",
+            "HOME=/tmp/h cargo test -- --logfile ~/.claude/settings.json",
+            "HOME=/tmp/h cargo test -- --logfile .claude/settings.json",
+            "HOME=/tmp/h cargo test -- --logfile=.shellfirm.yaml",
+            "HOME=/tmp/h cargo test -- -Z unstable-options --logfile ~/.claude/settings.json",
+            "HOME=/tmp/h cargo nextest run -- --logfile ~/.claude/settings.json",
+            "HOME=/tmp/h cargo test -- --persist-doctests ~/.claude",
+            "HOME=/tmp/h cargo test --doc -- --persist-doctests .claude",
+            "HOME=/tmp/h cargo test -- --nocapture --some-new-option",
+            "HOME=/tmp/h cargo test -- --skip --logfile /tmp/l",
+            "HOME=/tmp/h cargo test -- -Z other-option",
+            "HOME=/tmp/h cargo test -- -Zunstable-options",
+            "HOME=/tmp/h cargo test -- --format json --logfile=/tmp/l",
+            // a target spec file is not a target triple
+            "HOME=/tmp/h cargo test --target /tmp/evil.json",
+            "HOME=/tmp/h cargo test --target=./evil.json",
+            "HOME=/tmp/h cargo test --target custom.json",
+            "HOME=/tmp/h cargo test --target x86_64-unknown-linux-gnu --target t/x",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm audit clear",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy init",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy show --yes",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -q -- wrap bash",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -- mcp",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -- audit clear",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -- config reset",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run --config 'target.x86_64-unknown-linux-gnu.runner=\"bash -c claude\"' -- status",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run --bin other -- status",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run --example x -- status",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -- policy show; SHELLFIRM_CONFIG_DIR=/tmp/x claude",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run -- config ignore add fs:any_deletion",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy show && export SHELLFIRM_CONFIG_DIR=/tmp/x",
+            // messages: only a literal value is text
+            "git commit -F - <<EOF\ntest: $(export HOME=/tmp/h; claude)\nEOF",
+            "git commit -F - <<'EOF'\ntest: HOME=/tmp/fakehome\nEOF\nexport HOME=/tmp/h",
+            "gh pr create --title t --body-file - <<'EOF'\nHOME=/tmp/h\nEOF\nHOME=/tmp/h claude",
+            "git commit -F - <<'EOF' | bash\nexport HOME=/tmp/h; claude\nEOF",
+            "git commit -F msg.txt <<'EOF'\nx\nEOF\nexport HOME=/tmp/h",
+            "gh release create v1.0 --notes-file - <<EOF\n$(export HOME=/tmp/h; claude)\nEOF",
+            "bash <<'EOF'\nexport HOME=/tmp/h\nclaude\nEOF",
+            "sh -s <<'EOF'\nexport SHELLFIRM_CONFIG_DIR=/tmp/empty\nexec bash -i\nEOF",
+            "cat <<'EOF' | bash\nexport HOME=/tmp/h\nclaude\nEOF",
+            "gh release create v1.0 --notes 'x'; export SHELLFIRM_DISABLE=1",
+            "git tag -a v1.2 -m \"docs: $(export SHELLFIRM_CONFIG_DIR=/tmp/x; claude)\"",
+            "gh release create v1.0 --notes \"$(HOME=/tmp/h claude)\"",
+            "git notes add -m 'x'; export HOME=/tmp/h",
+            "gh release create v1.0 --notes 'x' && export SHELLFIRM_CONFIG_DIR=/tmp/x",
+            "git stash push -m 'export HOME=/tmp/h' && HOME=/tmp/h claude",
+            "export HOME=/tmp/h",
+            "git commit -m 'x'; HOME=/tmp/h claude",
+            "export SHELLFIRM_DISABLE=1",
+            "gh release create v1 -n 'x'; export SHELLFIRM_DISABLE=1",
+            "git commit -m \"$(export HOME=/tmp/h; claude)\"",
+            "gh release create v1 -n \"$(HOME=/tmp/h claude)\"",
+            "git commit -m \"HOME=/tmp/h\" && HOME=/tmp/h claude",
+            "gh pr create -b\"$(HOME=/tmp/h claude)\" -t x",
+            "git commit -m \"x\" -m \"$(HOME=/tmp/h claude)\"",
+            "git commit -m 'export HOME=/tmp/h' && git log -1 --format=%B | sh",
+            "git commit -m \"HOME=/tmp/h\" && git log -1 --format=%B | sh",
+            "env HOME=/tmp/h claude",
+            "sudo HOME=/tmp/h claude",
+            "git commit -m `HOME=/tmp/h claude`",
+            "echo 'export HOME=/tmp/h' > /tmp/e.sh && python3 run.py /tmp/e.s*",
+            // an unquoted heredoc is text only without `$`, `` ` `` and `\`
+            "cat > tests/e2e/env.sh <<EOF\nexport HOME=$(HOME=/tmp/h claude)\nEOF",
+            "cat >> ~/.bashrc <<EOF\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF",
+            "cat > /tmp/sf.sh <<EOF\nexport HOME=/tmp/h\nEOF\n. /tmp/sf.sh && claude",
+            "cat > docs/e2e.md <<EOF\nexport HOME=`HOME=/tmp/h claude`\nEOF",
+            "cat > docs/e2e.md <<EOF\nexport SHELLFIRM_CONFIG_DIR=${X:=$(claude)}\nEOF",
+            "cat > .envrc <<EOF\nexport SHELLFIRM_CONFIG_DIR=/tmp/x\nEOF",
+            "cat > ~/.bash_aliases <<EOF\nunset SHELLFIRM_CONFIG_DIR\nEOF",
+            "cat <<EOF | sh\nexport HOME=/tmp/h\nclaude\nEOF",
+            "cat > docs/e2e.sh <<EOF\nexport HOME=/tmp/h\nclaude\nEOF\nbash docs/e2e.sh",
+            "cat > docs/e2e.sh <<EOF\nexport HOME=/tmp/h\nEOF\nsource docs/e2e.sh && claude",
+            "cat > docs/e2e.md <<-EOF\n\texport HOME=$(HOME=/tmp/h claude)\n\tEOF",
+            "cat > docs/env.md <<EOF\nunset SHELLFIRM_DISABLE\nEOF\nunset SHELLFIRM_CONFIG_DIR",
+            "cat > docs/e2e.md <<EOF\nexport HOME=/tmp/h \\\n$(claude)\nEOF",
+            "cat >> ~/.bashrc <<EOF\nunset SHELLFIRM_DISABLE\nexport SHELLFIRM_DISABLE=1\nEOF",
+            // a bare `VAR=` line in a file an env loader reads
+            "echo 'HOME=/tmp/h' >> .env",
+            "echo 'SHELLFIRM_CONFIG_DIR=/tmp/x' >> .env",
+            "echo SHELLFIRM_CONFIG_DIR=/tmp/x >> .env.local",
+            "printf 'SHELLFIRM_CONFIG_DIR=/tmp/x\\n' > ~/.config/environment.d/sf.conf",
+            "printf 'A=1\\nXDG_CONFIG_HOME=/tmp/x\\n' >> ~/.config/environment.d/sf.conf",
+            "printf '[env]\\nSHELLFIRM_CONFIG_DIR = \"/tmp/x\"\\n' >> .mise.toml",
+            "cat >> .mise.toml <<'EOF'\n[env]\nCLAUDE_CONFIG_DIR = \"/tmp/c\"\nEOF",
+            "cat > .env <<'EOF'\nPORT=3000\nHOME=/tmp/h\nEOF",
+            "echo 'CLAUDE_CONFIG_DIR=/tmp/c' | tee -a .env",
+            "echo 'HOME=/tmp/h' >> ~/.pam_environment",
         ] {
             assert!(
                 self_protection_hits(c).iter().any(|h| h.id == id),
@@ -3909,10 +6481,208 @@ mod tests {
             "export PATH=$PATH:~/bin",
             "HOME_DIR=/x make",
             "cd $HOME",
+            // a one-process prefix of a print-only shellfirm command or tests
+            "SHELLFIRM_CONFIG_DIR=$(mktemp -d) shellfirm config show",
+            "XDG_CONFIG_HOME=/tmp/xdg shellfirm config show",
+            "HOME=/tmp/fakehome shellfirm status",
+            "SHELLFIRM_NO_CONTEXT=1 shellfirm check -c 'kubectl delete pod x'",
+            "HOME=$(mktemp -d) cargo test -p shellfirm -- config",
+            "SHELLFIRM_CONFIG_DIR=/tmp/sfcfg cargo test -p shellfirm",
+            "HOME=/tmp/h shellfirm config groups",
+            "HOME=/tmp/h shellfirm config context branches --list",
+            "HOME=/tmp/h cargo nextest run",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy show",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy show --format json",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy validate",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm policy validate --strict .shellfirm.yaml",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm audit show",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x shellfirm audit show -n 20 --outcome denied",
+            "SHELLFIRM_CONFIG_DIR=$(mktemp -d) cargo run -q -- config show",
+            "SHELLFIRM_CONFIG_DIR=$(mktemp -d) cargo run -q -- check -c 'rm -rf /'",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run --release -p shellfirm -- status",
+            "SHELLFIRM_CONFIG_DIR=/tmp/x cargo run --bin shellfirm -- policy show",
+            "HOME=/tmp/h RUST_LOG=debug RUST_BACKTRACE=1 cargo test",
+            "CI=1 NO_COLOR=1 HOME=/tmp/h CARGO_TERM_COLOR=never cargo nextest run",
+            "HOME=/tmp/h cargo test --target-dir /tmp/t",
+            "HOME=/tmp/h cargo nextest run --run-ignored all",
+            "HOME=/tmp/h cargo test --bin claude",
+            "HOME=/tmp/h cargo nextest run -p shellfirm --no-capture -E 'test(config)' --retries 2",
+            "HOME=/tmp/h cargo test --target x86_64-unknown-linux-gnu",
+            "HOME=/tmp/h cargo test --target=aarch64-apple-darwin",
+            "HOME=/tmp/h cargo test -- --nocapture --test-threads 1",
+            "HOME=/tmp/h cargo test -- --exact config::tests::parse",
+            "HOME=/tmp/h cargo test -- --format json -Z unstable-options",
+            "HOME=/tmp/h cargo test -- --test-threads=2 --skip slow --include-ignored -q",
+            "HOME=/tmp/h cargo nextest run -- --ignored --show-output --color never",
+            "HOME=/tmp/h cargo test -- --shuffle --shuffle-seed 7 --report-time --list",
+            "HOME=/tmp/h cargo test --package=shellfirm --features=x --all-targets --locked config",
+            // a quoted message value is never an assignment
+            "git commit -m \"HOME=/tmp/h is now set in CI\"",
+            "git commit -m 'SHELLFIRM_CONFIG_DIR=/tmp/x for e2e'",
+            "git commit --no-verify -m \"SHELLFIRM_CONFIG_DIR=/tmp/x\"",
+            "gh pr create -t \"HOME=/tmp/h in CI\" -b \"isolates tests\"",
+            "git commit --fixup HEAD -m \"HOME=/tmp/h\"",
+            "gh release create v1.0.0 -n 'export SHELLFIRM_DISABLE=1 now warns'",
+            "git commit -m\"HOME=/tmp/h in CI\"",
+            "git commit -m x --trailer 'HOME=/tmp/h'",
+            // text in a message, or in a file nothing loads
+            "git commit -F - <<'EOF'\ntest: run e2e with HOME=/tmp/fakehome\nEOF",
+            "git commit -F- <<'EOF'\ntest: e2e uses SHELLFIRM_CONFIG_DIR=/tmp/sf\nEOF",
+            "git commit --file=- <<'EOF'\nexport HOME=/tmp/h\nEOF",
+            "gh issue create --title t --body-file - <<'EOF'\nRepro: export SHELLFIRM_CONFIG_DIR=/tmp/sf\nEOF",
+            "gh release create v0.4.1 --notes-file - <<'EOF'\nTests now run with SHELLFIRM_CONFIG_DIR=/tmp/sf cargo test\nEOF",
+            "gh pr create --title t --body-file - <<'EOF'\nCI sets HOME=/tmp/fakehome for e2e\nEOF",
+            "gh pr create -t t -F - <<EOF\nCI sets HOME=/tmp/fakehome for e2e\nEOF",
+            "gh release create v1.0 --notes 'Fixed: export SHELLFIRM_DISABLE=1 now warns'",
+            "git notes add -m 'export HOME=/tmp/demo'",
+            "git tag v1.2 -m 'export HOME=/tmp/demo'",
+            "git stash push -m 'export HOME=/tmp/demo'",
+            "git merge -m 'export HOME=/tmp/demo' feature",
+            "git commit --message='export HOME=/tmp/demo'",
+            "cat > docs/e2e.md <<EOF\nRun the suite with: export SHELLFIRM_CONFIG_DIR=/tmp/sf-e2e\nEOF",
+            "cat > tests/e2e/run.sh <<EOF\n#!/bin/bash\nexport SHELLFIRM_CONFIG_DIR=/tmp/sf-e2e\nshellfirm config show\nEOF",
+            "cat > docs/env.md <<EOF\nunset SHELLFIRM_DISABLE\nEOF",
+            "cat > docs/env.md <<-EOF\n\texport HOME=/tmp/h\n\tEOF",
+            "echo 'SHELLFIRM_LOG=debug' >> .env",
+            "echo 'PORT=3000' >> .env",
+            "echo 'HOME=/tmp/h' >> docs/env.md",
         ] {
             assert!(
                 !self_protection_hits(c).iter().any(|h| h.id == id),
                 "unexpected {id} for: {c}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_output_paths_are_writes() {
+        // libtest `--logfile PATH` creates or truncates PATH, rustdoc
+        // `--persist-doctests DIR` and cargo `--target-dir DIR` write into
+        // DIR: with or without a prefix.
+        let env = home_env("/home/dev/projects/webapp");
+        let config = "shellfirm-self:protected_file_write";
+        for (c, id) in [
+            ("cargo test -- --logfile ~/.claude/settings.json", config),
+            ("cargo test -- --logfile=~/.claude/settings.json", config),
+            ("cargo test -- --logfile .claude/settings.json", config),
+            ("cargo test -- --logfile .shellfirm.yaml", config),
+            (
+                "cargo test -- --logfile ~/.config/shellfirm/settings.yaml",
+                config,
+            ),
+            (
+                "cargo test -p shellfirm -- --logfile ~/.claude/settings.json",
+                config,
+            ),
+            (
+                "cargo test -- --nocapture --logfile ~/.claude/settings.json",
+                config,
+            ),
+            (
+                "cargo test -- --logfile ~/.bashrc",
+                "shellfirm-self:rc_file_edit",
+            ),
+            (
+                "cargo test -- --logfile .git/hooks/pre-commit",
+                "shellfirm-self:persistence_file_write",
+            ),
+            (
+                "cargo nextest run -- --logfile ~/.claude/settings.json",
+                config,
+            ),
+            ("cargo bench -- --logfile .shellfirm.yaml", config),
+            ("cargo test -- --persist-doctests ~/.claude", config),
+            ("cargo test --doc -- --persist-doctests=.claude", config),
+            ("cargo test --target-dir ~/.config/shellfirm", config),
+            ("cargo test --target-dir .claude", config),
+            ("cargo test --target-dir=~/.claude", config),
+            ("cargo build --target-dir ~/.claude/hooks", config),
+            (
+                "HOME=/tmp/h cargo test --target-dir ~/.config/shellfirm",
+                config,
+            ),
+            ("HOME=/tmp/h cargo test --target-dir .claude", config),
+            ("HOME=/tmp/h cargo test --target-dir ~/.claude", config),
+            (
+                "HOME=/tmp/h cargo test -- --logfile .claude/settings.json",
+                config,
+            ),
+            (
+                "cd ~ && cargo test -- --logfile .claude/settings.json",
+                config,
+            ),
+        ] {
+            let hits = hit_ids(c, &env);
+            assert!(hits.contains(&id), "expected {id} for {c}: {hits:?}");
+        }
+        for c in [
+            "cargo test -- --logfile /tmp/test.log",
+            "cargo test -- --logfile target/test.log",
+            "cargo test --target-dir /tmp/t",
+            "cargo test --target-dir target/other",
+            "cargo test -- --nocapture --test-threads 1",
+            "cargo test -- --persist-doctests target/doctests",
+            "HOME=/tmp/h cargo test --target-dir /tmp/t",
+            "cargo run -- --logfile=/tmp/app.log",
+        ] {
+            let hits = hit_ids(c, &env);
+            assert!(hits.is_empty(), "unexpected hits for {c}: {hits:?}");
+        }
+    }
+
+    #[test]
+    fn substitution_text_that_never_expands_is_data() {
+        // A backtick or `$(` inside `'…'`, `$'…'`, after a backslash or in
+        // a quoted-delimiter heredoc is a literal character: the text
+        // around it is still only data.
+        for c in [
+            "git commit -m 'docs: document `SHELLFIRM_DISABLE=1`'",
+            "gh pr create -t docs -b 'Do not set `SHELLFIRM_DISABLE=1`'",
+            "git commit -m \"$(cat <<'EOF'\ndocs: document `SHELLFIRM_DISABLE=1`\nEOF\n)\"",
+            "gh pr create --title t --body \"$(cat <<'EOF'\nUse `HOME=/tmp/demo` in tests\nEOF\n)\"",
+            "git commit -m \"$(cat <<'EOF'\ndocs: set `XDG_CONFIG_HOME=~/.config`\nEOF\n)\"",
+            "git commit -m 'docs: `HOME=/tmp/h` and $(SHELLFIRM_DISABLE=1)'",
+            "git commit -m \"docs: \\`SHELLFIRM_DISABLE=1\\` is ignored\"",
+            "git commit -m \"docs: \\$(HOME=/tmp/h) is literal\"",
+            "git commit -m $'docs: `SHELLFIRM_DISABLE=1`\\n\\nbody'",
+            "cat > docs/env.md <<'EOF'\nSet `SHELLFIRM_CONFIG_DIR=/tmp/x` with $(mktemp -d)\nEOF",
+            "echo 'Do not set `SHELLFIRM_DISABLE=1`' >> docs/env.md",
+            "echo $'Do not set `HOME=/tmp/h`' >> docs/env.md",
+        ] {
+            let hits = self_protection_hits(c);
+            assert!(hits.is_empty(), "unexpected hit for {c:?}: {hits:?}");
+        }
+        let id = "shellfirm-self:config_env_override";
+        for c in [
+            // the shell expands these
+            "git commit -m \"docs: `SHELLFIRM_DISABLE=1 claude`\"",
+            "echo \"`export HOME=/tmp/h`\" >> docs/env.md",
+            "git commit -m \"$(cat <<EOF\ndocs: `SHELLFIRM_DISABLE=1 claude`\nEOF\n)\"",
+            "git commit -m \"$(cat <<'EOF'\ndocs: x\nEOF\n)\" && SHELLFIRM_DISABLE=1 claude",
+            "git commit -m 'docs `SHELLFIRM_DISABLE=1`' -m \"$(SHELLFIRM_DISABLE=1 claude)\"",
+            "git commit -m 'docs '`SHELLFIRM_DISABLE=1 claude`' x'",
+            "git commit -m 'docs '$(HOME=/tmp/h claude)' x'",
+            "echo '- '`HOME=/tmp/h claude`' x' >> docs/env.md",
+            "git commit -m \"docs: \\\\`HOME=/tmp/h claude`\"",
+            // quoted text that is code
+            "sh -c 'git commit -m \"`SHELLFIRM_DISABLE=1 claude`\"'",
+            "bash -c 'echo `HOME=/tmp/h claude`' >> docs/env.md",
+            "eval 'echo `HOME=/tmp/h claude`' >> docs/env.md",
+            "sudo sh -c 'echo `HOME=/tmp/h claude`' >> docs/env.md",
+            // printed text then run
+            "echo 'Set `HOME=/tmp/h`' | sh",
+            "echo $'`HOME=/tmp/h claude`' | sh",
+            "echo 'x `HOME=/tmp/h claude`' > notes.sh; . ./notes.sh",
+            "echo 'x `HOME=/tmp/h claude`' >> CHANGELOG.md && sh CHANGELOG.md",
+            // assignments that run
+            "env SHELLFIRM_DISABLE=1 claude",
+            "sudo SHELLFIRM_DISABLE=1 claude",
+            "export SHELLFIRM_DISABLE=1",
+            "git commit -m 'x' && SHELLFIRM_DISABLE=1 claude",
+        ] {
+            assert!(
+                self_protection_hits(c).iter().any(|h| h.id == id),
+                "expected {id} for: {c}"
             );
         }
     }
@@ -4562,8 +7332,42 @@ mod tests {
             "unzip a.zip -d /tmp/out",
             "git stash",
             "tar czf out.tgz src",
+            // patch inspection writes nothing
+            "git apply --check fix.patch",
+            "git apply --stat fix.patch",
+            "git apply --numstat fix.patch",
+            "git apply --summary -p2 --recount fix.patch",
+            "git apply --check -v fix.patch && echo applies",
+            "patch -p1 --dry-run < fix.patch",
+            "patch --dry-run -p1 -i fix.patch",
+            "git am --show-current-patch",
+            "git am --show-current-patch=diff",
         ] {
-            assert!(!hit_ids(cmd, &env).contains(&id), "{cmd}");
+            let ids = hit_ids(cmd, &env);
+            assert!(ids.is_empty(), "{cmd}: {ids:?}");
+        }
+        for cmd in [
+            "git apply fix.patch",
+            "git apply -R fix.patch",
+            "git apply --stat --apply fix.patch",
+            "git apply --check --apply fix.patch",
+            "git apply --apply --check fix.patch",
+            "git apply --numstat --apply fix.patch",
+            "git apply --check --index fix.patch",
+            "git apply --check fix.patch && git apply fix.patch",
+            "git apply --check fix.patch; git apply fix.patch",
+            "patch -p1 < fix.patch",
+            "patch -p1 -i fix.patch",
+            "patch -p1 --dry-run < fix.patch && patch -p1 < fix.patch",
+            "patch --dry-run -p1 -o .claude/settings.json -i fix.patch",
+            "patch --dry-run -p1 -o out.txt -i fix.patch",
+            "patch --dry-run --output=out.txt -i fix.patch",
+            "git am fix.patch",
+            "git am --show-current-patch; git am fix.patch",
+            "git am --show-current-patch fix.patch",
+            "git apply -R --check fix.patch && git apply -R fix.patch",
+        ] {
+            assert!(hit_ids(cmd, &env).contains(&id), "{cmd}");
         }
     }
 
@@ -4595,6 +7399,35 @@ mod tests {
             assess_file_tool("Edit", &plain, None, Some(&cfg), &ac).decision,
             Decision::Allow
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shell_writes_follow_symlinks_to_protected_files() {
+        let tree = tree_fs::TreeBuilder::default()
+            .add("repo/.claude/settings.json", "{}")
+            .add("repo/x.json", "{}")
+            .create()
+            .unwrap();
+        let link = tree.root.join("p.json");
+        std::os::unix::fs::symlink(tree.root.join("repo/.claude/settings.json"), &link).unwrap();
+        let env = home_env(&tree.root.join("repo").display().to_string());
+        let link = link.display().to_string();
+        let id = "shellfirm-self:protected_file_write";
+        for cmd in [
+            format!("python3 -m json.tool .claude/settings.json > {link}"),
+            format!("python3 -m json.tool x.json >> {link}"),
+            format!("echo hi > {link}"),
+        ] {
+            let ids = hit_ids(&cmd, &env);
+            assert!(ids.contains(&id), "{cmd}: {ids:?}");
+        }
+        let plain = tree.root.join("pretty.json").display().to_string();
+        let ids = hit_ids(
+            &format!("python3 -m json.tool .claude/settings.json > {plain}"),
+            &env,
+        );
+        assert!(ids.is_empty(), "{ids:?}");
     }
 
     #[test]
@@ -4630,6 +7463,22 @@ mod tests {
         ] {
             let c = assess_file_tool_with("Write", p, None, None, &ac, &sensitive, Some(home));
             assert_eq!(c.decision, Decision::Allow, "{p}");
+        }
+    }
+
+    #[test]
+    fn data_blanking_reads_any_command_without_panicking() {
+        let cases = [
+            "rm -rf / &",
+            "nohup $(echo rm -rf /) &",
+            "echo 'export HOME=/x' 2>&1 >> docs/a.md && cat <<-'EOF' | tee -a n.md\n\tx\n\tEOF\n",
+            "git commit -m \"$(cat <<'EOF'\nmsg ü\nEOF\n)\" &>/dev/null; echo \\",
+            "HOME=$(mktemp -d) cargo test -- \"a\\\"b\" `id` ${X:-y} > >(cat) <(ls) $'x' # c",
+        ];
+        for c in cases {
+            for (i, _) in c.char_indices().chain([(c.len(), ' ')]) {
+                let _ = self_protection_hits(&c[..i]);
+            }
         }
     }
 
@@ -5163,6 +8012,258 @@ mod tests {
         ] {
             let dirs = command_target_dirs(cmd, &root, None);
             assert!(dirs.contains(&webapp), "{cmd}: {dirs:?}");
+        }
+    }
+
+    /// The self-protection rules that judge a file the command writes.
+    const LOCAL_WRITE_RULES: &[&str] = &[
+        "shellfirm-self:protected_file_write",
+        "shellfirm-self:rc_file_edit",
+        "shellfirm-self:persistence_file_write",
+        AGENT_INSTRUCTIONS_RULE,
+    ];
+
+    fn write_rule_ids(cmd: &str, env: &MockEnvironment) -> Vec<&'static str> {
+        let mut ids: Vec<&'static str> = hit_ids(cmd, env)
+            .into_iter()
+            .filter(|id| LOCAL_WRITE_RULES.contains(id))
+            .collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    #[test]
+    fn a_wrapped_command_redirect_is_judged_like_the_plain_redirect() {
+        // The local shell opens the target of an unquoted redirect after a
+        // container / remote command, so every local write rule judges it
+        // exactly as the same redirect after `cat`.
+        let env = home_env("/home/dev/projects/webapp");
+        let targets = [
+            ".git/hooks/pre-commit",
+            ".git/hooks/post-checkout",
+            ".git/config",
+            ".envrc",
+            "~/.gitconfig",
+            "~/.ssh/authorized_keys",
+            "~/.ssh/config",
+            "CLAUDE.md",
+            "AGENTS.md",
+            "~/.config/systemd/user/x.service",
+            "~/.config/autostart/x.desktop",
+            "~/.bashrc",
+            "~/.zshrc",
+            ".claude/settings.json",
+            "~/.claude/settings.json",
+            ".shellfirm.yaml",
+            "~/.config/shellfirm/settings.yaml",
+            "/tmp/x.txt",
+            "out.sql",
+        ];
+        let ops = [">", ">>", ">|", "2>", "&>"];
+        let wrappers = [
+            "docker exec pg cat /tmp/p",
+            "docker exec -i pg cat /tmp/p",
+            "podman exec pg cat /tmp/p",
+            "kubectl exec pg-0 -- cat /tmp/p",
+            "ssh bastion cat /tmp/p",
+            "ssh bastion 'cat /tmp/p'",
+            "docker exec pg true",
+            "sudo docker exec pg cat /tmp/p",
+        ];
+        // Each target on its own thread: the grid is a few thousand checks.
+        std::thread::scope(|scope| {
+            for target in targets {
+                let env = &env;
+                scope.spawn(move || {
+                    for op in ops {
+                        let plain = format!("cat /tmp/p {op} {target}");
+                        let expected = write_rule_ids(&plain, env);
+                        let sudo = write_rule_ids(&format!("sudo cat /tmp/p {op} {target}"), env);
+                        assert_eq!(sudo, expected, "oracle differs for {op} {target}");
+                        for wrapped in wrappers {
+                            let cmd = format!("{wrapped} {op} {target}");
+                            assert_eq!(write_rule_ids(&cmd, env), expected, "{cmd}");
+                        }
+                        // A redirect written before the command.
+                        let first = format!("{op} {target} cat /tmp/p");
+                        assert_eq!(write_rule_ids(&first, env), expected, "{first}");
+                    }
+                    let tee = write_rule_ids(&format!("cat /tmp/p > {target}"), env);
+                    for cmd in [
+                        format!("cat /tmp/p | tee {target}"),
+                        format!("cat /tmp/p | tee -a {target}"),
+                        format!("docker exec pg cat /tmp/p | tee {target}"),
+                        format!("ssh bastion cat /tmp/p | tee -a {target}"),
+                    ] {
+                        assert_eq!(write_rule_ids(&cmd, env), tee, "{cmd}");
+                    }
+                });
+            }
+        });
+        // The oracle is not empty for the targets the rules protect.
+        for (target, id) in [
+            (
+                ".git/hooks/pre-commit",
+                "shellfirm-self:persistence_file_write",
+            ),
+            ("~/.gitconfig", "shellfirm-self:persistence_file_write"),
+            (
+                "~/.ssh/authorized_keys",
+                "shellfirm-self:persistence_file_write",
+            ),
+            (
+                "~/.config/systemd/user/x.service",
+                "shellfirm-self:persistence_file_write",
+            ),
+            (
+                "~/.config/autostart/x.desktop",
+                "shellfirm-self:persistence_file_write",
+            ),
+            (".envrc", "shellfirm-self:rc_file_edit"),
+            ("~/.bashrc", "shellfirm-self:rc_file_edit"),
+            ("CLAUDE.md", AGENT_INSTRUCTIONS_RULE),
+            (
+                ".claude/settings.json",
+                "shellfirm-self:protected_file_write",
+            ),
+        ] {
+            for cmd in [
+                format!("docker exec pg cat /tmp/p > {target}"),
+                format!("kubectl exec pg-0 -- cat /tmp/p >> {target}"),
+                format!("ssh bastion 'cat /tmp/p' &> {target}"),
+                format!("sudo docker exec pg cat /tmp/p 2> {target}"),
+                format!("> {target} cat /tmp/p"),
+            ] {
+                assert!(hit_ids(&cmd, &env).contains(&id), "expected {id} for {cmd}");
+            }
+        }
+        for cmd in [
+            "docker exec pg pg_dump warehouse > /tmp/wh.sql",
+            "kubectl exec pg-0 -- pg_dump warehouse > out.sql",
+            "ssh bastion uptime > /tmp/up.txt",
+            "docker exec pg cat /tmp/p | tee /tmp/x.txt",
+        ] {
+            assert!(write_rule_ids(cmd, &env).is_empty(), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn psql_output_and_log_files_are_local_write_targets() {
+        let env = home_env("/home/dev/projects/webapp");
+        for target in [
+            ".envrc",
+            "~/.bashrc",
+            "CLAUDE.md",
+            ".git/hooks/pre-commit",
+            ".claude/settings.json",
+            "/tmp/out.txt",
+            "report.csv",
+        ] {
+            let expected = write_rule_ids(&format!("cat /tmp/p > {target}"), &env);
+            for cmd in [
+                format!("psql -d warehouse -o {target} < queries/report.sql"),
+                format!("psql -d warehouse --output {target}"),
+                format!("psql -d warehouse --output={target}"),
+                format!("psql -d warehouse -L {target}"),
+                format!("psql -d warehouse --log-file {target}"),
+                format!("psql -d warehouse --log-file={target}"),
+                format!("psql -d warehouse -o{target}"),
+            ] {
+                assert_eq!(write_rule_ids(&cmd, &env), expected, "{cmd}");
+            }
+        }
+        assert!(hit_ids("psql -L ~/.bashrc -c 'select 1'", &env)
+            .contains(&"shellfirm-self:rc_file_edit"));
+    }
+
+    #[test]
+    fn container_copies_to_a_local_path_are_local_write_targets() {
+        let env = home_env("/home/dev/projects/webapp");
+        for target in [
+            ".envrc",
+            "~/.bashrc",
+            "CLAUDE.md",
+            ".git/hooks/pre-commit",
+            ".claude/settings.json",
+            "~/.claude/settings.json",
+            ".shellfirm.yaml",
+            "/tmp/out.txt",
+            "report.csv",
+        ] {
+            let expected = write_rule_ids(&format!("cp /tmp/p {target}"), &env);
+            for cmd in [
+                format!("docker cp web:/p {target}"),
+                format!("podman cp web:/p {target}"),
+                format!("docker container cp web:/p {target}"),
+                format!("docker -H tcp://h cp web:/p {target}"),
+                format!("kubectl cp default/web-1:/p {target}"),
+                format!("kubectl cp -c app web-1:/p {target}"),
+            ] {
+                assert_eq!(write_rule_ids(&cmd, &env), expected, "{cmd}");
+            }
+        }
+        // The container side is not a local write.
+        for cmd in [
+            "docker cp .envrc web:/root/.envrc",
+            "kubectl cp CLAUDE.md web-1:/app/CLAUDE.md",
+        ] {
+            assert!(write_rule_ids(cmd, &env).is_empty(), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_prefixed_cargo_test_allows_only_listed_target_dirs_and_triples() {
+        let id = "shellfirm-self:config_env_override";
+        for c in [
+            "HOME=/tmp/h cargo test --target-dir ~",
+            "HOME=/tmp/h cargo test --target-dir ~/",
+            "HOME=/tmp/h cargo test --target-dir /",
+            "HOME=/tmp/h cargo test --target-dir /etc",
+            "HOME=/tmp/h cargo test --target-dir ..",
+            "HOME=/tmp/h cargo test --target-dir ../..",
+            "HOME=/tmp/h cargo test --target-dir ../target-shared",
+            "HOME=/tmp/h cargo test --target-dir target/../..",
+            "HOME=/tmp/h cargo test --target-dir /tmp/../etc",
+            "HOME=/tmp/h cargo test --target-dir /tmp",
+            "HOME=/tmp/h cargo test --target-dir ~/.local/bin",
+            "HOME=/tmp/h cargo test --target-dir ~/.cargo",
+            "HOME=/tmp/h cargo test --target-dir /usr/local",
+            "HOME=/tmp/h cargo test --target-dir \"$(pwd)/..\"",
+            "HOME=/tmp/h cargo test --target-dir $HOME/t",
+            "HOME=/tmp/h cargo test --target-dir `pwd`/t",
+            "HOME=/tmp/h cargo test --target-dir=~",
+            "HOME=/tmp/h cargo test --target-dir=/etc",
+            "HOME=/tmp/h cargo test --target-dir .git/t",
+            "HOME=/tmp/h cargo test --target-dir",
+            "HOME=/tmp/h cargo nextest run --target-dir ~/.cargo",
+            "HOME=/tmp/h cargo test --target evil",
+            "HOME=/tmp/h cargo test --target=evil",
+            "HOME=/tmp/h cargo test --target x86_64-unknown-linux-gnux",
+            "HOME=/tmp/h cargo test --target ./x.json",
+            "HOME=/tmp/h cargo test --target",
+            "HOME=/tmp/h cargo nextest run --target=evil",
+        ] {
+            assert!(
+                self_protection_hits(c).iter().any(|h| h.id == id),
+                "expected {id} for: {c}"
+            );
+        }
+        for c in [
+            "HOME=/tmp/h cargo test --target-dir /tmp/t",
+            "HOME=/tmp/h cargo test --target-dir /var/tmp/ci/target",
+            "HOME=/tmp/h cargo test --target-dir target/other",
+            "HOME=/tmp/h cargo test --target-dir=target-shared",
+            "HOME=/tmp/h cargo test --target-dir ./target/x",
+            "HOME=/tmp/h cargo nextest run --target-dir /tmp/t",
+            "HOME=/tmp/h cargo test --target x86_64-unknown-linux-gnu",
+            "HOME=/tmp/h cargo test --target=aarch64-apple-darwin",
+            "HOME=/tmp/h cargo test --target \"wasm32-unknown-unknown\"",
+            "HOME=/tmp/h cargo test --target x86_64-pc-windows-msvc --target-dir /tmp/w",
+        ] {
+            assert!(
+                !self_protection_hits(c).iter().any(|h| h.id == id),
+                "unexpected {id} for: {c}"
+            );
         }
     }
 }

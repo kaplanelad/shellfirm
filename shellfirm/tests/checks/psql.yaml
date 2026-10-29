@@ -40,7 +40,7 @@
   description: "negative: custom format"
   expect_ids: []
 
-# -- psql:drop is scoped to DROP DATABASE/TABLE/SCHEMA (Dana F10) --
+# -- psql:drop is scoped to DROP DATABASE/TABLE/SCHEMA --
 - test: 'psql -c ''ALTER TABLE users DROP COLUMN email'''
   description: "drop column keeps its own High severity"
   expect_ids: ["database:alter_drop_column"]
@@ -51,7 +51,6 @@
   description: "negative: drop as part of a word"
   expect_ids: []
 
-# -- round 4: Dana r3 F7 --
 - test: 'dropuser app'
   description: "dropuser removes a role"
   expect_ids: ["psql:dropuser"]
@@ -89,15 +88,15 @@
   description: "negative: help"
   expect_ids: []
 
-# -- round 8 (R8-WRAP): \gexec, pgbench -i, patronictl (Dana r7 D7-2 / D7-7) --
+# -- \gexec, pgbench -i, patronictl --
 - test: 'psql -c "SELECT format(''DROP TABLE %I'', tablename) FROM pg_tables \gexec"'
-  description: 'psql \gexec (Dana r7 D7-2)'
+  description: 'psql \gexec'
   expect_ids: ["psql:gexec"]
 - test: 'psql -c "SELECT 1"'
   description: 'negative: no gexec'
   expect_ids: []
 - test: 'pgbench -i -s 50 bench'
-  description: 'pgbench -i (Dana r7 D7-7)'
+  description: 'pgbench -i'
   expect_ids: ["psql:pgbench_initialize"]
 - test: 'pgbench -c 10 -T 60 bench'
   description: 'negative: a pgbench run'
@@ -111,3 +110,122 @@
 - test: 'patronictl failover pg-cluster --candidate pg-2 --force'
   description: 'patronictl failover --force'
   expect_ids: ["psql:patronictl_failover_force"]
+
+# -- pg_restore --clean without a database --
+- test: "pg_restore --clean --if-exists -f /tmp/restore_preview.sql /tmp/warehouse.dump"
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore --clean --if-exists --file=/tmp/restore_preview.sql /tmp/warehouse.dump"
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore -c -f - /tmp/warehouse.dump | grep -c \"DROP TABLE\""
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore --clean --schema-only -f /tmp/s.sql /tmp/warehouse.dump"
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore -c -l /tmp/warehouse.dump"
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore --list --clean /tmp/warehouse.dump"
+  description: "negative: without a database pg_restore only writes the script"
+  expect_ids: []
+- test: "pg_restore --clean -d warehouse /tmp/warehouse.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c --dbname=warehouse /tmp/warehouse.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -d postgresql://localhost/warehouse -f /tmp/x.sql /tmp/warehouse.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -dwarehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore --clean --db warehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore --clean --dbname warehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore --clean --dbn=warehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -C -c -d postgres /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore --clean -f r.sql -d warehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -f - /tmp/w.dump | psql"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -f - /tmp/w.dump | sh"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -f - /tmp/w.dump | psql -h prod warehouse"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c /tmp/w.dump | psql -d warehouse"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -c -f r.sql /tmp/w.dump; psql warehouse < r.sql"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["database:sql_from_file", "psql:pg_restore_clean"]
+- test: "pg_restore -c -f r.sql /tmp/w.dump && psql -d warehouse -f r.sql"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["database:sql_from_file", "psql:pg_restore_clean"]
+- test: "pg_restore --clean --list /tmp/w.dump; pg_restore --clean -d warehouse /tmp/w.dump"
+  description: "restores into a database, or the script is run"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -cd warehouse /tmp/w.dump"
+  description: "a short bundle: -c, then -d with the next word"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -Ccd postgres /tmp/w.dump"
+  description: "a short bundle: -C -c, then -d with the next word"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore --cle -d warehouse /tmp/w.dump"
+  description: "an abbreviation of --clean"
+  expect_ids: ["psql:pg_restore_clean"]
+- test: "pg_restore -dc /tmp/w.dump"
+  description: "negative: -d takes c as the database name, no --clean"
+  expect_ids: []
+
+# -- pg_resetwal: the last dry-run value wins --
+- test: "pg_resetwal -n /data"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "pg_resetwal --dry-run --no-dry-run /data"
+  description: "a later dry-run word: not treated as a dry run"
+  expect_ids: ["psql:pg_resetwal"]
+
+# -- pg_resetwal: a dry-run word right after an option that may take a value is not a dry run --
+- test: "pg_resetwal -D -n"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["psql:pg_resetwal"]
+- test: "pg_resetwal -D /var/lib/postgresql/data -n"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+
+# -- psql meta-commands that write a local file --
+- test: "psql -c \"\\\\copy orders TO '.env'\""
+  description: "flag: psql \\copy TO writes a local file"
+  expect_ids: ["psql:client_file_write"]
+- test: "psql -c '\\o /home/dev/.bashrc'"
+  description: "flag: \\o sends query output to a local file"
+  expect_ids: ["psql:client_file_write"]
+- test: "psql -d w -c \"\\copy orders to 'orders.csv' csv\""
+  description: "flag: \\copy TO writes a local file"
+  expect_ids: ["psql:client_file_write"]
+- test: "psql -c '\\copy orders to stdout'"
+  description: "no match: \\copy TO STDOUT prints"
+  expect_ids: []
+- test: "psql -c \"\\copy orders from 'orders.csv' csv\""
+  description: "no match: \\copy FROM reads a local file"
+  expect_ids: []
+- test: "psql -c '\\gexec'"
+  description: "no match for the client-file check: \\gexec is checked on its own"
+  expect_ids: ["psql:gexec"]
+- test: "psql -c \"SELECT 1; \\o /tmp/out.txt\""
+  description: "no match: query output sent to a scratch file under /tmp"
+  expect_ids: []

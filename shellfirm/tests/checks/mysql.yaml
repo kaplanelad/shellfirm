@@ -40,7 +40,7 @@
   description: "negative: query cache"
   expect_ids: []
 
-# -- round 4: Dana r3 F7 --
+# -- round 4 --
 - test: 'PURGE BINARY LOGS BEFORE NOW()'
   description: "purge binary logs"
   expect_ids: ["mysql:purge_binary_logs"]
@@ -66,7 +66,7 @@
   description: "negative: mysqladmin status"
   expect_ids: []
 
-# -- mysql:drop through --init-command (round 7, Dana r6 N7c) --
+# -- mysql:drop through --init-command --
 - test: 'mysql --init-command="DROP TABLE users" prod'
   description: "--init-command= runs a DROP before the session"
   expect_ids: ["mysql:drop"]

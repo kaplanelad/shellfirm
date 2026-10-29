@@ -160,7 +160,6 @@
 - test: 'terraform state push new.tfstate'
   description: "negative: state push without -force keeps the lineage checks"
   expect_ids: []
-# -- round 5 (Omar R4 N7) --
 - test: "terraform apply -replace=aws_instance.x"
   description: "apply -replace destroys and recreates"
   expect_ids: ["terraform:apply_replace"]
@@ -247,7 +246,6 @@
   description: "negative: another system command"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG) ----
 # -- terraform:vault_auth_disable --
 - test: "vault auth disable kubernetes/"
   description: "disabling an auth method"
@@ -304,3 +302,25 @@
 - test: "terraform plan -out=p && terraform apply p"
   description: "a normal plan applied on the same line is the plan-file check only"
   expect_ids: ["terraform:apply_plan_file"]
+
+# -- the last dry-run value wins --
+- test: "terraform state mv -dry-run=false aws_instance.a aws_instance.b"
+  description: "dry-run=false moves the state for real"
+  expect_ids: ["terraform:state"]
+- test: "terraform state mv -dry-run -dry-run=false aws_instance.a aws_instance.b"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["terraform:state"]
+- test: "terraform state mv -dry-run=false -dry-run aws_instance.a aws_instance.b"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "terraform state mv --dry-run=true aws_instance.a aws_instance.b"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "terraform state mv -state -dry-run a b"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["terraform:state"]
+- test: "terraform state mv -dry-run a b"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []

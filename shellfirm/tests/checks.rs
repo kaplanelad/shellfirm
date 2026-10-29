@@ -700,7 +700,7 @@ fn anchor_guard_sees_flag_groups_and_word_boundaries() {
     }
 }
 
-/// R8-4 (Jules): a check regex that starts with a command name must anchor
+/// A check regex that starts with a command name must anchor
 /// it, in every top-level alternative (and every alternative of a leading
 /// group). Ratchet: new unanchored ids fail; listed ids must still be
 /// unanchored (stale entries fail).

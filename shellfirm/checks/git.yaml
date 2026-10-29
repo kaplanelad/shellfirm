@@ -21,7 +21,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-[dfinqxXuv46]+|--force|--force-with-lease|--force-if-includes|--all|--mirror|--tags|--prune|--delete|--set-upstream|--verbose|--quiet|--porcelain|--atomic|--no-verify|--follow-tags|--progress|--no-progress|--no-dry-run)\s+(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "git clean -fdn"
   alternative_info: "Dry-run mode shows what would be deleted without actually removing anything."
 - from: git
@@ -34,7 +34,7 @@
   filters:
     # `git push --dry-run -f` / `git push -n --force` changes nothing.
     - type: NotMatches
-      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-[dfinqxXuv46]+|--force|--force-with-lease|--force-if-includes|--all|--mirror|--tags|--prune|--delete|--set-upstream|--verbose|--quiet|--porcelain|--atomic|--no-verify|--follow-tags|--progress|--no-progress|--no-dry-run)\s+(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "git push --force-with-lease"
   alternative_info: "Checks that your local ref is up-to-date before force pushing, preventing accidental overwrites of others' work."
 - from: git
@@ -114,13 +114,19 @@
   id: git:delete_ref
   severity: High
 - from: git
-  test: (?:^|\s)git\s{1,}merge\s{1,}(--no-ff|--abort)
-  description: "This creates a merge commit or aborts an ongoing merge."
+  # Only `--abort` (it throws the merge in progress away); a `--no-ff`
+  # merge commit is routine, unless it runs as another user (root-owned
+  # objects in the repository).
+  test: (?:^|\s)git\s{1,}merge\s+(?:\S+\s+)*?--abort(?:\s|$)|^shellfirm-privileged\s+git\s{1,}merge\s{1,}--no-ff
+  description: "This aborts the merge in progress and discards the changes it made, or merges as another user (root-owned files in the repository)."
   id: git:merge_no_ff
   severity: Medium
 - from: git
-  test: (?:^|\s)git\s{1,}cherry-pick
-  description: "This applies existing commits onto the current branch."
+  # Only `--abort` / `--skip` (they throw work in progress away); applying a
+  # commit (`git cherry-pick abc123`, `--continue`) is routine, unless it
+  # runs as another user.
+  test: (?:^|\s)git\s{1,}cherry-pick\s+(?:\S+\s+)*?--(?:abort|skip)(?:\s|$)|^shellfirm-privileged\s+git\s{1,}cherry-pick
+  description: "This abandons the cherry-pick in progress (--abort), drops the commit being applied (--skip), or applies commits as another user."
   id: git:cherry_pick
   severity: Medium
 - from: git
@@ -129,8 +135,11 @@
   id: git:bisect
   severity: Medium
 - from: git
-  test: (?:^|\s)git\s{1,}worktree\s{1,}(add|remove)
-  description: "This adds or removes a Git worktree."
+  # Removing a worktree deletes its files; `add -B` resets an existing
+  # branch. A plain `git worktree add` only creates a new checkout, unless
+  # it runs as another user.
+  test: (?:^|\s)git\s{1,}worktree\s+(?:remove(?:\s|$)|add\s+(?:\S+\s+)*?-[a-zA-Z]*B)|^shellfirm-privileged\s+git\s{1,}worktree\s{1,}add
+  description: "This removes a Git worktree with its files, resets a branch to a new start point (add -B), or adds a worktree as another user."
   id: git:worktree_management
   severity: Medium
 - from: git
@@ -150,9 +159,15 @@
   description: "This rewrites commit history by moving commits to a new base."
   id: git-strict:rebase
   severity: Low
+  filters:
+    # Going on with a rebase already started (after resolving a conflict).
+    - type: NotMatches
+      value: '^git\s+rebase\s+--continue$'
 - from: git
-  test: (?:^|\s)git\s{1,}stash\s{1,}(pop|drop)
-  description: "This applies or removes stashed changes."
+  # Only `drop`: `pop` keeps the entry when applying it fails, unless it
+  # runs as another user.
+  test: (?:^|\s)git\s{1,}stash\s{1,}drop(?:\s|$)|^shellfirm-privileged\s+git\s{1,}stash\s{1,}pop
+  description: "This permanently deletes a stash entry, or applies one as another user."
   id: git-strict:stash_pop_drop
   severity: Low
 - from: git
@@ -167,11 +182,25 @@
   description: "This updates or deinitializes Git submodules."
   id: git-strict:submodule_update
   severity: Low
+  filters:
+    # `update --init` only clones and checks out the recorded commits; any
+    # `--force`, `--remote`, `--rebase`, `--merge` or `--checkout` keeps it.
+    - type: NotMatches
+      value: '^git\s+submodule\s+update(?:\s+(?:--init|--recursive|--depth(?:=|\s+)\d+|-j\s*\d+|--jobs(?:=|\s+)\d+|--single-branch|-N|--no-fetch|--|[^-\s]\S*))*\s+--init(?:\s+(?:--init|--recursive|--depth(?:=|\s+)\d+|-j\s*\d+|--jobs(?:=|\s+)\d+|--single-branch|-N|--no-fetch|--|[^-\s]\S*))*$'
 - from: git
-  test: (?:^|\s)git\s{1,}tag\s{1,}(-a\b|--annotate)
+  # The copy of a tag created as another user is named: the exemption
+  # below does not apply to it.
+  test: (?:^|\s)git\s{1,}tag\s{1,}(-a\b|--annotate)|^shellfirm-privileged\s+git\s{1,}tag\s{1,}(?:-a\b|--annotate)
   description: "This creates an annotated tag."
   id: git-strict:create_tag
   severity: Low
+  filters:
+    # An annotated tag with its message given (`-m MSG`, `-F FILE`) run as
+    # a command of its own only adds a tag. `-f` / `--force` (moves an
+    # existing tag), any other option, output piped on, or another program
+    # in front keeps it.
+    - type: NotMatches
+      value: '(?:^|(?:&&|\|\||;)\s+)git\s+tag(?:\s+(?:-a|--annotate|-s|--sign|-u\s+[^\s$`|;&]+|--local-user(?:=|\s+)[^\s$`|;&]+|--cleanup=[a-z]+|[^-\s$`|;&][^\s$`|;&]*))*\s+(?:-m\s*|--message(?:=|\s+)|-F\s+|--file(?:=|\s+))[^\s$`|;&]+(?:\s+(?:(?:-m\s*|--message(?:=|\s+)|-F\s+|--file(?:=|\s+))[^\s$`|;&]+|(?:-a|--annotate|-s|--sign|-u\s+[^\s$`|;&]+|--local-user(?:=|\s+)[^\s$`|;&]+|--cleanup=[a-z]+|[^-\s$`|;&][^\s$`|;&]*)))*(?:\s*$|\s+(?:&&|\|\||;)\s)'
 - from: git
   test: (?:^|\s)git\s{1,}push\s{1,}.*--mirror
   description: "Mirror push overwrites the ENTIRE remote — all branches, tags, and refs."
@@ -180,7 +209,7 @@
   filters:
     # `git push --mirror -n` / `--dry-run` changes nothing.
     - type: NotMatches
-      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-[dfinqxXuv46]+|--force|--force-with-lease|--force-if-includes|--all|--mirror|--tags|--prune|--delete|--set-upstream|--verbose|--quiet|--porcelain|--atomic|--no-verify|--follow-tags|--progress|--no-progress|--no-dry-run)\s+(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: git
   test: (?:^|\s)git\s{1,}push\s{1,}(\S+\s{1,}--delete\s|--delete\s{1,}\S+\s|\S+\s{1,}:\S)
   description: "This deletes a remote branch or tag."
@@ -189,7 +218,7 @@
   filters:
     # `git push --delete origin x -n` / `--dry-run` changes nothing.
     - type: NotMatches
-      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-[dfinqxXuv46]+|--force|--force-with-lease|--force-if-includes|--all|--mirror|--tags|--prune|--delete|--set-upstream|--verbose|--quiet|--porcelain|--atomic|--no-verify|--follow-tags|--progress|--no-progress|--no-dry-run)\s+(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: git
   # `git push --prune` deletes every remote branch that has no local
   # counterpart: with `--all` in a fresh clone, every other branch.
@@ -199,7 +228,7 @@
   severity: High
   filters:
     - type: NotMatches
-      value: '\s(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s|$)'
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|-[dfinqxXuv46]+|--force|--force-with-lease|--force-if-includes|--all|--mirror|--tags|--prune|--delete|--set-upstream|--verbose|--quiet|--porcelain|--atomic|--no-verify|--follow-tags|--progress|--no-progress|--no-dry-run)\s+(?:-[a-zA-Z]*n[a-zA-Z]*|--dry-run)(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   alternative: "git push --all --prune --dry-run origin"
   alternative_info: "The dry run lists the remote branches that would be deleted."
 - from: git

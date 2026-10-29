@@ -307,7 +307,7 @@
 - test: 'passwd bob'
   description: "negative: change a password"
   expect_ids: []
-# -- round 5 (Omar R4 N7) --
+# -- round 5 --
 - test: "deluser --remove-home alice"
   description: "Debian deluser with the home directory"
   expect_ids: ["base:userdel_remove_home"]

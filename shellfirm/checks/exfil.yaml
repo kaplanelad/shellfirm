@@ -11,7 +11,9 @@
   id: exfil:env_to_network
   severity: High
 - from: exfil
-  test: '(?:^|\s)(?:curl|wget|http|https|xh)\s+(?:\S+\s+)*?(?:-d|--data(?:-binary|-raw|-urlencode|-ascii)?|-F|--form|-T|--upload-file|--post-file|--body-file)(?:\s+|=)\S*(?:\.aws/credentials|\.aws/config|\.ssh/id_[\w.-]+|\.env(?:\.\w+)?|\.netrc|\.npmrc|\.pypirc|\.docker/config\.json|\.kube/config|\.git-credentials|\.gnupg\S*|/etc/shadow|\.config/gcloud\S*|\.azure/\S*)(?:\s|$)'
+  # `gh gist create|edit FILE` uploads the file to GitHub (a public key
+  # `id_*.pub` or a `.env.example` template is fine).
+  test: '(?:(?:^|\s)(?:curl|wget|http|https|xh)\s+(?:\S+\s+)*?(?:-d|--data(?:-binary|-raw|-urlencode|-ascii)?|-F|--form|-T|--upload-file|--post-file|--body-file)(?:\s+|=)\S*(?:\.aws/credentials|\.aws/config|\.ssh/id_[\w.-]+|\.env(?:\.\w+)?|\.netrc|\.npmrc|\.pypirc|\.docker/config\.json|\.kube/config|\.git-credentials|\.gnupg\S*|/etc/shadow|\.config/gcloud\S*|\.azure/\S*)(?:\s|$))|(?:^|\s)gh\s+gist\s+(?:create|new|edit)\s+(?:\S+\s+)*?\S*(?:\.aws/credentials|\.aws/config|\.ssh/id_[\w-]+|\.env(?:\.(?:local|prod|production|dev|development|stage|staging|test))?|\.netrc|\.npmrc|\.pypirc|\.docker/config\.json|\.kube/config|\.git-credentials|/etc/shadow)(?:\s|$)'
   description: "This uploads a credentials or secrets file to a remote server."
   id: exfil:upload_secret_file
   severity: High

@@ -43,6 +43,59 @@ pub const WORK_MOVED_AWAY_MARKER: &str = "shellfirm-move-work-away";
 /// `../.git`); matched by the `fs:delete_git_dir` check.
 pub const GIT_DIR_DELETE_MARKER: &str = "shellfirm-delete-git-dir";
 
+/// Prefix of a segment added again when the rest of the line rules out an
+/// exemption.
+///
+/// The segment alone would pass a `^`-anchored exemption (`git -c …
+/// submodule update --init`, `find apps/.. …`): the copy matches the check,
+/// the exemption does not skip it.
+pub const LINE_CONTEXT_MARKER: &str = "shellfirm-line-context";
+
+/// Prefix of the copy of every segment of a line that runs something as
+/// another user (`sudo`, `doas`, `su -c`, `pkexec`, `run0`, `runuser`,
+/// `machinectl shell`, at any depth).
+///
+/// The parser drops the wrapper, so an exemption written for the bare
+/// command (`rm -rf node_modules`) would also skip `sudo rm -rf
+/// node_modules`, and the root escalation would never run. The copy is
+/// matched by every check that is not in `PRIVILEGE_SURVIVORS`: its
+/// `^`-anchored exemptions do not skip it. A check's test can name the copy
+/// (`^shellfirm-privileged\s+git\s+cherry-pick`) to match what it leaves
+/// alone for the user's own commands, and an exemption that still applies
+/// is written to accept it (`^(?:shellfirm-privileged\s+)?rm …`). The same
+/// copy is made for a segment whose exemption the line rules out otherwise:
+/// a command out of command position, an `rm` operand that is not a
+/// relative path as written, and anything after a change to an unknown
+/// directory (see `command_position`).
+pub const PRIVILEGED_MARKER: &str = "shellfirm-privileged";
+
+/// Checks whose exemptions still apply when the line runs something as
+/// another user: a dry run, a help page, a print or a read changes nothing,
+/// whoever runs it, and the exemptions the checks have always had stay as
+/// they were. Every other `^`-anchored exemption (cache folders, lockfiles,
+/// the find cache prune, `chmod` owner-only, `git rebase --continue`, `git
+/// submodule update --init`, and any exemption added later) is void there.
+/// Exemptions written without `^` (the dry-run family: kubectl, helm, aws,
+/// az, npm unpublish, compose, mongorestore, git push/clean, terraform;
+/// help pages; `parted … print`; `zfs destroy -n`; `pg_restore -f`) apply
+/// to the copy as written.
+const PRIVILEGE_SURVIVORS: &[&str] = &[
+    // `lvremove --test`, `cryptsetup luksDump|isLuks`, `rsync -n`.
+    "fs:lvm_operations",
+    "fs:encryption_operations",
+    "fs:rsync_delete",
+    // `curl … | python3 -m json.tool` only reads.
+    "shell:curl_pipe_to_interpreter",
+    // `velero restore create … -o yaml|json` only prints.
+    "kubernetes:velero_restore",
+    // The exemptions these checks have always had.
+    "fs:recursively_delete_outside",
+    "fs:flush_file_content",
+    "fs:recursively_chmod",
+    "fs:recursively_chown",
+    "fs:truncate_zero",
+];
+
 /// Most distinct `rm -r` operands checked for being a repository per line.
 const MAX_REPOSITORY_LOOKUPS: usize = 4096;
 
@@ -1415,6 +1468,1459 @@ fn spell_parent_paths_in_repo(env: &dyn Environment, segments: &mut [String]) {
     }
 }
 
+/// The dependency / tool cache folders `fs-strict:recursive_deletion` skips
+/// by their spelling (checks/fs.yaml): a reinstall or the next run rebuilds
+/// them.
+const SKIPPED_CACHE_DIRS: &[&str] = &[
+    "node_modules",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".turbo",
+    ".parcel-cache",
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".angular",
+    ".gradle",
+    ".tox",
+    ".nox",
+    ".dart_tool",
+    ".nyc_output",
+    ".venv",
+];
+
+/// Option words of `command` (at any nesting depth of quoted payloads, such
+/// as `bash -c "kubectl drain n '--dry-run'"`) that were written with
+/// quotes or a backslash and name a dry run (`'--dry-run'`, `"--dryRun"`) or
+/// an output format (`'-o'`, `"--output=yaml"`). Only an unquoted dry-run or
+/// output word is trusted.
+fn quoted_dry_run_words(command: &str, depth: usize, out: &mut Vec<String>) {
+    let mut word = String::new();
+    let mut quoted = false;
+    let mut chars = command.chars().peekable();
+    let finish = |word: &mut String, quoted: &mut bool, out: &mut Vec<String>| {
+        if *quoted {
+            if word.starts_with('-')
+                && (word.to_ascii_lowercase().contains("dry")
+                    || word.starts_with("-o")
+                    || word.starts_with("--output"))
+            {
+                out.push(word.clone());
+            } else if depth < 4 && word.contains([' ', '\t', '\n', '\'', '"', '\\']) {
+                quoted_dry_run_words(word, depth + 1, out);
+            }
+        }
+        word.clear();
+        *quoted = false;
+    };
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                quoted = true;
+                for q in chars.by_ref() {
+                    if q == '\'' {
+                        break;
+                    }
+                    word.push(q);
+                }
+            }
+            '"' => {
+                quoted = true;
+                while let Some(q) = chars.next() {
+                    match q {
+                        '"' => break,
+                        '\\' if matches!(chars.peek(), Some('"' | '\\' | '$' | '`')) => {
+                            word.push(chars.next().unwrap_or_default());
+                        }
+                        _ => word.push(q),
+                    }
+                }
+            }
+            '\\' => {
+                quoted = true;
+                if let Some(n) = chars.next() {
+                    word.push(n);
+                }
+            }
+            // `$'…'`: the quote follows.
+            '$' if chars.peek() == Some(&'\'') => {}
+            c if c.is_whitespace() || matches!(c, ';' | '|' | '&' | '(' | ')' | '<' | '>') => {
+                finish(&mut word, &mut quoted, out);
+            }
+            _ => word.push(c),
+        }
+    }
+    finish(&mut word, &mut quoted, out);
+}
+
+/// One word of a command as written: its text and whether it is a plain
+/// literal (no quote, backslash, expansion, substitution or glob).
+#[derive(Debug, Default)]
+struct RawWord {
+    text: String,
+    plain: bool,
+    /// The content when the whole word is one single-quoted string.
+    single_quoted: Option<String>,
+}
+
+/// One simple command of a line as written (see [`raw_commands`]).
+#[derive(Debug, Default)]
+struct RawCommand {
+    words: Vec<RawWord>,
+    /// Byte offset in the line just after the command.
+    end: usize,
+    /// The text of its heredocs and here-strings (what it reads on stdin).
+    stdin: Vec<String>,
+    /// It reads the output of the command before it (`a | b`).
+    piped: bool,
+    /// The code of its command and process substitutions (`$(…)`, `` `…`
+    /// ``, `<(…)`), which runs whatever the command is.
+    substitutions: Vec<String>,
+}
+
+/// Length in bytes of the `$(…)`, `` `…` ``, `${…}` or `(…)` that starts at
+/// `at` (`chars[at]` is its first character), with the quotes, nested
+/// substitutions, comments and heredoc bodies in it (one pass, no
+/// recursion).
+#[allow(clippy::too_many_lines)]
+fn nested_len(chars: &[(usize, char)], at: usize, line: &str) -> usize {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum In {
+        Paren,
+        Brace,
+        Double,
+        Tick,
+    }
+    let end_of = |i: usize| chars.get(i).map_or(line.len(), |c| c.0);
+    let mut stack = vec![match chars[at].1 {
+        '`' => In::Tick,
+        '{' => In::Brace,
+        _ => In::Paren,
+    }];
+    // Heredoc delimiters waiting for the end of the line.
+    let mut pending: Vec<String> = Vec::new();
+    let mut word_start = true;
+    let mut i = at + 1;
+    while i < chars.len() {
+        let Some(&top) = stack.last() else {
+            break;
+        };
+        let c = chars[i].1;
+        let next = chars.get(i + 1).map(|n| n.1);
+        match (top, c) {
+            (_, '\\') => i += 1,
+            (In::Tick, '`') | (In::Double, '"') | (In::Paren, ')') | (In::Brace, '}') => {
+                stack.pop();
+            }
+            (In::Tick, _) => {}
+            (_, '$') if matches!(next, Some('(' | '{')) => {
+                stack.push(if next == Some('(') {
+                    In::Paren
+                } else {
+                    In::Brace
+                });
+                i += 1;
+            }
+            (_, '`') => stack.push(In::Tick),
+            (In::Double, _) => {}
+            (_, '"') => stack.push(In::Double),
+            (_, '\'') => {
+                i += 1;
+                while i < chars.len() && chars[i].1 != '\'' {
+                    i += 1;
+                }
+            }
+            (In::Paren, '(') => stack.push(In::Paren),
+            (In::Brace, '{') => stack.push(In::Brace),
+            (In::Paren, '#') if word_start => {
+                while i + 1 < chars.len() && chars[i + 1].1 != '\n' {
+                    i += 1;
+                }
+            }
+            (In::Paren, '<')
+                if next == Some('<') && chars.get(i + 2).is_none_or(|n| n.1 != '<') =>
+            {
+                i += 2;
+                while chars
+                    .get(i)
+                    .is_some_and(|n| matches!(n.1, '-' | ' ' | '\t'))
+                {
+                    i += 1;
+                }
+                let mut delim = String::new();
+                while let Some(&(_, d)) = chars.get(i) {
+                    if d.is_whitespace() || matches!(d, ';' | '|' | '&' | '(' | ')' | '<' | '>') {
+                        break;
+                    }
+                    if !matches!(d, '\'' | '"' | '\\') {
+                        delim.push(d);
+                    }
+                    i += 1;
+                }
+                pending.push(delim);
+                word_start = false;
+                continue;
+            }
+            (In::Paren, '\n') if !pending.is_empty() => {
+                // Skip the heredoc bodies.
+                for delim in std::mem::take(&mut pending) {
+                    loop {
+                        let start = i + 1;
+                        if start >= chars.len() {
+                            i = chars.len();
+                            break;
+                        }
+                        let mut j = start;
+                        while j < chars.len() && chars[j].1 != '\n' {
+                            j += 1;
+                        }
+                        let text = &line[end_of(start)..end_of(j)];
+                        i = j;
+                        if text.trim_start_matches('\t') == delim {
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        word_start = c.is_whitespace() || matches!(c, ';' | '|' | '&' | '(');
+        i += 1;
+    }
+    end_of(i).max(chars[at].0) - chars[at].0
+}
+
+/// The simple commands of a line as written, in order: words (comments
+/// dropped, redirections and their targets left out) and what each one
+/// reads from a heredoc or here-string. Heredoc bodies are not commands.
+/// Substitutions stay inside their word; subshells, braces and compound
+/// commands are split at their keywords by [`command_word`].
+#[allow(clippy::too_many_lines, unused_assignments)]
+fn raw_commands(line: &str) -> Vec<RawCommand> {
+    #[derive(PartialEq, Eq)]
+    enum Target {
+        None,
+        File,
+        Heredoc { strip_tabs: bool },
+        HereString,
+    }
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let end_of = |i: usize| chars.get(i).map_or(line.len(), |c| c.0);
+    // The code of the substitution that opens at `open` (`(` or `` ` ``)
+    // and is `len` bytes long.
+    let code_of = |open: usize, len: usize| -> Option<String> {
+        let (start, c) = chars[open];
+        let stop = (start + len).min(line.len());
+        let close = line[..stop].chars().next_back();
+        let inner_end = if close == Some(if c == '`' { '`' } else { ')' }) && stop > start + 1 {
+            stop - 1
+        } else {
+            stop
+        };
+        matches!(c, '(' | '`').then(|| line[start + 1..inner_end.max(start + 1)].to_string())
+    };
+    let comments = crate::parser::hash_comments();
+    let mut cmds: Vec<RawCommand> = Vec::new();
+    let mut cur = RawCommand::default();
+    let mut word = RawWord {
+        plain: true,
+        ..RawWord::default()
+    };
+    let mut in_word = false;
+    // Whether the word so far is one single-quoted string.
+    let mut quoted_parts = 0usize;
+    let mut other_parts = false;
+    let mut target = Target::None;
+    // (delimiter, strip tabs, command index; `None` = the current command)
+    let mut pending: Vec<(String, bool, Option<usize>)> = Vec::new();
+
+    let mut i = 0;
+    macro_rules! finish_word {
+        () => {
+            if in_word {
+                let mut w = std::mem::replace(
+                    &mut word,
+                    RawWord {
+                        plain: true,
+                        ..RawWord::default()
+                    },
+                );
+                if quoted_parts != 1 || other_parts {
+                    w.single_quoted = None;
+                }
+                // `{` / `}` alone are the keywords of a group.
+                if matches!(w.text.as_str(), "{" | "}") {
+                    w.plain = true;
+                }
+                match std::mem::replace(&mut target, Target::None) {
+                    Target::None => cur.words.push(w),
+                    Target::File => {}
+                    Target::Heredoc { strip_tabs } => {
+                        let delim: String = w
+                            .text
+                            .chars()
+                            .filter(|c| !matches!(c, '\'' | '"' | '\\'))
+                            .collect();
+                        pending.push((delim, strip_tabs, None));
+                    }
+                    Target::HereString => cur.stdin.push(
+                        w.single_quoted
+                            .clone()
+                            .unwrap_or_else(|| w.text.trim_matches(['\'', '"']).to_string()),
+                    ),
+                }
+            }
+            in_word = false;
+            quoted_parts = 0;
+            other_parts = false;
+        };
+    }
+    macro_rules! finish_command {
+        ($at:expr) => {
+            finish_word!();
+            if !cur.words.is_empty() || !cur.stdin.is_empty() {
+                cur.end = $at;
+                let idx = cmds.len();
+                for p in &mut pending {
+                    if p.2.is_none() {
+                        p.2 = Some(idx);
+                    }
+                }
+                cmds.push(std::mem::take(&mut cur));
+            } else {
+                pending.retain(|p| p.2.is_some());
+            }
+        };
+    }
+    while i < chars.len() {
+        let (at, c) = chars[i];
+        match c {
+            '\\' if chars.get(i + 1).is_some_and(|n| n.1 == '\n') => {
+                i += 2;
+                continue;
+            }
+            '\\' => {
+                in_word = true;
+                other_parts = true;
+                word.plain = false;
+                word.text.push_str(&line[at..end_of(i + 2)]);
+                i += 2;
+                continue;
+            }
+            '\'' => {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].1 != '\'' {
+                    j += 1;
+                }
+                in_word = true;
+                quoted_parts += 1;
+                word.plain = false;
+                word.single_quoted = Some(line[end_of(i + 1)..end_of(j)].to_string());
+                word.text.push_str(&line[at..end_of(j + 1)]);
+                i = j + 1;
+                continue;
+            }
+            '"' => {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j].1 != '"' {
+                    match chars[j].1 {
+                        '\\' => j += 1,
+                        '`' => {
+                            let len = nested_len(&chars, j, line);
+                            cur.substitutions.extend(code_of(j, len));
+                            j = chars.partition_point(|x| x.0 < chars[j].0 + len);
+                            continue;
+                        }
+                        '$' if chars.get(j + 1).is_some_and(|n| matches!(n.1, '(' | '{')) => {
+                            let len = nested_len(&chars, j + 1, line);
+                            cur.substitutions.extend(code_of(j + 1, len));
+                            j = chars.partition_point(|x| x.0 < chars[j + 1].0 + len);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                in_word = true;
+                other_parts = true;
+                word.plain = false;
+                word.text.push_str(&line[at..end_of(j + 1)]);
+                i = j + 1;
+                continue;
+            }
+            '$' if chars.get(i + 1).is_some_and(|n| n.1 == '\'') => {
+                // `$'…'`: `\'` does not end it.
+                let mut j = i + 2;
+                while j < chars.len() && chars[j].1 != '\'' {
+                    if chars[j].1 == '\\' {
+                        j += 1;
+                    }
+                    j += 1;
+                }
+                in_word = true;
+                other_parts = true;
+                word.plain = false;
+                word.text.push_str(&line[at..end_of(j + 1)]);
+                i = j + 1;
+                continue;
+            }
+            '$' | '`' => {
+                let open = if c == '`' { i } else { i + 1 };
+                let len = match chars.get(open).map(|n| n.1) {
+                    Some('(' | '{' | '`') => nested_len(&chars, open, line),
+                    _ => 0,
+                };
+                if len > 0 {
+                    cur.substitutions.extend(code_of(open, len));
+                }
+                let stop = if len == 0 {
+                    end_of(i + 1)
+                } else {
+                    chars[open].0 + len
+                };
+                in_word = true;
+                other_parts = true;
+                word.plain = false;
+                word.text.push_str(&line[at..stop]);
+                i = chars.partition_point(|x| x.0 < stop);
+                continue;
+            }
+            '#' if !in_word && comments => {
+                while i < chars.len() && chars[i].1 != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            '(' if in_word && word.text.ends_with('=') => {
+                // `name=(…)`: an array assignment.
+                let len = nested_len(&chars, i, line);
+                word.plain = false;
+                word.text.push_str(&line[at..at + len]);
+                other_parts = true;
+                i = chars.partition_point(|x| x.0 < at + len);
+                continue;
+            }
+            '<' | '>' if chars.get(i + 1).is_some_and(|n| n.1 == '(') => {
+                // `<(…)` / `>(…)`: process substitution.
+                let len = nested_len(&chars, i + 1, line);
+                cur.substitutions.extend(code_of(i + 1, len));
+                in_word = true;
+                other_parts = true;
+                word.plain = false;
+                word.text.push_str(&line[at..chars[i + 1].0 + len]);
+                i = chars.partition_point(|x| x.0 < chars[i + 1].0 + len);
+                continue;
+            }
+            '<' | '>' => {
+                // A file descriptor number before it belongs to it.
+                if in_word && word.text.chars().all(|d| d.is_ascii_digit()) {
+                    in_word = false;
+                    word = RawWord {
+                        plain: true,
+                        ..RawWord::default()
+                    };
+                    quoted_parts = 0;
+                    other_parts = false;
+                } else {
+                    finish_word!();
+                }
+                let rest: String = chars[i..].iter().take(3).map(|x| x.1).collect();
+                let (len, kind) = if rest.starts_with("<<<") {
+                    (3, Target::HereString)
+                } else if rest.starts_with("<<-") {
+                    (3, Target::Heredoc { strip_tabs: true })
+                } else if rest.starts_with("<<") {
+                    (2, Target::Heredoc { strip_tabs: false })
+                } else if rest.starts_with(">>")
+                    || rest.starts_with(">&")
+                    || rest.starts_with("<&")
+                    || rest.starts_with(">|")
+                    || rest.starts_with("<>")
+                {
+                    (2, Target::File)
+                } else {
+                    (1, Target::File)
+                };
+                target = kind;
+                i += len;
+                continue;
+            }
+            '&' if chars.get(i + 1).is_some_and(|n| n.1 == '>') => {
+                finish_word!();
+                target = Target::File;
+                i += if chars.get(i + 2).is_some_and(|n| n.1 == '>') {
+                    3
+                } else {
+                    2
+                };
+                continue;
+            }
+            ';' | '&' | '|' | '(' | ')' | '\n' => {
+                finish_command!(at);
+                // `a | b` (not `||`): b reads what a writes.
+                cur.piped = c == '|'
+                    && chars.get(i + 1).is_none_or(|n| n.1 != '|')
+                    && (i == 0 || chars[i - 1].1 != '|');
+                if c == '\n' && !pending.is_empty() {
+                    // The heredoc bodies follow the line.
+                    let mut j = i;
+                    for (delim, strip_tabs, idx) in std::mem::take(&mut pending) {
+                        let mut body = String::new();
+                        loop {
+                            let start = j + 1;
+                            if start >= chars.len() {
+                                j = chars.len();
+                                break;
+                            }
+                            let mut k = start;
+                            while k < chars.len() && chars[k].1 != '\n' {
+                                k += 1;
+                            }
+                            let text = &line[end_of(start)..end_of(k)];
+                            j = k;
+                            let cmp = if strip_tabs {
+                                text.trim_start_matches('\t')
+                            } else {
+                                text
+                            };
+                            if cmp == delim {
+                                break;
+                            }
+                            body.push_str(text);
+                            body.push('\n');
+                        }
+                        if let Some(cmd) = idx.and_then(|n| cmds.get_mut(n)) {
+                            cmd.stdin.push(body);
+                        }
+                    }
+                    i = j + 1;
+                    continue;
+                }
+                i += 1;
+                continue;
+            }
+            c if c.is_whitespace() => {
+                finish_word!();
+            }
+            _ => {
+                in_word = true;
+                other_parts = true;
+                if matches!(c, '*' | '?' | '[' | '{' | '}' | '~') {
+                    word.plain = false;
+                }
+                word.text.push(c);
+            }
+        }
+        i += 1;
+    }
+    finish_command!(line.len());
+    cmds
+}
+
+/// Where the command that a raw command runs starts: after `NAME=VALUE`
+/// assignments, the structural keywords (`then`, `do`, `!`, `{`, …) and
+/// the pass-through wrappers of an allowlist (`env`, `timeout`, `nice`,
+/// `nohup`, `time`, `command`, `exec`, `stdbuf`, `ionice`), each with its
+/// own options. Any other word there is the command (a privilege runner,
+/// `xargs`, an alias or function name, `$SUDO`, …): what it runs is not in
+/// command position.
+#[allow(clippy::too_many_lines)]
+fn command_word(words: &[RawWord]) -> Option<usize> {
+    static ASSIGN: OnceLock<Regex> = OnceLock::new();
+    let assign = ASSIGN.get_or_init(|| {
+        Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=").expect("valid regex")
+    });
+    let lit = |i: usize| words.get(i).filter(|w| w.plain).map(|w| w.text.as_str());
+    let num = |w: &str| {
+        let w = w.trim_start_matches(['-', '+']);
+        !w.is_empty() && w.chars().all(|c| c.is_ascii_digit() || c == '.')
+    };
+    let duration = |w: &str| {
+        let d = w.trim_end_matches(['s', 'm', 'h', 'd']);
+        num(d) && !d.starts_with(['-', '+'])
+    };
+    let mut i = 0;
+    loop {
+        let word = words.get(i)?;
+        if assign.is_match(&word.text) {
+            i += 1;
+            continue;
+        }
+        let Some(w) = lit(i) else {
+            return Some(i);
+        };
+        match w {
+            "then" | "do" | "else" | "elif" | "if" | "while" | "until" | "!" | "{" | "}" | "fi"
+            | "done" | "esac" | "nohup" | "exec" => i += 1,
+            "time" => {
+                i += 1;
+                if lit(i) == Some("-p") {
+                    i += 1;
+                }
+            }
+            "command" => {
+                i += 1;
+                match lit(i) {
+                    Some("-p") => i += 1,
+                    Some(o) if o.starts_with('-') => return Some(i - 1),
+                    _ => {}
+                }
+            }
+            "nice" => {
+                i += 1;
+                if lit(i) == Some("-n") && lit(i + 1).is_some_and(num) {
+                    i += 2;
+                }
+            }
+            "env" => {
+                let at = i;
+                i += 1;
+                loop {
+                    match lit(i) {
+                        Some("-i" | "-" | "--ignore-environment") => i += 1,
+                        Some("-u" | "--unset") if lit(i + 1).is_some() => i += 2,
+                        Some(o)
+                            if o.starts_with("--unset=")
+                                || (o.starts_with("-u") && o.len() > 2) =>
+                        {
+                            i += 1;
+                        }
+                        Some(o) if o.starts_with('-') => return Some(at),
+                        _ if words.get(i).is_some_and(|w| assign.is_match(&w.text)) => i += 1,
+                        _ => break,
+                    }
+                }
+            }
+            "timeout" => {
+                let at = i;
+                i += 1;
+                loop {
+                    match lit(i) {
+                        Some("--foreground" | "--preserve-status") => i += 1,
+                        Some("-s" | "--signal" | "-k" | "--kill-after") if lit(i + 1).is_some() => {
+                            i += 2;
+                        }
+                        Some(o)
+                            if o.starts_with("--signal=")
+                                || o.starts_with("--kill-after=")
+                                || ((o.starts_with("-s") || o.starts_with("-k"))
+                                    && o.len() > 2) =>
+                        {
+                            i += 1;
+                        }
+                        Some(d) if duration(d) => {
+                            i += 1;
+                            break;
+                        }
+                        _ => return Some(at),
+                    }
+                }
+            }
+            "stdbuf" => {
+                let at = i;
+                i += 1;
+                loop {
+                    match lit(i) {
+                        Some("-i" | "-o" | "-e") if lit(i + 1).is_some() => i += 2,
+                        Some(o)
+                            if (o.len() > 2
+                                && (o.starts_with("-i")
+                                    || o.starts_with("-o")
+                                    || o.starts_with("-e")))
+                                || o.starts_with("--input=")
+                                || o.starts_with("--output=")
+                                || o.starts_with("--error=") =>
+                        {
+                            i += 1;
+                        }
+                        Some(o) if o.starts_with('-') => return Some(at),
+                        _ => break,
+                    }
+                }
+            }
+            "ionice" => {
+                let at = i;
+                i += 1;
+                loop {
+                    match lit(i) {
+                        Some("-c" | "-n") if lit(i + 1).is_some_and(num) => i += 2,
+                        Some(o)
+                            if o.len() > 2
+                                && (o.starts_with("-c") || o.starts_with("-n"))
+                                && num(&o[2..]) =>
+                        {
+                            i += 1;
+                        }
+                        Some(o) if o.starts_with('-') => return Some(at),
+                        _ => break,
+                    }
+                }
+            }
+            _ => return Some(i),
+        }
+    }
+}
+
+/// Whether the command at `words` (from its command word on) starts a
+/// shell as another user that reads its code from stdin: `sudo -s|-i`,
+/// `sudo su [-]`, `sudo bash`, `su [-] [USER]`, `doas -s`, `doas su`,
+/// `run0`, `machinectl shell` (no `-c` and no command to run).
+fn privileged_shell_reads_stdin(words: &[RawWord]) -> bool {
+    const SHELLS: &[&str] = &["sh", "bash", "zsh", "dash", "ksh", "fish", "su"];
+    let text: Vec<&str> = words.iter().map(|w| w.text.as_str()).collect();
+    let base = |w: &str| w.rsplit('/').next().unwrap_or_default().to_string();
+    let Some(first) = text.first().map(|w| base(w)) else {
+        return false;
+    };
+    // `su [-] [-l] [USER]` without `-c` / `--command`.
+    let su_shell = |rest: &[&str]| {
+        !rest
+            .iter()
+            .any(|w| matches!(*w, "-c" | "--command" | "-C") || w.starts_with("--command="))
+    };
+    match first.as_str() {
+        "su" => su_shell(&text[1..]),
+        "machinectl" => text.get(1) == Some(&"shell") && text.len() <= 3,
+        "sudo" | "doas" | "run0" | "sudo-rs" | "please" | "pkexec" | "runuser" => {
+            let mut i = 1;
+            let mut shell_flag = false;
+            while let Some(w) = text.get(i) {
+                if *w == "--" {
+                    i += 1;
+                    break;
+                }
+                if !w.starts_with('-') {
+                    break;
+                }
+                if w.starts_with("--") {
+                    shell_flag |= matches!(*w, "--shell" | "--login");
+                } else {
+                    // `-s`, `-i` in a cluster, before an option that
+                    // takes the rest as its value (`-iu root`, `-su`).
+                    shell_flag |= w[1..]
+                        .chars()
+                        .take_while(|c| !"ugCDhprtTU".contains(*c))
+                        .any(|c| matches!(c, 's' | 'i'));
+                }
+                let (n, _) = crate::parser::privilege_option(w, text.get(i + 1).copied());
+                i += n;
+            }
+            text.get(i).map_or(
+                shell_flag || matches!(first.as_str(), "run0" | "pkexec"),
+                |cmd| {
+                    let cmd = base(cmd);
+                    SHELLS.contains(&cmd.as_str())
+                        && (cmd == "su" && su_shell(&text[i + 1..])
+                            || cmd != "su" && !text[i + 1..].iter().any(|w| w.starts_with("-c")))
+                },
+            )
+        }
+        _ => false,
+    }
+}
+
+/// The literal word an anchored pattern starts with (`rm` in
+/// `^(?:shellfirm-privileged\s+)?rm\s+…`, `git` in
+/// `shellfirm-privileged\s+git\s+…`), if it starts with one.
+fn leading_word(re: &str) -> Option<String> {
+    let re = re
+        .strip_prefix(r"(?:shellfirm-privileged\s+)?")
+        .unwrap_or(re);
+    let re = re.strip_prefix(r"shellfirm-privileged\s+").unwrap_or(re);
+    let word: String = re
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    (!word.is_empty() && re[word.len()..].starts_with(r"\s")).then_some(word)
+}
+
+/// The words that start the segments whose exemption command position
+/// decides, from the built-in checks not in [`PRIVILEGE_SURVIVORS`]: `.0`
+/// the words after `^` in every `^`-anchored exemption and after the
+/// [`PRIVILEGED_MARKER`] in every test that names the copy (`rm`, `chmod`,
+/// `find`, `git`); `.1` only the latter (`git`), whose test, unlike
+/// main's, matches only at the start of a segment. `None` when one of them
+/// does not start with a literal word (every line is then looked at).
+fn position_sensitive_words() -> Option<&'static (Vec<String>, Vec<String>)> {
+    static WORDS: OnceLock<Option<(Vec<String>, Vec<String>)>> = OnceLock::new();
+    WORDS
+        .get_or_init(|| {
+            let mut all: Vec<String> = Vec::new();
+            let mut named: Vec<String> = Vec::new();
+            let marker = format!("{PRIVILEGED_MARKER}\\s+");
+            for check in all_checks_cached() {
+                if PRIVILEGE_SURVIVORS.contains(&check.id.as_str()) {
+                    continue;
+                }
+                for f in &check.filters {
+                    if let Filter::NotMatches(re) = f {
+                        if let Some(re) = re.strip_prefix('^') {
+                            let word = leading_word(re)?;
+                            if !all.contains(&word) {
+                                all.push(word);
+                            }
+                        }
+                    }
+                }
+                let test = check.test.as_str();
+                for (at, _) in test.match_indices(&marker) {
+                    let word = leading_word(&test[at..])?;
+                    if !named.contains(&word) {
+                        named.push(word.clone());
+                    }
+                    if !all.contains(&word) {
+                        all.push(word);
+                    }
+                }
+            }
+            Some((all, named))
+        })
+        .as_ref()
+}
+
+/// Most raw commands of a line whose segments are told apart by parsing
+/// the line up to each of them; a longer line parses each one alone.
+const MAX_PREFIX_PARSES: usize = 32;
+
+/// Longest line whose prefixes are parsed (see [`MAX_PREFIX_PARSES`]).
+const MAX_PREFIX_PARSE_BYTES: usize = 16 * 1024;
+
+/// What [`command_position`] found for a line.
+#[derive(Default)]
+struct Position {
+    /// Segments of a command in command position, run locally as the user.
+    own: std::collections::HashSet<String>,
+    /// Segments of anything else: what a wrapper, runner, name or
+    /// expansion that is not allowed in front runs, payloads, remote and
+    /// container commands, an `rm` with an operand that is not a relative
+    /// path as written, and every command after `cd -`, `popd` or `pushd`
+    /// without a directory.
+    tainted: std::collections::HashSet<String>,
+    /// The code a privileged shell reads from a heredoc / here-string.
+    shell_stdin: Vec<String>,
+    /// What a word of a command's arguments would run as a command of its
+    /// own (`please git merge …`, `docker run … git stash pop`): its tests
+    /// match only at the start of a segment, main's matched anywhere.
+    arguments: Vec<String>,
+}
+
+/// Names the line defines as a function or alias (`rm() { …; }`,
+/// `function rm`, `alias rm=…`): a command word with one of them is not the
+/// program it names.
+fn defined_names(command: &str) -> Vec<String> {
+    static DEF: OnceLock<Regex> = OnceLock::new();
+    let def = DEF.get_or_init(|| {
+        Regex::new(
+            r"(?:^|[\s;&|(){}])(?:function\s+([^\s;&|(){}<>=]+)|([^\s;&|(){}<>='$`]+)\s*\(\s*\)|alias\s+(?:-\S+\s+)*([^\s;&|(){}<>=]+)=)",
+        )
+        .expect("valid regex")
+    });
+    if !command.contains("()") && !command.contains("function") && !command.contains("alias") {
+        return Vec::new();
+    }
+    def.captures_iter(command)
+        .filter_map(|c| c.get(1).or_else(|| c.get(2)).or_else(|| c.get(3)))
+        .map(|m| m.as_str().to_string())
+        .collect()
+}
+
+/// Which segments of `command` (its parsed `segments`) a command in
+/// command position produces, and which come from anything else.
+#[allow(clippy::too_many_lines)]
+fn command_position(command: &str, segments: &[String], depth: usize, out: &mut Position) {
+    let cmds = raw_commands(command);
+    let defined = defined_names(command);
+    let mut before: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut start = 0;
+    // After `cd -`, `popd` or `pushd` without a directory the line runs in a
+    // directory it does not show: what follows is not judged as run here.
+    let mut directory_unknown = false;
+    for (n, cmd) in cmds.iter().enumerate() {
+        let text = command.get(start..cmd.end).unwrap_or_default();
+        start = cmd.end;
+        // The segments this command adds, as parsed in the line (after a
+        // `cd`, with aliases and variables of the line known).
+        let new: Vec<String> = if cmds.len() == 1 {
+            segments.to_vec()
+        } else if cmds.len() <= MAX_PREFIX_PARSES && command.len() <= MAX_PREFIX_PARSE_BYTES {
+            let upto: std::collections::HashSet<String> = crate::parser::parse(&command[..cmd.end])
+                .segments
+                .into_iter()
+                .collect();
+            let mut new: Vec<String> = upto.difference(&before).cloned().collect();
+            new.sort();
+            before = upto;
+            new
+        } else {
+            crate::parser::parse(text).segments
+        };
+        // A substitution runs its code whatever the command is.
+        for code in &cmd.substitutions {
+            out.tainted.extend(crate::parser::parse(code).segments);
+        }
+        if directory_unknown {
+            out.tainted.extend(new);
+            out.tainted.extend(crate::parser::parse(text).segments);
+            continue;
+        }
+        // `}`, `fi`, `done`: the end of a compound command; what the parse
+        // adds there belongs to the commands inside it.
+        let Some(at) = command_word(&cmd.words) else {
+            continue;
+        };
+        let rest = &cmd.words[at..];
+        let words_text = |ws: &[RawWord]| {
+            ws.iter()
+                .map(|w| w.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        // The command alone, without the line around it.
+        let alone = if cmds.len() == 1 {
+            Vec::new()
+        } else {
+            crate::parser::parse(&words_text(rest)).segments
+        };
+        let w = &rest[0];
+        let unknown = !w.plain || defined.contains(&w.text);
+        // A privileged shell (or a command word that may be one) runs what
+        // it reads on stdin.
+        if unknown || privileged_shell_reads_stdin(rest) {
+            // `cat <<'EOF' | sudo -s`: the heredoc of the command before.
+            let piped_in = n
+                .checked_sub(1)
+                .filter(|_| cmd.piped)
+                .and_then(|p| cmds.get(p))
+                .map_or(&[][..], |p| p.stdin.as_slice());
+            for code in cmd.stdin.iter().chain(piped_in) {
+                let segs = crate::parser::parse(code).segments;
+                out.tainted.extend(segs.iter().cloned());
+                out.shell_stdin.extend(segs);
+            }
+        }
+        if let Some((_, named)) = position_sensitive_words() {
+            for (k, word) in rest.iter().enumerate().skip(1).take(64) {
+                if word.plain && named.contains(&word.text) {
+                    out.arguments
+                        .extend(crate::parser::parse(&words_text(&rest[k..])).segments);
+                }
+            }
+        }
+        if unknown {
+            // `$SUDO`, `"$1"`, `'sudo'`, `\sudo`, `/usr/bin/sud?`, a
+            // function or alias: what it runs is not known.
+            out.tainted.extend(alone);
+            out.tainted.extend(new);
+            continue;
+        }
+        let base = w.text.rsplit('/').next().unwrap_or_default();
+        directory_unknown = changes_to_unknown_directory(command, base, &rest[1..]);
+        // `rm -rf ~/x/node_modules`, `rm -rf "$D/node_modules"`: an operand
+        // that is not a relative path as written (a home or absolute path,
+        // `~+`, a variable or substitution) is not judged by the spelling the
+        // parser resolves it to.
+        if base == "rm" && rest[1..].iter().any(|w| !relative_as_written(w)) {
+            out.tainted.extend(alone);
+            out.tainted.extend(new);
+            continue;
+        }
+        let first = |s: &str| {
+            let f = s.split(' ').next().unwrap_or_default();
+            f == base || f == w.text
+        };
+        // `sh -c 'CODE'` with literal code: its commands are judged the same.
+        let literal_code = (matches!(base, "sh" | "bash" | "zsh" | "dash" | "ksh")
+            && rest.len() == 3
+            && rest[1].plain
+            && rest[1].text == "-c"
+            && depth < 4)
+            .then(|| rest[2].single_quoted.as_deref())
+            .flatten();
+        let mut sub = Position::default();
+        if let Some(code) = literal_code {
+            let inner = crate::parser::parse(code).segments;
+            command_position(code, &inner, depth + 1, &mut sub);
+            out.tainted.extend(sub.tainted.iter().cloned());
+            out.shell_stdin.extend(sub.shell_stdin.iter().cloned());
+        }
+        // The exempt form `npx rimraf DIR…` is the command as written.
+        let rimraf = base == "npx"
+            && rest[1..]
+                .iter()
+                .find(|w| !matches!(w.text.as_str(), "-y" | "--yes"))
+                .is_some_and(|w| w.plain && w.text == "rimraf")
+            && rest.iter().all(|w| w.plain && relative_as_written(w));
+        for s in new.into_iter().chain(alone) {
+            if first(&s)
+                || (rimraf && s.starts_with("rm "))
+                || (sub.own.contains(&s) && !sub.tainted.contains(&s))
+            {
+                out.own.insert(s);
+            } else {
+                out.tainted.insert(s);
+            }
+        }
+        out.own.extend(sub.own);
+    }
+}
+
+/// Whether `cd`, `pushd` or `popd` (`base`, with its `args`) leaves the
+/// directory unknown: `cd -` (also `cd -- -`, `cd -N` / `+N`), `popd`,
+/// `pushd` without a directory or with `+N` / `-N`, and any of them when the
+/// line sets `CDPATH`.
+fn changes_to_unknown_directory(command: &str, base: &str, args: &[RawWord]) -> bool {
+    let stack_index = |w: &str| {
+        w.strip_prefix(['+', '-'])
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    match base {
+        "popd" => true,
+        "cd" | "pushd" if command.contains("CDPATH") => true,
+        "cd" => args.iter().any(|w| w.text == "-" || stack_index(&w.text)),
+        "pushd" => args
+            .iter()
+            .all(|w| w.text.starts_with(['-', '+']) || stack_index(&w.text)),
+        _ => false,
+    }
+}
+
+/// Whether the word `w` of an `rm` is an option or a relative path as
+/// written: no `~`, `/`, variable, substitution or backslash (quotes
+/// around a literal name are fine).
+fn relative_as_written(w: &RawWord) -> bool {
+    let t = w.text.as_str();
+    if t.starts_with('-') {
+        return true;
+    }
+    !t.contains(['$', '`', '\\']) && !t.trim_start_matches(['\'', '"']).starts_with(['~', '/'])
+}
+
+/// The [`PRIVILEGED_MARKER`] copies of a line (see [`command_position`]),
+/// and the code a privileged shell reads from a heredoc / here-string (as
+/// plain segments and copies).
+fn privileged_copies(command: &str, segments: &[String]) -> Vec<String> {
+    let parsed = crate::parser::parse(command);
+    let remote = &parsed.remote_segments;
+    let sensitive = |s: &str| {
+        position_sensitive_words().is_none_or(|(words, named)| {
+            let first = s.split(' ').next().unwrap_or_default();
+            words.iter().any(|w| w == first) || named.iter().any(|w| s.contains(&format!(" {w} ")))
+        })
+    };
+    let stdin_shell = command.contains("<<");
+    if !stdin_shell && !segments.iter().chain(remote.iter()).any(|s| sensitive(s)) {
+        return Vec::new();
+    }
+    let mut pos = Position::default();
+    command_position(command, segments, 0, &mut pos);
+    // The prefixes evicted the line from the parse cache.
+    let _ = crate::parser::parse(command);
+    pos.tainted.extend(remote.iter().cloned());
+    let line: std::collections::HashSet<&String> = segments.iter().collect();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |s: String, out: &mut Vec<String>| {
+        if seen.insert(s.clone()) {
+            out.push(s);
+        }
+    };
+    for s in &pos.arguments {
+        if !s.starts_with("shellfirm-") {
+            push(format!("{PRIVILEGED_MARKER} {s}"), &mut out);
+        }
+    }
+    for s in &pos.shell_stdin {
+        if !s.starts_with("shellfirm-") && !line.contains(s) {
+            push(s.clone(), &mut out);
+        }
+    }
+    for s in segments.iter().chain(&pos.shell_stdin) {
+        if !s.starts_with("shellfirm-") && (pos.tainted.contains(s) || !pos.own.contains(s)) {
+            push(format!("{PRIVILEGED_MARKER} {s}"), &mut out);
+        }
+    }
+    out
+}
+
+/// Whether a segment redirects output to a file (anything but `/dev/null`
+/// or `2>&1`).
+fn writes_to_file(seg: &str) -> bool {
+    let words: Vec<&str> = seg.split(' ').collect();
+    words.iter().enumerate().any(|(i, w)| {
+        w.contains('>')
+            && !(matches!(*w, "2>&1" | ">/dev/null" | "2>/dev/null" | "&>/dev/null")
+                || (*w == "2>&" && words.get(i + 1) == Some(&"1"))
+                || (matches!(*w, ">" | "2>" | "&>") && words.get(i + 1) == Some(&"/dev/null")))
+    })
+}
+
+/// The commands of a flat (operator-preserving) form, each with the
+/// operator after it (`""` for the last one).
+fn flat_steps(flat: &str) -> Vec<(String, &str)> {
+    let mut steps = Vec::new();
+    let mut cmd: Vec<&str> = Vec::new();
+    for w in flat.split(' ') {
+        if let Some(op) = ["&&", "||", ";", "|", "|&", "&"].iter().find(|o| **o == w) {
+            steps.push((cmd.join(" "), *op));
+            cmd.clear();
+        } else {
+            cmd.push(w);
+        }
+    }
+    steps.push((cmd.join(" "), ""));
+    steps
+}
+
+/// A plain `git pull|fetch|checkout|switch|clone` with a short list of
+/// options that cannot set config, templates or a command to run (`-c`,
+/// `--config`, `--template`, `--upload-pack` are not on it).
+fn is_plain_git_step(seg: &str) -> bool {
+    if seg.contains("$(") || seg.contains('`') || seg.contains('<') || writes_to_file(seg) {
+        return false;
+    }
+    let words: Vec<&str> = seg.split(' ').filter(|w| !w.is_empty()).collect();
+    let ["git", sub, rest @ ..] = words.as_slice() else {
+        return false;
+    };
+    let (flags, valued, max_operands): (&[&str], &[&str], usize) = match *sub {
+        "pull" => (
+            &[
+                "--ff-only",
+                "--rebase",
+                "--no-rebase",
+                "-q",
+                "-v",
+                "--prune",
+                "--tags",
+                "--autostash",
+            ],
+            &[],
+            2,
+        ),
+        "fetch" => (&["--all", "--prune", "-p", "--tags", "-q", "-v"], &[], 2),
+        "checkout" => (&["-q"], &["-b"], 1),
+        "switch" => (&["-q"], &["-c", "-C"], 1),
+        "clone" => (
+            &["-q", "--single-branch"],
+            &["--depth", "-b", "--branch"],
+            2,
+        ),
+        _ => return false,
+    };
+    let mut operands = 0;
+    let mut i = 0;
+    while let Some(w) = rest.get(i) {
+        if flags.contains(w) {
+            i += 1;
+        } else if valued.contains(w) {
+            // The value is a name, not an option.
+            if rest.get(i + 1).is_none_or(|v| v.starts_with('-')) {
+                return false;
+            }
+            i += 2;
+        } else if let Some((opt, v)) = w.split_once('=') {
+            if !valued.contains(&opt) || !opt.starts_with("--") || v.is_empty() {
+                return false;
+            }
+            i += 1;
+        } else if w.starts_with('-') {
+            return false;
+        } else {
+            // `git fetch|pull [REMOTE [REF]]`: REMOTE is a name, a path or a
+            // URL (no `::` transport), REF a plain ref name (a forced or
+            // local-destination refspec `+main:main`, a glob or `^` can
+            // rewind a local branch).
+            if matches!(*sub, "fetch" | "pull")
+                && (w.contains("::")
+                    || (operands == 1 && (w.starts_with(['+', '^']) || w.contains([':', '*']))))
+            {
+                return false;
+            }
+            operands += 1;
+            i += 1;
+        }
+    }
+    let needs_operand = matches!(*sub, "checkout" | "switch" | "clone");
+    operands <= max_operands && (!needs_operand || operands >= 1)
+}
+
+/// `velero restore create …` / `velero create restore …` with an `-o` /
+/// `--output` word (the `kubernetes:velero_restore` exemption decides
+/// whether it only prints).
+fn is_velero_restore_print(seg: &str) -> bool {
+    let words: Vec<&str> = seg.split(' ').collect();
+    words.first() == Some(&"velero")
+        && words
+            .windows(2)
+            .any(|p| p == ["restore", "create"] || p == ["create", "restore"])
+        && words
+            .iter()
+            .any(|w| w.starts_with("-o") || w.starts_with("--output"))
+}
+
+/// Whether a segment only shows or reads something (`cd`, `cat`, `ls`,
+/// `grep`, `git status`, …), with no substitution and no write.
+fn is_inspection_segment(seg: &str) -> bool {
+    if seg.contains("$(") || seg.contains('`') || seg.contains("<(") || seg.contains(">(") {
+        return false;
+    }
+    if writes_to_file(seg) {
+        return false;
+    }
+    let words: Vec<&str> = seg.split(' ').collect();
+    match words.as_slice() {
+        ["git", sub, ..] => matches!(*sub, "diff" | "status" | "log" | "show" | "add"),
+        ["rg", rest @ ..] => !rest.iter().any(|w| w.starts_with("--pre")),
+        ["less" | "more", rest @ ..] => !rest.iter().any(|w| w.starts_with('+')),
+        [first, ..] => matches!(
+            *first,
+            "cd" | "cat"
+                | "head"
+                | "tail"
+                | "wc"
+                | "grep"
+                | "egrep"
+                | "fgrep"
+                | "diff"
+                | "cmp"
+                | "ls"
+                | "echo"
+                | "printf"
+                | "true"
+                | "pwd"
+        ),
+        [] => true,
+    }
+}
+
+fn is_submodule_update(seg: &str) -> bool {
+    seg.starts_with("git submodule update")
+}
+
+/// Whether something on the line can set the command `git submodule update
+/// --init` runs (see [`line_context_segments`]).
+fn submodule_step_unsafe(command: &str, segments: &[String], steps: &[(String, &str)]) -> bool {
+    static GIT_GLOBAL: OnceLock<Regex> = OnceLock::new();
+    let git_global = GIT_GLOBAL.get_or_init(|| {
+        Regex::new(r"(?:^|[^\w./-])git\s+-|(?:^|[^\w])GIT_[A-Z_]*=").expect("valid regex")
+    });
+    // The steps of the line in order (segments are not: a repeated one is
+    // listed once). A step nested in a payload (`sh -c '…'`) has no order
+    // here: every other segment must then only inspect.
+    let nested = steps
+        .iter()
+        .any(|(c, _)| !is_submodule_update(c) && c.contains("submodule"));
+    let before_ok = match steps.iter().rposition(|(c, _)| is_submodule_update(c)) {
+        Some(last) if !nested => steps[..last].iter().all(|(c, _)| {
+            is_submodule_update(c) || is_inspection_segment(c) || is_plain_git_step(c)
+        }),
+        _ => segments
+            .iter()
+            .all(|s| is_submodule_update(s) || is_inspection_segment(s)),
+    };
+    git_global.is_match(command)
+        || !before_ok
+        // `git submodule foreach CMD` runs CMD in every submodule.
+        || segments.iter().any(|s| s.starts_with("git submodule foreach"))
+        // A background job runs beside the step, not before it.
+        || steps.iter().any(|(_, op)| matches!(*op, "&" | "|&"))
+        || steps
+            .iter()
+            .any(|(cmd, op)| is_submodule_update(cmd) && *op == "|")
+        // A prefix or wrapper on the step (`HOME=/tmp/x git submodule …`,
+        // `env git submodule …`): the parser drops it.
+        || crate::context::parse_command_targets(command)
+            .segments
+            .iter()
+            .any(|t| t.text.contains("submodule") && !t.text.starts_with("git submodule"))
+}
+
+/// Whether the output of `velero restore create … -o yaml` may be applied:
+/// piped on (except into a command that only shows it), sent to the
+/// background, or written to a file beside a command that does more than
+/// inspect.
+fn velero_output_used(segments: &[String], steps: &[(String, &str)]) -> bool {
+    let piped = steps.iter().enumerate().any(|(i, (cmd, op))| {
+        is_velero_restore_print(cmd)
+            && (matches!(*op, "&" | "|&")
+                || (*op == "|"
+                    && !steps
+                        .get(i + 1)
+                        .is_some_and(|(next, _)| is_inspection_segment(next))))
+    });
+    let to_file = segments
+        .iter()
+        .any(|s| is_velero_restore_print(s) && writes_to_file(s));
+    let others_inspect = segments
+        .iter()
+        .all(|s| is_velero_restore_print(s) || is_inspection_segment(s));
+    piped || (to_file && !others_inspect)
+}
+
+/// Segments added again because the whole line decides an exemption that
+/// the normalized segment cannot:
+/// - a dry-run word written with quotes is not trusted as a dry run: the
+///   segment is added with the word quoted, which no dry-run exemption skips;
+/// - `git submodule update --init` only checks out when no git global
+///   option, `GIT_*` variable, prefix or wrapper can set `submodule.*.update`
+///   and every segment before it only inspects, changes directory or is a
+///   plain `git pull|fetch|checkout|switch|clone` (`git config
+///   submodule.x.update '!cmd' && git submodule update --init` runs `cmd`).
+///   The line has no `&` job and the step's output is not piped;
+/// - `velero restore create … -o yaml|json` only prints the restore when its
+///   output is not piped on, and is written to a file only beside segments
+///   that inspect (the file is not applied in the same line);
+/// - a `find` start path written with `..` (`find apps/..`) is not the `.`
+///   the parser spells it as when `apps` is a link;
+/// - a segment that a command out of command position, a remote or
+///   container command, or a privileged shell produces gets a
+///   [`PRIVILEGED_MARKER`] copy ([`privileged_copies`]).
+fn line_context_segments(command: &str, segments: &[String]) -> Vec<String> {
+    static FIND_UP: OnceLock<Regex> = OnceLock::new();
+    let mut out = Vec::new();
+
+    let mut quoted = Vec::new();
+    quoted_dry_run_words(command, 0, &mut quoted);
+    // An output word only matters to `velero restore create … -o yaml`.
+    quoted.retain(|w| {
+        w.to_ascii_lowercase().contains("dry")
+            || segments.iter().any(|s| is_velero_restore_print(s))
+    });
+    if !quoted.is_empty() {
+        for seg in segments {
+            let is_quoted = |w: &str| {
+                quoted.iter().any(|q| {
+                    q == w
+                        && (q.to_ascii_lowercase().contains("dry") || is_velero_restore_print(seg))
+                })
+            };
+            if seg.split(' ').any(is_quoted) {
+                let copy: Vec<String> = seg
+                    .split(' ')
+                    .map(|w| {
+                        if is_quoted(w) {
+                            format!("'{w}'")
+                        } else {
+                            w.to_string()
+                        }
+                    })
+                    .collect();
+                out.push(copy.join(" "));
+            }
+        }
+    }
+
+    let submodule = segments.iter().any(|s| is_submodule_update(s));
+    let velero = segments.iter().any(|s| is_velero_restore_print(s));
+    if submodule || velero {
+        let flat = crate::parser::parse(command).flat;
+        let steps = flat_steps(&flat);
+        if submodule && submodule_step_unsafe(command, segments, &steps) {
+            out.extend(
+                segments
+                    .iter()
+                    .filter(|s| is_submodule_update(s))
+                    .map(|s| format!("{LINE_CONTEXT_MARKER} {s}")),
+            );
+        }
+        if velero && velero_output_used(segments, &steps) {
+            out.extend(
+                segments
+                    .iter()
+                    .filter(|s| is_velero_restore_print(s))
+                    .map(|s| format!("{LINE_CONTEXT_MARKER} {s}")),
+            );
+        }
+    }
+
+    // `sudo rm -rf node_modules`: the parser dropped the wrapper.
+    out.extend(privileged_copies(command, segments));
+
+    let find_up = FIND_UP.get_or_init(|| {
+        Regex::new(r"(?:^|[\s;&|(])find\s+(?:-[HLP]\s+)*\S*\.\.").expect("valid regex")
+    });
+    if find_up.is_match(command) {
+        out.extend(
+            segments
+                .iter()
+                .filter(|s| s.starts_with("find "))
+                .map(|s| format!("{LINE_CONTEXT_MARKER} {s}")),
+        );
+    }
+    out
+}
+
+/// `rm -rf node_modules` and `chmod 600 .env` are skipped by their spelling
+/// (checks/fs.yaml), which assumes a real cache folder and one regular file.
+/// When a symbolic link is on the way from the cache folder on
+/// (`pkg/node_modules → ../src`), the operand is written with a trailing `/`
+/// (which the parser drops), or the dotfile is a folder or a link (`chmod
+/// 600 .git`), the segment is added again with the operand spelled with a
+/// trailing `/`, which those exemptions do not skip.
+fn spell_linked_operands(env: &dyn Environment, command: &str, segments: &mut Vec<String>) {
+    let Ok(cwd) = env.current_dir() else {
+        return;
+    };
+    let home = env.home_dir();
+    let is_link = |p: &std::path::Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_symlink());
+    let mut added = Vec::new();
+    for seg in segments.iter() {
+        let mut words: Vec<String> = seg.split(' ').map(crate::parser::desentinel).collect();
+        let mut changed = false;
+        match words.first().map(String::as_str) {
+            Some("rm") => {
+                for w in words.iter_mut().skip(1) {
+                    if w.starts_with('-') {
+                        continue;
+                    }
+                    let (base, rel) = match w.strip_prefix("~/") {
+                        Some(rest) => match home.as_deref() {
+                            Some(h) => (h.to_path_buf(), rest),
+                            None => continue,
+                        },
+                        None if w.starts_with('/') => continue,
+                        None => (cwd.clone(), w.as_str()),
+                    };
+                    let parts: Vec<&str> = rel.split('/').collect();
+                    let Some(from) = parts.iter().position(|p| SKIPPED_CACHE_DIRS.contains(p))
+                    else {
+                        continue;
+                    };
+                    let mut path = base;
+                    let mut linked = false;
+                    for (i, part) in parts.iter().enumerate() {
+                        path.push(part);
+                        linked |= i >= from && is_link(&path);
+                    }
+                    if linked || written_with_trailing_slash(command, w) {
+                        w.push('/');
+                        changed = true;
+                    }
+                }
+            }
+            Some("chmod") if words.len() == 3 => {
+                let op = &words[2];
+                if op.starts_with('.') && !op.contains('/') {
+                    let path = cwd.join(op);
+                    let not_a_file = std::fs::symlink_metadata(&path)
+                        .is_ok_and(|m| m.is_dir() || m.is_symlink());
+                    if not_a_file || written_with_trailing_slash(command, op) {
+                        words[2].push('/');
+                        changed = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if changed {
+            added.push(words.join(" "));
+        }
+    }
+    segments.extend(added);
+}
+
 /// Replace the owner of `chown` segments by `$USER` when it is the current
 /// user (`dev`, `dev:dev`, `dev:`, by name or uid).
 fn spell_own_user(env: &dyn Environment, segments: &mut [String]) {
@@ -1763,6 +3269,245 @@ fn star_glob_candidates(
     Some(cands.into_iter().map(|(_, s)| s).collect())
 }
 
+/// Whether `seg` appears in the line's flat form as a command of its own
+/// (not piped into, not the payload of a wrapper such as `docker exec`).
+fn bare_in_flat(flat: &str, seg: &str) -> bool {
+    flat.match_indices(seg).any(|(i, _)| {
+        let before = flat[..i].trim_end();
+        before.is_empty()
+            || ["&&", "||", ";", "\n", "(", "{", "then", "do", "else"]
+                .iter()
+                .any(|op| before.ends_with(op))
+            || (before.ends_with('&') && !before.ends_with(">&"))
+    })
+}
+
+/// Whether the options of a psql that reads a SQL file (`words` start with
+/// `psql`) are all on the reader's list: connection (`-d`, `-U`, `-h`,
+/// `-p`), output format (`-A`, `-t`, `-x`, `--csv`, `-q`, `-X`, `-w`,
+/// `-W`, `-1`, `-e`, `-a`, `-b`), `-v ON_ERROR_STOP=1|on`, the input
+/// (`-f`, `< FILE`), `-c` (read on its own), output redirects, and on a
+/// psql of its own (`bare`) `-o` / `-L` (their target is judged as a
+/// write). Anything else (`-v NAME=…`, `-P`, `--set`, `-o` on a piped or
+/// wrapped psql) may change what the file runs or writes.
+fn psql_reader_options(words: &[String], bare: bool) -> bool {
+    const BOOL_LONG: &[&str] = &[
+        "--no-password",
+        "--password",
+        "--no-psqlrc",
+        "--quiet",
+        "--no-align",
+        "--tuples-only",
+        "--expanded",
+        "--csv",
+        "--single-transaction",
+        "--echo-queries",
+        "--echo-all",
+        "--echo-errors",
+    ];
+    const VALUE_LONG: &[&str] = &[
+        "--dbname",
+        "--username",
+        "--host",
+        "--port",
+        "--file",
+        "--command",
+    ];
+    let on_error_stop = |v: &str| {
+        matches!(
+            v,
+            "ON_ERROR_STOP=1" | "ON_ERROR_STOP=on" | "ON_ERROR_STOP=true"
+        )
+    };
+    let mut i = 1;
+    while let Some(w) = words.get(i) {
+        let w = w.as_str();
+        i += 1;
+        if w == "<" || w == "-f" || w == "-c" || matches!(w, "-d" | "-U" | "-h" | "-p") {
+            i += 1;
+            continue;
+        }
+        if matches!(w, "-o" | "-L" | "--output" | "--log-file") {
+            if !bare {
+                return false;
+            }
+            i += 1;
+            continue;
+        }
+        if w.starts_with("--output=") || w.starts_with("--log-file=") {
+            if !bare {
+                return false;
+            }
+            continue;
+        }
+        if w == "-v" || w == "--set" || w == "--variable" {
+            if !words.get(i).is_some_and(|v| on_error_stop(v)) {
+                return false;
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(v) = w
+            .strip_prefix("--set=")
+            .or_else(|| w.strip_prefix("--variable="))
+            .or_else(|| w.strip_prefix("-v"))
+        {
+            if !on_error_stop(v) {
+                return false;
+            }
+            continue;
+        }
+        if BOOL_LONG.contains(&w) || w.starts_with('>') || w.starts_with("2>") || w == "1" {
+            continue;
+        }
+        if let Some((name, _)) = w.split_once('=') {
+            if VALUE_LONG.contains(&name) {
+                continue;
+            }
+            return false;
+        }
+        if let Some(short) = w.strip_prefix('-').filter(|s| !s.starts_with('-')) {
+            let mut chars = short.chars();
+            match chars.next() {
+                // `-dDB`, `-Uuser`, `-hHOST`, `-p5432`, `-fFILE`.
+                Some('d' | 'U' | 'h' | 'p' | 'f') if !chars.as_str().is_empty() => continue,
+                Some('o' | 'L') if !chars.as_str().is_empty() => {
+                    if !bare {
+                        return false;
+                    }
+                    continue;
+                }
+                _ if !short.is_empty() && short.chars().all(|c| "wWXqAtxeab1".contains(c)) => {
+                    continue;
+                }
+                _ => return false,
+            }
+        }
+        if w.starts_with('-') {
+            return false;
+        }
+        // An operand: the database (and user) name.
+    }
+    true
+}
+
+/// Whether a psql script does something its statements do not show: a
+/// meta-command other than the display-only ones (`\d…`, `\l`,
+/// `\conninfo`, `\x`, `\timing`, `\echo`, `\pset` but not `pager`, `\c DB`,
+/// `\set ON_ERROR_STOP|ECHO|VERBOSITY|QUIET …`, `\q`, and the includes,
+/// which are read too), or a `:name` / `:'name'` / `:"name"` interpolation
+/// outside quotes and comments.
+#[allow(clippy::too_many_lines)]
+fn psql_script_unknown(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    let mut prev = ' ';
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            '\'' | '"' => {
+                i += 1;
+                while i < chars.len() && chars[i] != c {
+                    i += 1;
+                }
+            }
+            '-' if chars.get(i + 1) == Some(&'-') => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '/' if chars.get(i + 1) == Some(&'*') => {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                i += 1;
+            }
+            '$' if prev != '\\' && !prev.is_alphanumeric() && prev != '_' => {
+                // `$$ … $$` / `$tag$ … $tag$`.
+                let mut j = i + 1;
+                while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                    j += 1;
+                }
+                if chars.get(j) == Some(&'$') {
+                    let tag: String = chars[i..=j].iter().collect();
+                    let rest: String = chars[j + 1..].iter().collect();
+                    let skip = rest.find(&tag).map_or_else(
+                        || rest.chars().count(),
+                        |p| rest[..p].chars().count() + tag.chars().count(),
+                    );
+                    i = j + skip;
+                }
+            }
+            ':' if prev != ':'
+                && chars
+                    .get(i + 1)
+                    .is_some_and(|n| n.is_ascii_alphabetic() || matches!(n, '_' | '\'' | '"')) =>
+            {
+                return true;
+            }
+            '\\' => {
+                let mut j = i + 1;
+                while j < chars.len()
+                    && (chars[j].is_ascii_alphanumeric()
+                        || matches!(chars[j], '+' | '!' | '?' | '.'))
+                {
+                    j += 1;
+                }
+                let name: String = chars[i + 1..j].iter().collect();
+                // The arguments: up to the end of the line or the next `\`.
+                let mut k = j;
+                while k < chars.len() && chars[k] != '\n' && chars[k] != '\\' {
+                    k += 1;
+                }
+                let args: String = chars[j..k].iter().collect();
+                let first = args.split_whitespace().next().unwrap_or_default();
+                let display = name.starts_with('d')
+                    || matches!(
+                        name.as_str(),
+                        "l" | "l+"
+                            | "list"
+                            | "list+"
+                            | "conninfo"
+                            | "x"
+                            | "timing"
+                            | "echo"
+                            | "q"
+                            | "quit"
+                            | "i"
+                            | "ir"
+                            | "include"
+                            | "include_relative"
+                    )
+                    || (name == "pset" && first != "pager")
+                    || (matches!(name.as_str(), "c" | "connect")
+                        && args.split_whitespace().count() == 1)
+                    || (name == "set"
+                        && matches!(first, "ON_ERROR_STOP" | "ECHO" | "VERBOSITY" | "QUIET"));
+                if !display || args.contains(':') && args.contains(['\'', '"']) {
+                    return true;
+                }
+                if args
+                    .split(|c: char| !(c.is_alphanumeric() || c == ':' || c == '_'))
+                    .any(|t| {
+                        t.starts_with(':')
+                            && t.chars().nth(1).is_some_and(|n| n.is_ascii_alphabetic())
+                    })
+                {
+                    return true;
+                }
+                i = k;
+                prev = ' ';
+                continue;
+            }
+            _ => {}
+        }
+        prev = chars.get(i).copied().unwrap_or(' ');
+        i += 1;
+    }
+    false
+}
+
 /// A SQL file to read (see [`sql_file_segments`]).
 struct SqlInput {
     client: String,
@@ -1836,6 +3581,9 @@ struct SqlFiles {
     timed_out: Option<String>,
     /// The scan stopped at the first Critical statement.
     stopped_at_critical: bool,
+    /// The segments whose SQL input the reader took (a file, `< FILE`, an
+    /// include): only these are covered when every input was read.
+    consumed: std::collections::HashSet<String>,
 }
 
 impl SqlFiles {
@@ -1924,6 +3672,7 @@ fn sqlcmd_script(text: &str) -> (String, Vec<String>) {
 #[allow(clippy::too_many_lines)]
 fn sql_file_segments(
     env: &dyn Environment,
+    command: &str,
     parsed: &crate::parser::Parsed,
     stop_at: Option<&[Check]>,
 ) -> SqlFiles {
@@ -1967,6 +3716,28 @@ fn sql_file_segments(
     };
     // (client, file, directories of earlier `cd`s) triples.
     let mut files: Vec<(String, String, Vec<std::path::PathBuf>)> = Vec::new();
+    // Files a psql reads with an option that is not on the reader's list
+    // (`-v NAME=…`, `-P`, `-o` on a piped or wrapped psql, …): unknown.
+    let mut untrusted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // `PSQLRC=FILE` (a prefix, `env`, `export`, `docker exec -e`): psql runs
+    // that file first, whatever else it reads.
+    if let Some(at) = command.find("PSQLRC=") {
+        if parsed
+            .segments
+            .iter()
+            .any(|s| s.split([' ', '|']).any(|w| w == "psql"))
+        {
+            let rc: String = command[at + "PSQLRC=".len()..]
+                .chars()
+                .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '&' | '|'))
+                .collect();
+            out.referenced = true;
+            out.all_read = false;
+            out.unchecked_client
+                .get_or_insert_with(|| "psql".to_string());
+            out.segments.push(format!("psql -c \\i {rc}"));
+        }
+    }
     // `cd DIR` / `pushd DIR` segments before the client: where it may run.
     let mut cd_dirs: Vec<std::path::PathBuf> = Vec::new();
     // A heredoc's lines come before the client's own segment: start with the
@@ -1981,7 +3752,10 @@ fn sql_file_segments(
                 .map(str::to_string)
         })
         .unwrap_or_else(|| "psql".to_string());
+    // (segment, inputs named before it): which segments named an input.
+    let mut marks: Vec<(&String, usize)> = Vec::new();
     for seg in &parsed.segments {
+        marks.push((seg, files.len()));
         if parsed.remote_segments.binary_search(seg).is_ok() {
             continue;
         }
@@ -2051,6 +3825,9 @@ fn sql_file_segments(
         }
         if SQL_CLIENTS.contains(&prog) {
             last_client = prog.to_string();
+            let named_before = files.len();
+            let trusted =
+                prog != "psql" || psql_reader_options(&words, bare_in_flat(&parsed.flat, seg));
             let mut i = 1;
             while i < words.len() {
                 let w = words[i].as_str();
@@ -2100,6 +3877,9 @@ fn sql_file_segments(
                 }
                 i += 1;
             }
+            if !trusted {
+                untrusted.extend(files[named_before..].iter().map(|(_, f, _)| f.clone()));
+            }
         } else if matches!(prog, ".once" | ".output" | ".import" | ".read" | ".excel")
             && words
                 .get(1)
@@ -2133,6 +3913,18 @@ fn sql_file_segments(
                 words[1].trim_end_matches(';').to_string(),
                 cd_dirs.clone(),
             ));
+        }
+    }
+    // A segment that names an input or one of its files (`docker exec -i pg
+    // psql < F` beside the `psql < F` it was read as) is covered.
+    let names: std::collections::HashSet<&str> = files.iter().map(|(_, f, _)| f.as_str()).collect();
+    for (n, (seg, at)) in marks.iter().enumerate() {
+        let next = marks.get(n + 1).map_or(files.len(), |m| m.1);
+        let names_a_file = seg
+            .split([' ', '=', crate::parser::WS_SENTINEL])
+            .any(|w| names.contains(w));
+        if next > *at || names_a_file {
+            out.consumed.insert((*seg).clone());
         }
     }
     let mut seen = std::collections::HashSet::new();
@@ -2216,6 +4008,15 @@ fn sql_file_segments(
             .iter()
             .filter_map(|p| read(p).map(|t| (p.clone(), t)))
             .collect();
+        // A psql script with a meta-command that does more than show
+        // something, or a `:name` interpolation, is not known from its text.
+        if client == "psql"
+            && (untrusted.contains(&file) || texts.iter().any(|(_, t)| psql_script_unknown(t)))
+        {
+            out.all_read = false;
+            out.unchecked_client.get_or_insert_with(|| client.clone());
+            out.segments.push(format!("psql -c \\i {file}"));
+        }
         if texts.is_empty() {
             out.all_read = false;
             out.unchecked_client.get_or_insert_with(|| client.clone());
@@ -2979,7 +4780,9 @@ pub fn run_check_on_command_with_env<'a>(
     command: &str,
     env: &dyn Environment,
 ) -> Vec<&'a Check> {
-    let parsed = crate::parser::parse(command);
+    let mut parsed = crate::parser::parse(command);
+    let context_segments = line_context_segments(command, &parsed.segments);
+    parsed.segments.extend(context_segments);
     let segment_matches: Vec<&Check> = parsed
         .segments
         .iter()
@@ -3054,8 +4857,14 @@ fn match_segment<'a>(
     remote: &[String],
     env: &dyn Environment,
 ) -> Vec<&'a Check> {
-    let is_remote = remote.binary_search_by(|r| r.as_str().cmp(text)).is_ok();
-    match_text_impl(checks, text, env, is_remote)
+    match_text_impl(checks, text, env, is_remote_text(remote, text))
+}
+
+/// Whether `text` (a segment, or the [`PRIVILEGED_MARKER`] copy of one) runs
+/// on another machine or in a container (`remote` is sorted).
+fn is_remote_text(remote: &[String], text: &str) -> bool {
+    let found = |t: &str| remote.binary_search_by(|r| r.as_str().cmp(t)).is_ok();
+    found(text) || privileged_copy(text).is_some_and(found)
 }
 
 /// Segment count above which [`LiteralIndex`] is built (its build costs
@@ -3119,13 +4928,70 @@ impl<'a> LiteralIndex<'a> {
             .iter()
             .zip(&self.per_check)
             .filter(|(c, lits)| {
+                if let Some(inner) = privileged_copy(text) {
+                    return privileged_copy_matches(c, text, inner, env, assume_paths_exist);
+                }
                 lits.as_ref().is_none_or(|ids| ids.iter().any(|&i| hit[i]))
                     && c.test.regex().is_match(text)
+                    && check_filters(c, text, env, assume_paths_exist)
             })
             .map(|(c, _)| c)
-            .filter(|c| check_filters(c, text, env, assume_paths_exist))
             .collect()
     }
+}
+
+/// The segment of a [`PRIVILEGED_MARKER`] copy.
+fn privileged_copy(text: &str) -> Option<&str> {
+    text.strip_prefix(PRIVILEGED_MARKER)?.strip_prefix(' ')
+}
+
+/// Whether the [`PRIVILEGED_MARKER`] copy `text` of `inner` matches `check`.
+///
+/// A survivor's exemptions decide on the segment itself, and so does a
+/// check that has no `^`-anchored exemption and does not name the copy in
+/// its test: the copy would only repeat that decision. Otherwise the test
+/// runs on the copy (or, when it does not name the copy, on the segment) and
+/// the exemptions run on the copy, which `^`-anchored ones do not skip.
+fn privileged_copy_matches(
+    check: &Check,
+    text: &str,
+    inner: &str,
+    env: &dyn Environment,
+    assume_paths_exist: bool,
+) -> bool {
+    if PRIVILEGE_SURVIVORS.contains(&check.id.as_str()) {
+        return false;
+    }
+    let names_copy = check.test.as_str().contains(PRIVILEGED_MARKER);
+    let anchored_exemption = check
+        .filters
+        .iter()
+        .any(|f| matches!(f, Filter::NotMatches(re) if re.starts_with('^')));
+    if !names_copy && !anchored_exemption {
+        return false;
+    }
+    let tested = if names_copy {
+        check.test.is_match(text)
+    } else {
+        check.test.is_match(text) || check.test.is_match(inner)
+    };
+    tested && check_filters(check, text, env, assume_paths_exist)
+}
+
+/// Whether `check` matches the segment `text` (a [`PRIVILEGED_MARKER`] copy
+/// is judged by [`privileged_copy_matches`]).
+fn segment_matches_check(
+    check: &Check,
+    text: &str,
+    folded: &str,
+    env: &dyn Environment,
+    assume_paths_exist: bool,
+) -> bool {
+    if let Some(inner) = privileged_copy(text) {
+        return privileged_copy_matches(check, text, inner, env, assume_paths_exist);
+    }
+    check.test.is_match_prefiltered(text, folded)
+        && check_filters(check, text, env, assume_paths_exist)
 }
 
 fn match_text_impl<'a>(
@@ -3137,8 +5003,7 @@ fn match_text_impl<'a>(
     let folded = crate::prefilter::fold(text);
     checks
         .iter()
-        .filter(|v| v.test.is_match_prefiltered(text, &folded))
-        .filter(|v| check_filters(v, text, env, assume_paths_exist))
+        .filter(|v| segment_matches_check(v, text, &folded, env, assume_paths_exist))
         .collect()
 }
 
@@ -3159,7 +5024,11 @@ fn check_filters(
     if check.filters.is_empty() {
         return true;
     }
-    let caps = check.test.captures(command);
+    // A privileged copy: paths are captured from the segment itself.
+    let caps = check
+        .test
+        .captures(command)
+        .or_else(|| privileged_copy(command).and_then(|inner| check.test.captures(inner)));
 
     for filter in &check.filters {
         debug!("filter information: command {command:?} filter: {filter:?}");
@@ -3469,6 +5338,10 @@ pub fn analyze_command(
     // naive operator split). `strip_quotes_re` is kept for API stability.
     let _ = strip_quotes_re;
     let mut parsed = crate::parser::parse(command);
+    // Exemptions the whole line rules out (quoted dry-run words, `git
+    // submodule update --init` beside other commands, `find DIR/..`).
+    let context_segments = line_context_segments(command, &parsed.segments);
+    parsed.segments.extend(context_segments);
     // `context.sensitive_paths`: a delete / overwrite under one of them is
     // reported through the `fs:sensitive_path` check (a marker segment, like
     // the nesting-limit marker), even when no other rule matches.
@@ -3487,6 +5360,9 @@ pub fn analyze_command(
     // inside it: a project path, spelled absolute (not "outside the
     // project").
     spell_parent_paths_in_repo(env, &mut parsed.segments);
+    // `rm -rf node_modules` where it is a link, `chmod 600 .git`: not the
+    // cache folder / dotfile their spelling exempts.
+    spell_linked_operands(env, command, &mut parsed.segments);
     // Bracket globs resolved to what they name (`rm -rf ~/.[s]sh`).
     let glob_segments = glob_resolved_segments(env, &parsed);
     parsed.segments.extend(glob_segments);
@@ -3514,7 +5390,7 @@ pub fn analyze_command(
         && project_policy
             .as_ref()
             .is_none_or(|p| p.checks.is_empty() && p.deny.is_empty());
-    let sql_files = sql_file_segments(env, &parsed, stop_at_critical.then_some(checks));
+    let sql_files = sql_file_segments(env, command, &parsed, stop_at_critical.then_some(checks));
     let sql_client = line_sql_client(&parsed);
     parsed.segments.extend(sql_files.segments.iter().cloned());
     // `git push --force-with-lease` to a protected branch still rewrites it.
@@ -3596,10 +5472,7 @@ pub fn analyze_command(
         .flat_map(|c| {
             index.as_ref().map_or_else(
                 || match_segment(checks, c, &remote_parts, env),
-                |ix| {
-                    let is_remote = remote_parts.binary_search_by(|r| r.as_str().cmp(c)).is_ok();
-                    ix.matches(c, env, is_remote)
-                },
+                |ix| ix.matches(c, env, is_remote_text(&remote_parts, c)),
             )
         })
         .collect();
@@ -3616,7 +5489,22 @@ pub fn analyze_command(
     // Every SQL file the line runs was read and checked: the "not checked
     // here" fallback does not apply.
     let mut matches = matches;
-    if sql_files.referenced && sql_files.all_read {
+    // Decided per segment: a segment that reads SQL from a source the reader
+    // did not take (`clickhouse-client < f.sql`, a stand-in for input the
+    // line does not show) keeps the check, whatever else was read.
+    let unread_source = || {
+        checks
+            .iter()
+            .find(|c| c.id == "database:sql_from_file")
+            .is_some_and(|c| {
+                command_parts.iter().any(|s| {
+                    !s.starts_with("shellfirm-")
+                        && !sql_files.consumed.contains(s)
+                        && segment_matches_check(c, s, &crate::prefilter::fold(s), env, true)
+                })
+            })
+    };
+    if sql_files.referenced && sql_files.all_read && !unread_source() {
         matches.retain(|c| c.id != "database:sql_from_file");
     }
     debug!("analyze_command: {} matches found", matches.len());
@@ -3830,14 +5718,20 @@ pub fn analyze_command(
     let matched_groups: std::collections::HashSet<&str> =
         active_matches.iter().map(|c| c.from.as_str()).collect();
     // Per command: the groups of the active checks that match it.
+    // Each command is judged with its privileged copies too (`sudo rm -rf
+    // node_modules` is root's delete; `sudo cd x && rm -rf node_modules` is
+    // the user's).
     let groups_of = |text: &str| -> std::collections::HashSet<String> {
-        let p = crate::parser::parse(text);
+        let mut segments = crate::parser::parse(text).segments;
+        let copies = privileged_copies(text, &segments);
+        segments.extend(copies);
         active_matches
             .iter()
             .filter(|c| {
-                p.segments
-                    .iter()
-                    .any(|s| c.test.is_match(s) && check_filters(c, s, env, true))
+                segments.iter().any(|s| {
+                    let folded = crate::prefilter::fold(s);
+                    segment_matches_check(c, s, &folded, env, true)
+                })
             })
             .map(|c| c.from.clone())
             .collect()
@@ -4206,6 +6100,569 @@ mod test_checks {
             "git push --force origin main",
             &env
         ));
+    }
+
+    /// kubectl, helm, npm, git, terraform and most other CLIs use the last
+    /// value of a repeated flag: `--dry-run=client --dry-run=none` really
+    /// runs. No built-in dry-run exemption may skip a check when a later
+    /// word turns the dry run off.
+    #[test]
+    fn a_dry_run_exemption_lets_the_last_value_win() {
+        let mut checked = 0;
+        for check in all_checks_cached() {
+            for filter in &check.filters {
+                let Filter::NotMatches(re) = filter else {
+                    continue;
+                };
+                let re = Regex::new(re).unwrap();
+                for word in ["--dry-run", "-dry-run", "--dryrun", "--dryRun"] {
+                    if !re.as_str().contains(&word[word.len() - 7..]) {
+                        continue;
+                    }
+                    checked += 1;
+                    let name = word.trim_start_matches('-');
+                    for later in [
+                        format!("{word}=false"),
+                        format!("{word}=none"),
+                        format!("--no-{name}"),
+                    ] {
+                        for first in [word.to_string(), format!("{word}=true")] {
+                            let text = format!("x {first} {later} y");
+                            assert!(
+                                !re.is_match(&text),
+                                "{}: the exemption skips {text:?}",
+                                check.id
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked >= 20, "only {checked} dry-run exemptions found");
+    }
+
+    /// pflag, nopt and go-flags take the next word as an option's value even
+    /// when it starts with `-`: `--timeout --dry-run` sets the timeout and
+    /// runs for real. No built-in dry-run exemption may skip a check when the
+    /// dry-run word follows an option that may take a value, or is quoted.
+    #[test]
+    fn a_dry_run_word_after_an_option_that_takes_a_value_is_not_a_dry_run() {
+        let mut checked = 0;
+        for check in all_checks_cached() {
+            for filter in &check.filters {
+                let Filter::NotMatches(re) = filter else {
+                    continue;
+                };
+                let re = Regex::new(re).unwrap();
+                for word in ["--dry-run", "-dry-run", "--dryrun", "--dryRun"] {
+                    if !re.as_str().contains(&word[word.len() - 7..]) {
+                        continue;
+                    }
+                    checked += 1;
+                    for text in [
+                        format!("x y --timeout {word}"),
+                        format!("x y -l {word}"),
+                        format!("x y --context {word} z"),
+                        format!("x y '{word}'"),
+                    ] {
+                        assert!(
+                            !re.is_match(&text),
+                            "{}: the exemption skips {text:?}",
+                            check.id
+                        );
+                    }
+                }
+            }
+        }
+        assert!(checked >= 20, "only {checked} dry-run exemptions found");
+    }
+
+    #[test]
+    fn quoted_dry_run_words_are_found_at_any_depth() {
+        let found = |c: &str| {
+            let mut out = Vec::new();
+            quoted_dry_run_words(c, 0, &mut out);
+            out
+        };
+        assert_eq!(
+            found("kubectl drain n '--dry-run=client'"),
+            ["--dry-run=client"]
+        );
+        assert_eq!(found("npm unpublish p \"--dry-run\""), ["--dry-run"]);
+        assert_eq!(found("mongorestore --drop \\--dryRun d"), ["--dryRun"]);
+        assert_eq!(found("helm uninstall w $'--dry-run'"), ["--dry-run"]);
+        assert_eq!(
+            found("bash -c \"kubectl drain n '--dry-run=client'\""),
+            ["--dry-run=client"]
+        );
+        assert!(found("kubectl drain n --dry-run=client").is_empty());
+        assert!(found("bash -c \"kubectl drain n --dry-run=client\"").is_empty());
+        assert!(found("git commit -m 'dry run notes'").is_empty());
+        assert_eq!(found("velero restore create r '-o' yaml"), ["-o"]);
+    }
+
+    #[test]
+    fn submodule_update_init_is_line_checked() {
+        let extra = |c: &str| line_context_segments(c, &crate::parser::parse(c).segments);
+        for flagged in [
+            "git -c submodule.lib.update='!rm -rf ~' submodule update --init",
+            "git -C vendor submodule update --init",
+            "GIT_CONFIG_COUNT=1 git submodule update --init",
+            "git config submodule.lib.update '!rm -rf ~' && git submodule update --init",
+            "git submodule update --init | sh",
+            "git submodule update --init 2>&1 | tail -5",
+            "./setup.sh; git submodule update --init",
+            "git pull --upload-pack 'rm -rf ~' && git submodule update --init",
+            "git clone --template=/tmp/t ~/r.git w && cd w && git submodule update --init",
+            "git config x y & git submodule update --init",
+            "git pull && HOME=/tmp/evil git submodule update --init",
+            "git submodule update --init && git config x y && git submodule update --init",
+            // A refspec that writes a local branch, a glob, `^` or a
+            // transport in the remote.
+            "git fetch origin +main:main && git submodule update --init",
+            "git pull origin +main:main && git submodule update --init",
+            "git fetch origin '+refs/*:refs/*' && git submodule update --init",
+            "git fetch . +HEAD~5:main && git submodule update --init",
+            "git fetch --prune origin '+refs/tags/*:refs/tags/*' && git submodule update --init",
+            "git fetch origin main:main && git submodule update --init",
+            "git fetch origin refs/heads/main:refs/heads/main && git submodule update --init",
+            "git fetch origin +main && git submodule update --init",
+            "git fetch origin ^main && git submodule update --init",
+            "git fetch 'ext::sh -c touch% /tmp/pwn' main && git submodule update --init",
+        ] {
+            assert!(
+                extra(flagged)
+                    .iter()
+                    .any(|s| s.starts_with(LINE_CONTEXT_MARKER)),
+                "{flagged}"
+            );
+        }
+        for clean in [
+            "git submodule update --init",
+            "cd vendor && git submodule update --init --recursive",
+            "git submodule update --init && git status > /dev/null",
+            "git submodule update --init; ./setup.sh",
+            "git pull --ff-only origin main && git submodule update --init",
+            "git fetch -p && git checkout -q v1.2 && git submodule update --init",
+            "git switch -c fix main && git submodule update --init",
+            "git clone -q --depth 1 ~/r.git w && cd w && git submodule update --init",
+            "git fetch origin main && git submodule update --init",
+            "git pull --ff-only origin feature/login && git submodule update --init",
+            "git fetch ../other.git main && git submodule update --init",
+            "git fetch https://example.com/r.git v1.2 && git submodule update --init",
+        ] {
+            assert!(extra(clean).is_empty(), "{clean}: {:?}", extra(clean));
+        }
+    }
+
+    /// The segments of `cmd` that get a [`PRIVILEGED_MARKER`] copy.
+    fn privileged(cmd: &str) -> Vec<String> {
+        line_context_segments(cmd, &crate::parser::parse(cmd).segments)
+            .into_iter()
+            .filter_map(|s| privileged_copy(&s).map(crate::parser::desentinel))
+            .collect()
+    }
+
+    /// An exemption holds only for a command in command position, behind
+    /// the pass-through wrappers of an allowlist, run locally: any other
+    /// program, a name that may be an alias or function, or a command word
+    /// with an expansion, quote or glob in front voids it, and remote or
+    /// container payloads never keep it. Text that is only data (comments,
+    /// messages, printed text, a heredoc written to a file) never counts,
+    /// and privilege is per segment.
+    #[test]
+    fn privilege_is_decided_per_segment_from_command_position() {
+        for (cmd, seg) in [
+            ("sudo rm -rf node_modules", "rm -rf node_modules"),
+            ("sudo -u root rm -rf node_modules", "rm -rf node_modules"),
+            ("sudo -k rm -rf node_modules", "rm -rf node_modules"),
+            ("doas rm -rf node_modules", "rm -rf node_modules"),
+            ("su -c 'rm -rf node_modules'", "rm -rf node_modules"),
+            ("pkexec rm -rf node_modules", "rm -rf node_modules"),
+            ("run0 rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "runuser -u root -- rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            ("env sudo rm -rf node_modules", "rm -rf node_modules"),
+            ("timeout 60 sudo rm -rf node_modules", "rm -rf node_modules"),
+            ("FOO=1 sudo rm -rf node_modules", "rm -rf node_modules"),
+            ("sh -c 'sudo rm -rf node_modules'", "rm -rf node_modules"),
+            (
+                "bash -c \"sudo rm -rf node_modules\"",
+                "rm -rf node_modules",
+            ),
+            ("cd apps/web && sudo rm -rf .next", "rm -rf apps/web/.next"),
+            ("/usr/bin/sudo rm -rf node_modules", "rm -rf node_modules"),
+            ("'su''do' rm -rf node_modules", "rm -rf node_modules"),
+            ("s\\udo rm -rf node_modules", "rm -rf node_modules"),
+            ("echo x | (sudo rm -rf node_modules)", "rm -rf node_modules"),
+            (
+                "if true; then sudo rm -rf node_modules; fi",
+                "rm -rf node_modules",
+            ),
+            ("{ sudo rm -rf node_modules; }", "rm -rf node_modules"),
+            // Runners no list names, and names that may be anything.
+            ("alias s=sudo; s rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "SUDO=sudo; $SUDO rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            (
+                "\"${SUDO:-sudo}\" rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            ("${SUDO:-sudo} rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "S() { sudo \"$@\"; }; S rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            (
+                "$(command -v sudo) rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            (
+                "cmd=(sudo rm); \"${cmd[@]}\" -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            ("chroot / rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "setpriv --reuid=0 --regid=0 --init-groups rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            (
+                "systemd-run --uid=0 --pty rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            ("nsenter -t 1 -a rm -rf node_modules", "rm -rf node_modules"),
+            ("chroot / npx rimraf node_modules", "rm -rf node_modules"),
+            ("env -S 'rm -rf node_modules'", "rm -rf node_modules"),
+            ("flock /tmp/l rm -rf node_modules", "rm -rf node_modules"),
+            ("xargs rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "find . -maxdepth 0 -exec sudo rm -rf node_modules \\;",
+                "rm -rf node_modules",
+            ),
+            (
+                "S=sudo; bash -c \"$S rm -rf node_modules\"",
+                "rm -rf node_modules",
+            ),
+            // A substitution runs whatever the command around it is.
+            (
+                "rm -rf \"$(sudo rm -rf node_modules)\"",
+                "rm -rf node_modules",
+            ),
+            (
+                "X=$(sudo rm -rf node_modules) rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            // An exempt command that is an argument of another program.
+            (
+                "please git merge --no-ff feature/login",
+                "git merge --no-ff feature/login",
+            ),
+            ("gosu root git cherry-pick abc123", "git cherry-pick abc123"),
+            (
+                "docker run --rm -v \"$PWD\":/w -w /w alpine git stash pop",
+                "git stash pop",
+            ),
+            (
+                "\"$1\" git worktree add ../wt main",
+                "git worktree add ../wt main",
+            ),
+            // A function or alias named like the exempt command.
+            (
+                "rm() { sudo command rm \"$@\"; }; rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            // Remote and container payloads.
+            (
+                "ssh root@localhost 'rm -rf node_modules'",
+                "rm -rf node_modules",
+            ),
+            ("ssh bastion rm -rf node_modules", "rm -rf node_modules"),
+            ("docker exec web rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "kubectl exec web -- rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            // A privileged shell reads the code of a heredoc / here-string.
+            (
+                "sudo -s <<'EOF'\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            (
+                "sudo -i <<'EOF'\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            (
+                "doas -s <<'EOF'\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            ("sudo -s <<< 'rm -rf node_modules'", "rm -rf node_modules"),
+            (
+                "sudo su - <<'EOF'\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            (
+                "sudo -iu root <<'EOF'\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            (
+                "cat <<'EOF' | sudo -s\nrm -rf node_modules\nEOF",
+                "rm -rf node_modules",
+            ),
+            // Real privilege on the same line.
+            ("sudo -k; sudo rm -rf node_modules", "rm -rf node_modules"),
+            (
+                "git commit -m x && sudo rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+            (
+                "# no sudo here\nsudo rm -rf node_modules",
+                "rm -rf node_modules",
+            ),
+        ] {
+            assert!(
+                privileged(cmd)
+                    .iter()
+                    .any(|s| s == seg || s.starts_with(&format!("{seg} "))),
+                "{cmd}: {:?}",
+                privileged(cmd)
+            );
+        }
+        for cmd in [
+            "rm -rf node_modules",
+            "env rm -rf node_modules",
+            "env -i PATH=/usr/bin rm -rf node_modules",
+            "env -u HOME rm -rf node_modules",
+            "timeout 60 rm -rf node_modules",
+            "timeout -s KILL -k 5 --foreground 60 rm -rf node_modules",
+            "nice rm -rf node_modules",
+            "nice -n 10 rm -rf node_modules",
+            "nohup rm -rf node_modules",
+            "time rm -rf node_modules",
+            "time -p rm -rf node_modules",
+            "command rm -rf node_modules",
+            "exec rm -rf node_modules",
+            "stdbuf -oL rm -rf node_modules",
+            "ionice -c 3 rm -rf node_modules",
+            "nice -n 5 timeout 60 env FOO=1 rm -rf node_modules",
+            "FOO=1 rm -rf node_modules",
+            "sh -c 'rm -rf node_modules'",
+            "npx rimraf node_modules",
+            "! rm -rf node_modules",
+            "(rm -rf node_modules)",
+            "{ rm -rf node_modules; }",
+            "if true; then rm -rf node_modules; fi",
+            "cd apps/web && rm -rf .next",
+            // Text that is only data.
+            "# project-local deps, no sudo needed\nrm -rf node_modules",
+            "rm -rf node_modules # sudo not needed",
+            "echo 'tip: no sudo needed' && rm -rf node_modules",
+            "git commit -m 'docs: sudo is not needed' && rm -rf node_modules",
+            "gh pr create -t 'docs: drop sudo' -b 'no sudo' && rm -rf node_modules",
+            "grep -rn sudo docs/ | head; rm -rf node_modules",
+            "rm -rf node_modules # doas",
+            "git cherry-pick abc123 # sudo",
+            "git commit -m 'docs: sudo' && git merge --no-ff docs/sudo",
+            "cat > docs/x.md <<'EOF'\nsudo rm -rf node_modules\nEOF\nrm -rf node_modules",
+            "printf '%s\\n' 'run: sudo make install' >> docs/install.md && rm -rf node_modules",
+            "rg -n 'sudo ' scripts/ ; chmod 600 .env",
+            "echo \"use doas on openbsd\" > NOTES.md; rm -f yarn.lock",
+            "git commit -m \"$(cat <<'EOF'\ndocs: explain sudo usage\nEOF\n)\" && rm -rf node_modules",
+            // Privilege on another segment only.
+            "sudo -k; rm -rf node_modules",
+            "sudo --version; rm -rf node_modules",
+            "sudo cd . && rm -rf node_modules",
+            "nice timeout 60 git cherry-pick abc123",
+            "env -i PATH=/usr/bin git stash pop",
+            "for b in a b; do git merge --no-ff $b; done",
+        ] {
+            let p = privileged(cmd);
+            assert!(
+                !p.iter().any(|s| s.starts_with("rm ")
+                    || s.starts_with("git ")
+                    || s.starts_with("chmod ")),
+                "{cmd}: {p:?}"
+            );
+        }
+    }
+
+    /// A SQL file that psql reads is checked only when every meta-command
+    /// in it only shows something and no `:name` interpolation can change
+    /// the statements. Options that load or write other files (`-v`,
+    /// `PSQLRC`, and `-o` / `-L` on a piped or wrapped psql) make it
+    /// unknown too.
+    #[test]
+    fn the_psql_reader_trusts_only_display_meta_commands() {
+        let mut env = crate::env::MockEnvironment {
+            cwd: "/home/dev/projects/webapp".into(),
+            home: Some("/home/dev".into()),
+            ..Default::default()
+        };
+        for (name, text) in [
+            ("report.sql", "SELECT count(*) FROM orders;\n"),
+            (
+                "display.sql",
+                "\\timing on\n\\x\n\\echo report\n\\pset format aligned\n\\set ON_ERROR_STOP 1\n\\conninfo\n\\d+ orders\n\\c warehouse\nSELECT '2024-01-01'::date, a[1:2], 'x:y' FROM t; -- :z\n\\q\n",
+            ),
+            ("setvar.sql", "\\set q 'DROP TABLE orders'\n:q;\n"),
+            ("quoted_var.sql", "SELECT * FROM :\"t\";\n"),
+            ("copyenv.sql", "\\copy orders TO '/home/dev/projects/webapp/.env'\n"),
+            ("oredir.sql", "SELECT 1;\n\\o /home/dev/.bashrc\nSELECT 'x';\n"),
+            ("pager.sql", "\\pset pager on\nSELECT 1;\n"),
+            ("setother.sql", "\\set PROMPT1 x\nSELECT 1;\n"),
+            ("lo.sql", "SELECT lo_unlink(16400);\n"),
+        ] {
+            env.files.insert(
+                format!("/home/dev/projects/webapp/queries/{name}").into(),
+                text.into(),
+            );
+        }
+        let ids = |cmd: &str| {
+            let settings = Settings::default();
+            let resolved = settings.resolved_for(crate::config::Mode::Shell);
+            let checks = get_all().unwrap();
+            let re = Regex::new("x").unwrap();
+            let p = analyze_command(cmd, &settings, &resolved, &checks, &env, &re).unwrap();
+            p.active_matches
+                .iter()
+                .map(|c| c.id.clone())
+                .collect::<Vec<_>>()
+        };
+        for cmd in [
+            "psql < queries/report.sql",
+            "psql -d warehouse < queries/display.sql",
+            "psql -f queries/display.sql",
+            "psql -X -q -A -t -d warehouse < queries/display.sql",
+            "psql -d warehouse -v ON_ERROR_STOP=1 < queries/report.sql",
+            "psql -U ro -h db -p 5432 -w -x --csv -1 -e -a -b -d warehouse < queries/report.sql",
+            "psql -c '\\i queries/report.sql'",
+        ] {
+            assert!(ids(cmd).is_empty(), "{cmd}: {:?}", ids(cmd));
+        }
+        for cmd in [
+            "psql < queries/setvar.sql",
+            "psql < queries/quoted_var.sql",
+            "psql < queries/copyenv.sql",
+            "psql < queries/oredir.sql",
+            "psql -f queries/oredir.sql",
+            "psql < queries/pager.sql",
+            "psql < queries/setother.sql",
+            "psql < queries/lo.sql",
+            "cat queries/setvar.sql | psql",
+            "cat queries/copyenv.sql | psql",
+            "cat queries/oredir.sql | psql",
+            "cat queries/lo.sql | psql",
+            "docker exec -i pg psql < queries/setvar.sql",
+            "kubectl exec -i pg-0 -- psql < queries/setvar.sql",
+            "cat queries/report.sql | psql -d warehouse -o .envrc",
+            "cat queries/report.sql | psql -d warehouse -L ~/.bashrc",
+            "cat queries/report.sql | psql -d warehouse --output=x.txt",
+            "cat queries/report.sql | psql -d w -v q='DROP TABLE orders'",
+            "cat queries/report.sql | psql -d w --set=q=x",
+            "PSQLRC=/tmp/drop.sql psql < queries/report.sql",
+            "PSQLRC=/tmp/drop.sql psql -d warehouse -c 'select 1'",
+            "env PSQLRC=/tmp/drop.sql psql -d warehouse < queries/report.sql",
+            "export PSQLRC=/tmp/drop.sql; psql -d warehouse < queries/report.sql",
+            // A file that was read does not cover another source on the line.
+            "psql < queries/report.sql; clickhouse-client < queries/drop.sql",
+            "psql < queries/report.sql && cockroach sql < queries/drop.sql",
+            "psql < queries/report.sql; psql -c '\\i /dev/null/unknown-sql-input'",
+        ] {
+            assert!(!ids(cmd).is_empty(), "{cmd}");
+        }
+    }
+
+    /// Under a privilege wrapper, the bounded-harm exemptions are void (root
+    /// escalation applies again), a wrapper on another command of the line
+    /// leaves them alone, and the exemptions that change nothing still
+    /// apply.
+    #[cfg(unix)]
+    #[test]
+    fn privileged_lines_keep_only_the_exemptions_that_change_nothing() {
+        let tree = tree_fs::TreeBuilder::default().create().unwrap();
+        let root = tree.root.clone();
+        std::fs::create_dir_all(root.join("node_modules/.cache")).unwrap();
+        let mut env = crate::env::MockEnvironment {
+            cwd: root.clone(),
+            home: root.parent().map(std::path::Path::to_path_buf),
+            ..Default::default()
+        };
+        env.existing_paths.insert(root.join("node_modules"));
+        env.existing_paths.insert(root.join("node_modules/.cache"));
+        let run = |cmd: &str| {
+            let settings = Settings::default();
+            let resolved = settings.resolved_for(crate::config::Mode::Shell);
+            let checks = get_all().unwrap();
+            let re = Regex::new("x").unwrap();
+            analyze_command(cmd, &settings, &resolved, &checks, &env, &re).unwrap()
+        };
+        for (cmd, as_root) in [
+            ("sudo rm -rf node_modules", true),
+            ("doas rm -rf node_modules/.cache", true),
+            ("sh -c 'sudo rm -rf node_modules'", true),
+            ("cd . && sudo rm -rf node_modules", true),
+        ] {
+            let p = run(cmd);
+            let ids: Vec<&str> = p.active_matches.iter().map(|c| c.id.as_str()).collect();
+            assert_eq!(ids, ["fs-strict:recursive_deletion"], "{cmd}");
+            assert_eq!(p.relevant_context.is_root, as_root, "{cmd}");
+            assert!(
+                !p.command_parts
+                    .iter()
+                    .filter(|s| s.starts_with(PRIVILEGED_MARKER))
+                    .any(|s| s.contains("shellfirm-privileged shellfirm-")),
+                "{cmd}: a marker segment is not copied"
+            );
+        }
+        for cmd in [
+            "rm -rf node_modules",
+            "env rm -rf node_modules",
+            // The wrapper runs `cd`; `rm` is the user's.
+            "sudo cd . && rm -rf node_modules",
+            "sudo zfs destroy -nv tank/old",
+            "sudo kubectl drain node1 --dry-run=client",
+            "sudo npm unpublish my-pkg@1.0.0 --dry-run",
+        ] {
+            assert!(run(cmd).active_matches.is_empty(), "{cmd}");
+        }
+    }
+
+    /// Every survivor names a built-in check.
+    #[test]
+    fn privilege_survivors_are_built_in_checks() {
+        for id in PRIVILEGE_SURVIVORS {
+            assert!(
+                all_checks_cached().iter().any(|c| c.id == *id),
+                "{id} is not a built-in check"
+            );
+        }
+    }
+
+    /// The `find … -name X -delete` exemption names the same regenerable
+    /// folders the `rm` exemptions skip.
+    #[test]
+    fn the_find_cache_exemption_uses_the_skipped_cache_names() {
+        let check = all_checks_cached()
+            .iter()
+            .find(|c| c.id == "fs:delete_find_files_filtered")
+            .unwrap();
+        let exemption = check
+            .filters
+            .iter()
+            .find_map(|f| match f {
+                Filter::NotMatches(re) if re.contains("node_modules") => Some(re.clone()),
+                _ => None,
+            })
+            .unwrap();
+        for name in SKIPPED_CACHE_DIRS {
+            assert!(
+                exemption.contains(&name.replace('.', "\\.")),
+                "{name} is missing"
+            );
+        }
     }
 
     #[test]
@@ -4643,6 +7100,96 @@ mod test_uncommitted_work {
             .iter()
             .map(|c| (c.id.clone(), c.severity, c.description.clone()))
             .collect()
+    }
+
+    /// The ids `analyze_command` reports for `cmd` (every severity).
+    fn matched_ids(cmd: &str, env: &crate::env::MockEnvironment) -> Vec<String> {
+        let settings = Settings::default();
+        let resolved = settings.resolved_for(crate::config::Mode::Shell);
+        let checks = get_all().unwrap();
+        let re = Regex::new("x").unwrap();
+        let p = analyze_command(cmd, &settings, &resolved, &checks, env, &re).unwrap();
+        p.active_matches.iter().map(|c| c.id.clone()).collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_folders_and_dotfiles_are_skipped_only_when_real() {
+        let tree = tree_fs::TreeBuilder::default().create().unwrap();
+        let root = tree.root.clone();
+        for d in [
+            "node_modules/.cache",
+            "__pycache__",
+            ".next/cache",
+            ".venv/lib",
+            "src/lib",
+            "pkg",
+            ".git",
+        ] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        std::fs::write(root.join(".env"), "A=1").unwrap();
+        // `pkg/node_modules` and `.envrc` are symbolic links.
+        std::os::unix::fs::symlink("../src", root.join("pkg/node_modules")).unwrap();
+        std::os::unix::fs::symlink("../src", root.join("pkg/.next")).unwrap();
+        std::os::unix::fs::symlink(".git", root.join(".envrc")).unwrap();
+        // A project inside the home directory.
+        let mut env = crate::env::MockEnvironment {
+            cwd: root.clone(),
+            home: root.parent().map(std::path::Path::to_path_buf),
+            ..Default::default()
+        };
+        for p in [
+            "node_modules",
+            "node_modules/.cache",
+            "__pycache__",
+            "src",
+            "src/lib",
+            "pkg",
+            "pkg/node_modules",
+            "pkg/node_modules/lib",
+            ".next",
+            ".venv",
+            "pkg/.next",
+            "yarn.lock",
+            ".git",
+            ".env",
+            ".envrc",
+        ] {
+            env.existing_paths.insert(root.join(p));
+        }
+        for cmd in [
+            "rm -rf node_modules",
+            "rm -rf node_modules/.cache",
+            "rm -rf __pycache__",
+            "rm -rf .next",
+            "rm -rf node_modules yarn.lock",
+            "npx rimraf node_modules",
+            "chmod 600 .env",
+        ] {
+            let ids = matched_ids(cmd, &env);
+            assert!(!ids.iter().any(|i| i.starts_with("fs")), "{cmd}: {ids:?}");
+        }
+        for (cmd, id) in [
+            // The link (or the folder it points to) is not a cache folder.
+            ("rm -rf pkg/node_modules", "fs-strict:recursive_deletion"),
+            ("rm -rf pkg/node_modules/", "fs-strict:recursive_deletion"),
+            (
+                "rm -rf pkg/node_modules/lib",
+                "fs-strict:recursive_deletion",
+            ),
+            ("rm -rf pkg/.next", "fs-strict:recursive_deletion"),
+            // A trailing `/` (dropped by the parser) is not skipped.
+            ("rm -rf node_modules/", "fs-strict:recursive_deletion"),
+            ("rm -rf .next/", "fs-strict:recursive_deletion"),
+            ("rm -rf .venv/*/..", "fs-strict:recursive_deletion"),
+            // A folder or a link is not one project dotfile.
+            ("chmod 600 .git", "fs-strict:change_permissions"),
+            ("chmod 600 .envrc", "fs-strict:change_permissions"),
+        ] {
+            let ids = matched_ids(cmd, &env);
+            assert!(ids.iter().any(|i| i == id), "{cmd}: {ids:?}");
+        }
     }
 
     #[test]

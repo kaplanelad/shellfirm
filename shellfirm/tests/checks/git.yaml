@@ -14,12 +14,15 @@
   expect_ids: ["git:bisect"]
 
 # -- git:cherry_pick --
-- test: "git cherry-pick abc123"
-  description: "match cherry-pick command"
+- test: "git cherry-pick --abort"
+  description: "match aborting a cherry-pick"
   expect_ids: ["git:cherry_pick"]
-- test: "git cherry-pick --no-commit"
-  description: "match cherry-pick without commit"
+- test: "git cherry-pick --skip"
+  description: "match skipping the commit being cherry-picked"
   expect_ids: ["git:cherry_pick"]
+- test: "git cherry-pick --no-commit abc123"
+  description: "negative: applying a commit without committing it"
+  expect_ids: []
 
 # -- git:clean_force --
 - test: "git clean -fd"
@@ -119,14 +122,14 @@
 
 # -- git:merge_no_ff --
 - test: "git merge --no-ff feature"
-  description: "match non-fast-forward merge"
-  expect_ids: ["git:merge_no_ff"]
+  description: "negative: a non-fast-forward merge only adds a merge commit"
+  expect_ids: []
 - test: "git merge --abort"
   description: "match merge abort"
   expect_ids: ["git:merge_no_ff"]
 - test: "git merge --no-ff"
-  description: "match non-fast-forward merge without branch"
-  expect_ids: ["git:merge_no_ff"]
+  description: "negative: non-fast-forward merge without branch"
+  expect_ids: []
 
 # -- git:reset --
 - test: "git reset"
@@ -141,14 +144,17 @@
 
 # -- git:worktree_management --
 - test: "git worktree add ../other"
-  description: "match add worktree"
+  description: "negative: adding a worktree only creates a new checkout"
+  expect_ids: []
+- test: "git worktree add -B main ../other origin/main"
+  description: "match add worktree that resets an existing branch"
   expect_ids: ["git:worktree_management"]
 - test: "git worktree remove ../other"
   description: "match remove worktree"
   expect_ids: ["git:worktree_management"]
 - test: "git worktree add -f ../other"
-  description: "match force add worktree"
-  expect_ids: ["git:worktree_management"]
+  description: "negative: force add worktree (a new checkout, nothing removed)"
+  expect_ids: []
 - test: "git worktree remove -f ../other"
   description: "match force remove worktree"
   expect_ids: ["git:worktree_management"]
@@ -214,8 +220,8 @@
 
 # -- git-strict:stash_pop_drop --
 - test: "git stash pop"
-  description: "match stash pop"
-  expect_ids: ["git-strict:stash_pop_drop"]
+  description: "negative: stash pop keeps the entry if applying it fails"
+  expect_ids: []
 - test: "git stash drop"
   description: "match stash drop"
   expect_ids: ["git-strict:stash_pop_drop"]
@@ -230,8 +236,8 @@
 - test: "git submodule deinit"
   description: "match submodule deinit"
   expect_ids: ["git-strict:submodule_update"]
-- test: "git submodule update --init"
-  description: "match submodule update with init"
+- test: "git submodule update --remote --init"
+  description: "match submodule update --remote with init"
   expect_ids: ["git-strict:submodule_update"]
 - test: "git submodule status"
   description: "negative: checking submodule status should not match"
@@ -457,7 +463,7 @@
   expect_ids: []
 - test: "git stash pop"
   description: "negative: stash pop should not match stash_clear"
-  expect_ids: ["git-strict:stash_pop_drop"]
+  expect_ids: []
 - test: "git stash drop"
   description: "negative: stash drop should not match stash_clear"
   expect_ids: ["git-strict:stash_pop_drop"]
@@ -557,7 +563,7 @@
   description: "EDGE: word starting with clear should not match"
   expect_ids: []
 
-# -- round 2: git --
+# -- git --
 - test: 'git switch --discard-changes main'
   description: "discard and switch"
   expect_ids: ["git:switch_discard_changes"]
@@ -650,7 +656,6 @@
 - test: 'git filter-repo --path src --invert-paths'
   description: "filter-repo rewrites history"
   expect_ids: ["git:filter_repo"]
-# -- round 5 (Omar R4 N6) --
 - test: "shellfirm-force-push-protected main"
   description: "marker emitted for --force-with-lease to a protected branch"
   expect_ids: ["git:force_push_protected"]
@@ -667,7 +672,7 @@
   description: "a git shell alias runs its command"
   expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
 
-# -- git:config_exec_program (round 6, manager follow-up) --
+# -- git:config_exec_program --
 - test: "git config --global core.pager 'sh -c evil'"
   description: "a global pager runs a program on every git command"
   expect_ids: ["git:config_exec_program"]
@@ -686,7 +691,7 @@
 - test: "git config --global alias.st status"
   description: "negative: a git alias (no shell)"
   expect_ids: []
-# -- round 7: one-shot `-c` values and git exec settings --
+# -- one-shot `-c` values and git exec settings --
 - test: "git -c core.pager=cat log -5"
   description: "negative: a pager turned off for one command"
   expect_ids: []
@@ -697,8 +702,8 @@
   description: "negative: fsmonitor off, persistent"
   expect_ids: []
 - test: "git -c core.editor=true rebase --continue"
-  description: "negative for the program check: editor `true`"
-  expect_ids: ["git-strict:rebase"]
+  description: "negative for the program check: editor `true` (and continuing a rebase)"
+  expect_ids: []
 - test: "git config --global core.pager delta"
   description: "negative: a common pager"
   expect_ids: []
@@ -715,7 +720,7 @@
   description: "GIT_SSH_COMMAND runs its value"
   expect_ids: ["fs:recursively_delete", "fs-strict:recursive_deletion"]
 
-# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# ---- anchoring and housekeeping ----
 # -- git:force_push --
 - test: "mygit push -f"
   description: "another tool whose name ends in git"
@@ -747,16 +752,1606 @@
 - test: "git push --delete origin main"
   description: "still caught without -n"
   expect_ids: ["git:push_delete_branch"]
-# -- issue #189, round 3: credential.helper shell code --
+# -- issue #189: credential.helper shell code --
 - test: "git config --global credential.helper '!/tmp/steal.sh'"
-  description: "round 3: a !-prefixed credential helper runs shell code"
+  description: "a !-prefixed credential helper runs shell code"
   expect_ids: ["git:config_exec_program"]
 - test: "git config core.editor"
-  description: "round 3: reading a setting (no value) only prints it"
+  description: "reading a setting (no value) only prints it"
   expect_ids: []
 - test: "git config core.pager"
-  description: "round 3: reading the pager setting is not an exec install"
+  description: "reading the pager setting is not an exec install"
   expect_ids: []
 - test: "git config --global credential.helper store"
-  description: "negative round 3: the store helper is not shell code"
+  description: "negative: the store helper is not shell code"
+  expect_ids: []
+
+# -- harmless forms split from destructive ones --
+- test: "git merge --no-ff feature/login"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git merge --abort"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git merge --no-ff --abort"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git merge --no-ff feature/login && git merge --abort"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git reset --hard ORIG_HEAD"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:reset"]
+- test: "git merge --no-ff --no-edit feature/login"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git cherry-pick abc123"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git cherry-pick --abort"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:cherry_pick"]
+- test: "git cherry-pick --skip"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:cherry_pick"]
+- test: "git reset --hard HEAD~1"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:reset"]
+- test: "git cherry-pick -x abc123"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git cherry-pick abc123..def456"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git cherry-pick --continue"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git stash pop"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git stash drop"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash drop stash@{0}"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash clear"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:stash_clear"]
+- test: "git stash pop && git stash drop"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git stash pop stash@{1}"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git worktree add ../webapp-hotfix -b hotfix"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git worktree remove --force ../webapp-hotfix"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree remove ../webapp-hotfix"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree add -B main ../wt origin/main"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree add -B hotfix ../wt"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree add ../wt main && git worktree remove --force ../other"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git worktree add ../wt main"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git worktree remove --force ../wt"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git:worktree_management"]
+- test: "git rebase --continue"
+  description: "negative: routine form, nothing is lost"
+  expect_ids: []
+- test: "git rebase -i HEAD~3"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase", "git:interactive_rebase"]
+- test: "git rebase --onto main HEAD~5"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase --skip"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase main"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase --abort"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase --continue --exec 'rm -rf ~'"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase"]
+- test: "git rebase --continue && git rebase -i HEAD~3"
+  description: "the destructive form stays flagged"
+  expect_ids: ["git-strict:rebase", "git:interactive_rebase"]
+
+# -- the last dry-run value wins --
+- test: "git push --force -n --no-dry-run origin main"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["git:force_push"]
+- test: "git clean -fdn --no-dry-run"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["git:clean_force"]
+- test: "git push --mirror --dry-run --no-dry-run origin"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["git:push_mirror"]
+- test: "git push origin --delete old -n --no-dry-run"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push --all --prune --dry-run --no-dry-run origin"
+  description: "a later dry-run value turns the dry run off"
+  expect_ids: ["git:push_prune"]
+- test: "git push --no-dry-run --dry-run --force origin main"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "git clean -fd --no-dry-run -n"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+
+# -- git submodule update --init only checks out --
+- test: "git submodule update --init --recursive"
+  description: "negative: only clones and checks out the recorded commits"
+  expect_ids: []
+- test: "git submodule update --init"
+  description: "negative: only clones and checks out the recorded commits"
+  expect_ids: []
+- test: "git submodule update --init --recursive --depth 1 -j 8 -- vendor/lib"
+  description: "negative: only clones and checks out the recorded commits"
+  expect_ids: []
+- test: "git submodule update --recursive --init --jobs=4 --single-branch"
+  description: "negative: only clones and checks out the recorded commits"
+  expect_ids: []
+- test: "git submodule deinit -f --all"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule deinit vendor/lib"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --force"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --force"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init -f"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --recursive --force"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --remote"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --rebase"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --merge"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init --checkout --force"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init; git submodule update --force"
+  description: "still updates or deinitializes submodules destructively"
+  expect_ids: ["git-strict:submodule_update"]
+
+# -- git submodule update --init: no git global options, nothing else on the line --
+- test: "git -c submodule.lib.update='!rm -rf ~' submodule update --init"
+  description: "a -c value can name the command the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git config submodule.lib.update '!rm -rf ~' && git submodule update --init"
+  description: "an earlier segment can set the command the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git -C vendor submodule update --init"
+  description: "git global options keep it asked"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git --git-dir=.git submodule update --init"
+  description: "git global options keep it asked"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "GIT_CONFIG_PARAMETERS=\"'submodule.lib.update=!rm -rf ~'\" git submodule update --init"
+  description: "git configuration from the environment keeps it asked"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init && make"
+  description: "negative: a command after the update cannot change what it ran"
+  expect_ids: []
+- test: "git submodule update --init | sh"
+  description: "output piped into a shell keeps it asked"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "cd vendor && git submodule update --init"
+  description: "negative: only cd and inspection commands beside it"
+  expect_ids: []
+- test: "git submodule update --init --recursive && git status"
+  description: "negative: only cd and inspection commands beside it"
+  expect_ids: []
+- test: "git submodule update --init && ls vendor"
+  description: "negative: only cd and inspection commands beside it"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "git push -o -n --force origin main"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["git:force_push"]
+- test: "git clean -f -e -n"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["git:clean_force"]
+- test: "git push --force -n origin main"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "git clean -f -n"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "git clean -fdn"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+
+# -- A line that runs something as another user (sudo, doas, su -c, pkexec,
+# run0, runuser, at any depth): only the exemptions that change nothing apply --
+- test: "sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "doas git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -u root git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -E git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -i git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -s git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -- git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo -u dev git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo sh -c 'git merge --no-ff feature/login'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "su -c 'git merge --no-ff feature/login'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "su root -c 'git merge --no-ff feature/login'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "pkexec git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "run0 git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "runuser -u root -- git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "env sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo env git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "timeout 60 sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "nohup sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "nice sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "FOO=1 sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sh -c 'sudo git merge --no-ff feature/login'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "bash -c \"sudo git merge --no-ff feature/login\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "cd apps/web && sudo git merge --no-ff feature/login"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "doas git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -u root git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -E git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -i git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -s git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -- git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -u dev git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo sh -c 'git cherry-pick abc123'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "su -c 'git cherry-pick abc123'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "su root -c 'git cherry-pick abc123'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "pkexec git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "run0 git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "runuser -u root -- git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "env sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo env git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "timeout 60 sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "nohup sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "nice sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "FOO=1 sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sh -c 'sudo git cherry-pick abc123'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "bash -c \"sudo git cherry-pick abc123\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "cd apps/web && sudo git cherry-pick abc123"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "doas git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -u root git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -E git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -i git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -s git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -- git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo -u dev git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo sh -c 'git cherry-pick --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "su -c 'git cherry-pick --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "su root -c 'git cherry-pick --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "pkexec git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "run0 git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "runuser -u root -- git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "env sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo env git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "timeout 60 sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "nohup sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "nice sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "FOO=1 sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sh -c 'sudo git cherry-pick --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "bash -c \"sudo git cherry-pick --continue\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "cd apps/web && sudo git cherry-pick --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "doas git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -u root git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -E git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -i git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -s git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -- git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo -u dev git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo sh -c 'git stash pop'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "su -c 'git stash pop'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "su root -c 'git stash pop'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "pkexec git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "run0 git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "runuser -u root -- git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "env sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo env git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "timeout 60 sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "nohup sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "nice sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "FOO=1 sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sh -c 'sudo git stash pop'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "bash -c \"sudo git stash pop\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "cd apps/web && sudo git stash pop"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "doas git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -u root git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -E git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -i git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -s git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -- git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo -u dev git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo sh -c 'git worktree add ../wt main'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "su -c 'git worktree add ../wt main'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "su root -c 'git worktree add ../wt main'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "pkexec git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "run0 git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "runuser -u root -- git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "env sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo env git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "timeout 60 sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "nohup sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "nice sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "FOO=1 sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sh -c 'sudo git worktree add ../wt main'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "bash -c \"sudo git worktree add ../wt main\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "cd apps/web && sudo git worktree add ../wt main"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "doas git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -u root git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -E git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -i git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -s git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -- git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo -u dev git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo sh -c 'git rebase --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "su -c 'git rebase --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "su root -c 'git rebase --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "pkexec git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "run0 git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "runuser -u root -- git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "env sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo env git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "timeout 60 sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "nohup sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "nice sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "FOO=1 sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sh -c 'sudo git rebase --continue'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "bash -c \"sudo git rebase --continue\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "cd apps/web && sudo git rebase --continue"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:rebase"]
+- test: "sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "doas git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -u root git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -E git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -i git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -s git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -- git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo -u dev git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo sh -c 'git submodule update --init --recursive'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "su -c 'git submodule update --init --recursive'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "su root -c 'git submodule update --init --recursive'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "pkexec git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "run0 git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "runuser -u root -- git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "env sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo env git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "timeout 60 sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "nohup sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "nice sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "FOO=1 sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sh -c 'sudo git submodule update --init --recursive'"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "bash -c \"sudo git submodule update --init --recursive\""
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "cd apps/web && sudo git submodule update --init --recursive"
+  description: "run as another user (or beside such a command): the bounded exemption does not apply"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "env git merge --no-ff feature/login"
+  description: "negative: a pass-through wrapper runs the same command as the same user"
+  expect_ids: []
+- test: "timeout 60 git cherry-pick abc123"
+  description: "negative: a pass-through wrapper runs the same command as the same user"
+  expect_ids: []
+- test: "nice git stash pop"
+  description: "negative: a pass-through wrapper runs the same command as the same user"
+  expect_ids: []
+- test: "sh -c 'git rebase --continue'"
+  description: "negative: a pass-through wrapper runs the same command as the same user"
+  expect_ids: []
+- test: "sudo git apply --check fix.patch"
+  description: "negative: checking a patch changes nothing, whoever runs it"
+  expect_ids: []
+
+# -- git submodule update --init after a plain pull, fetch, checkout, switch or
+# clone (short option lists), with anything after it --
+- test: "git pull && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git checkout main && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git fetch && git submodule update --init"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git clone ~/remote.git /tmp/wa && cd /tmp/wa && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git submodule update --init --recursive && npm install"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git switch main && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git pull --ff-only && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git pull origin main && git submodule update --init"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git fetch --all --prune && git submodule update --init"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git checkout -b fix v1.2 && git submodule update --init"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git switch -c fix main && git submodule update --init --recursive"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git clone -q --depth 1 -b main https://example.com/r.git r && cd r && git submodule update --init"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git pull --rebase --autostash origin main && git submodule update --init --recursive && make"
+  description: "negative: the steps before it cannot set the command the update runs"
+  expect_ids: []
+- test: "git config submodule.lib.update '!rm -rf ~' && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git -c submodule.lib.update='!rm -rf ~' submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git config -f .git/config submodule.lib.update '!sh x.sh'; git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=submodule.lib.update GIT_CONFIG_VALUE_0='!rm -rf ~' git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull && git submodule update --init --force"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init && git submodule foreach 'rm -rf .'"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git clone -c submodule.lib.update='!rm -rf ~' ~/remote.git /tmp/wa && cd /tmp/wa && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git clone --config submodule.lib.update='!rm -rf ~' ~/remote.git /tmp/wa && cd /tmp/wa && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git clone --template=/tmp/evil ~/remote.git /tmp/wa && cd /tmp/wa && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch --upload-pack='rm -rf ~' origin && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull --upload-pack 'rm -rf ~' && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git -c submodule.lib.update='!rm -rf ~' pull && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git -C /tmp/wa pull && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git config submodule.lib.update '!rm -rf ~' & git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init && git config submodule.lib.update '!rm -rf ~' && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull && sudo git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "sudo sh -c 'git pull && git submodule update --init'"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull && HOME=/tmp/evil git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull && XDG_CONFIG_HOME=/tmp/evil git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull; git config --global submodule.lib.update '!rm -rf ~'; git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "echo \"git config submodule.lib.update '!rm -rf ~'\" | sh && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a wrapper can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git submodule update --init 2>&1 | tail -5"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin && git submodule update --init | sh"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git clone --recurse-submodules=x https://example.com/r.git r && cd r && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git checkout -- . && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update", "git:checkout_discard_all"]
+- test: "git pull origin main extra && git submodule update --init"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "env git submodule update --init"
+  description: "a step before it, a prefix, a background job or a pipe can change what the update runs"
+  expect_ids: ["git-strict:submodule_update"]
+
+# -- command position: an exemption holds only for a command in command position, run locally as the user --
+- test: "alias s=sudo; s git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "SUDO=sudo; $SUDO git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "$SUDO git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "\"${SUDO:-sudo}\" git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "${SUDO:-sudo} git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "chroot / git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "systemd-run --uid=0 --pty git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "systemd-run -p User=root --pty git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "ssh root@localhost 'git merge --no-ff feature/login'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:merge_no_ff"]
+- test: "please git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo-rs git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "gosu root git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "su-exec root git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "nsenter -t 1 -a git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "alias s=sudo; s git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "SUDO=sudo; $SUDO git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "$SUDO git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "\"${SUDO:-sudo}\" git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "${SUDO:-sudo} git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "chroot / git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "systemd-run --uid=0 --pty git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "systemd-run -p User=root --pty git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "ssh root@localhost 'git merge --no-ff --no-edit feature/login'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:merge_no_ff"]
+- test: "please git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo-rs git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "gosu root git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "su-exec root git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "nsenter -t 1 -a git merge --no-ff --no-edit feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "alias s=sudo; s git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "SUDO=sudo; $SUDO git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "$SUDO git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "\"${SUDO:-sudo}\" git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO:-sudo} git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "chroot / git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run --uid=0 --pty git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run -p User=root --pty git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "ssh root@localhost 'git cherry-pick abc123'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "please git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo-rs git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "gosu root git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "su-exec root git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "nsenter -t 1 -a git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "alias s=sudo; s git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "SUDO=sudo; $SUDO git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "$SUDO git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "\"${SUDO:-sudo}\" git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO:-sudo} git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "chroot / git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run --uid=0 --pty git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run -p User=root --pty git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "ssh root@localhost 'git cherry-pick -x abc123'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "please git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo-rs git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "gosu root git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "su-exec root git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "nsenter -t 1 -a git cherry-pick -x abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "alias s=sudo; s git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "SUDO=sudo; $SUDO git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "$SUDO git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "\"${SUDO:-sudo}\" git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO:-sudo} git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "chroot / git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run --uid=0 --pty git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run -p User=root --pty git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "ssh root@localhost 'git cherry-pick abc123..def456'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "please git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo-rs git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "gosu root git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "su-exec root git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "nsenter -t 1 -a git cherry-pick abc123..def456"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "alias s=sudo; s git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "SUDO=sudo; $SUDO git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "$SUDO git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "\"${SUDO:-sudo}\" git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO:-sudo} git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "chroot / git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run --uid=0 --pty git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "systemd-run -p User=root --pty git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "ssh root@localhost 'git cherry-pick --continue'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "please git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "sudo-rs git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "gosu root git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "su-exec root git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "nsenter -t 1 -a git cherry-pick --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "alias s=sudo; s git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "SUDO=sudo; $SUDO git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "$SUDO git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "\"${SUDO:-sudo}\" git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "${SUDO:-sudo} git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "chroot / git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "systemd-run --uid=0 --pty git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "systemd-run -p User=root --pty git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "ssh root@localhost 'git stash pop'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "please git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo-rs git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "gosu root git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "su-exec root git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "nsenter -t 1 -a git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "alias s=sudo; s git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "SUDO=sudo; $SUDO git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "$SUDO git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "\"${SUDO:-sudo}\" git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "${SUDO:-sudo} git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "chroot / git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "systemd-run --uid=0 --pty git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "systemd-run -p User=root --pty git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "ssh root@localhost 'git stash pop stash@{1}'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "please git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "sudo-rs git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "gosu root git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "su-exec root git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "nsenter -t 1 -a git stash pop stash@{1}"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "alias s=sudo; s git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "SUDO=sudo; $SUDO git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "$SUDO git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "\"${SUDO:-sudo}\" git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "${SUDO:-sudo} git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "chroot / git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "systemd-run --uid=0 --pty git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "systemd-run -p User=root --pty git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "ssh root@localhost 'git worktree add ../webapp-hotfix -b hotfix'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:worktree_management"]
+- test: "please git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo-rs git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "gosu root git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "su-exec root git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "nsenter -t 1 -a git worktree add ../webapp-hotfix -b hotfix"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "alias s=sudo; s git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "SUDO=sudo; $SUDO git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "$SUDO git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "\"${SUDO:-sudo}\" git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "${SUDO:-sudo} git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "chroot / git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "systemd-run --uid=0 --pty git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "systemd-run -p User=root --pty git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "ssh root@localhost 'git worktree add ../wt main'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:worktree_management"]
+- test: "please git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "sudo-rs git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "gosu root git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "su-exec root git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "nsenter -t 1 -a git worktree add ../wt main"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:worktree_management"]
+- test: "alias s=sudo; s git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "SUDO=sudo; $SUDO git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "\"${SUDO:-sudo}\" git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "${SUDO:-sudo} git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "chroot / git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "setpriv --reuid=0 --regid=0 --init-groups git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "systemd-run --uid=0 --pty git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "systemd-run -p User=root --pty git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "ssh root@localhost 'git rebase --continue'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git-strict:rebase"]
+- test: "nsenter -t 1 -a git rebase --continue"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:rebase"]
+- test: "alias s=sudo\ns git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "export SUDO=sudo; $SUDO git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "${SUDO} git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "${SUDO:+sudo} git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "\"$1\" git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "printf sudo | xargs -I{} {} git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "s git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "ssh -l root localhost 'git merge --no-ff feature/login'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:merge_no_ff"]
+- test: "docker run --rm -v \"$PWD\":/w -w /w alpine git merge --no-ff feature/login"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:merge_no_ff"]
+- test: "S=sudo; bash -c \"$S git merge --no-ff feature/login\""
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "/usr/bin/sud? git merge --no-ff feature/login"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:merge_no_ff"]
+- test: "alias s=sudo\ns git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "export SUDO=sudo; $SUDO git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "${SUDO} git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "${SUDO:+sudo} git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "\"$1\" git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "printf sudo | xargs -I{} {} git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "s git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "ssh -l root localhost 'git stash pop'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "docker run --rm -v \"$PWD\":/w -w /w alpine git stash pop"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "S=sudo; bash -c \"$S git stash pop\""
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "/usr/bin/sud? git stash pop"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "alias s=sudo\ns git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "export SUDO=sudo; $SUDO git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO} git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "${SUDO:+sudo} git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "\"$1\" git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "printf sudo | xargs -I{} {} git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "s git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "ssh -l root localhost 'git cherry-pick abc123'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "docker run --rm -v \"$PWD\":/w -w /w alpine git cherry-pick abc123"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:cherry_pick"]
+- test: "S=sudo; bash -c \"$S git cherry-pick abc123\""
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "/usr/bin/sud? git cherry-pick abc123"
+  description: "flag: the exempt command is not in command position (a runner, name or expansion in front)"
+  expect_ids: ["git:cherry_pick"]
+- test: "git fetch origin '+refs/*:refs/*' && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin +main:main && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull origin +main:main && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch . +HEAD~5:main && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin '+refs/heads/*:refs/heads/*' && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch --prune origin '+refs/tags/*:refs/tags/*' && git submodule update --init"
+  description: "flag: a forced or local-destination refspec before submodule update"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "ssh bastion 'git merge --no-ff feature/login'"
+  description: "flag: a remote or container payload never keeps a bounded exemption"
+  expect_ids: ["git:merge_no_ff"]
+- test: "git fetch origin main:main && git submodule update --init"
+  description: "flag: only the allowlisted pass-through wrappers and plain refs keep the exemption"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git pull origin main:main && git submodule update --init"
+  description: "flag: only the allowlisted pass-through wrappers and plain refs keep the exemption"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin +main && git submodule update --init"
+  description: "flag: only the allowlisted pass-through wrappers and plain refs keep the exemption"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin ^main && git submodule update --init"
+  description: "flag: only the allowlisted pass-through wrappers and plain refs keep the exemption"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git fetch origin refs/heads/main:refs/heads/main && git submodule update --init"
+  description: "flag: only the allowlisted pass-through wrappers and plain refs keep the exemption"
+  expect_ids: ["git-strict:submodule_update"]
+- test: "git commit -m 'docs: sudo is not needed' && rm -rf node_modules"
+  description: "allow: data that only mentions a runner, or a runner on another command of the line"
+  expect_ids: []
+- test: "git cherry-pick abc123 # sudo"
+  description: "allow: data that only mentions a runner, or a runner on another command of the line"
+  expect_ids: []
+- test: "git commit -m 'docs: sudo' && git merge --no-ff docs/sudo"
+  description: "allow: data that only mentions a runner, or a runner on another command of the line"
+  expect_ids: []
+- test: "git commit -m \"$(cat <<'EOF'\ndocs: explain sudo usage\nEOF\n)\" && rm -rf node_modules"
+  description: "allow: data that only mentions a runner, or a runner on another command of the line"
+  expect_ids: []
+- test: "git tag -a v1.2.0 -m \"release\""
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a v1.2.0 -m release"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a v1.2.0 -m \"release\" && git push origin v1.2.0"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag --annotate v1.2.0 -m release"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a -m release v1.2.0"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a v1.2.0 -F notes.md"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a v1.2.0 abc123 -m x"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "git tag -a v1 -m x -m y"
+  description: "allow: an annotated tag with its message given"
+  expect_ids: []
+- test: "sudo git merge --no-ff feature"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:merge_no_ff"]
+- test: "sudo git cherry-pick abc123"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:cherry_pick"]
+- test: "doas git stash pop"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:stash_pop_drop"]
+- test: "git tag -a -f v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a v1.2.0 -m x --force"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a v1.2.0 -m x -f"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a v1.2.0 -m x && git push --force origin v1.2.0"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:force_push"]
+- test: "git push origin :refs/tags/v1.0.0"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push --delete origin v1.0.0"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:push_delete_branch"]
+- test: "git push --force --tags"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:force_push"]
+- test: "git push --force origin v1.0.0"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:force_push"]
+- test: "git tag -a v1.2.0 -m \"$(rm -rf ~/data)\""
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside", "git-strict:create_tag"]
+- test: "git -c core.hooksPath=/tmp/h tag -a v1 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:config_exec_hook"]
+- test: "echo 'git push --force origin v1' | sh && git tag -a v1 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git:force_push"]
+- test: "echo 'git push --force origin v1' > /tmp/t.sh && sh /tmp/t.sh"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["fs:flush_file_content", "git:force_push"]
+- test: "sudo git tag -a v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "doas git tag -a v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "su -c 'git tag -a v1.2.0 -m x'"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "sh -c 'sudo git tag -a v1.2.0 -m x'"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "sudo sh -c 'git tag -a v1.2.0 -m x'"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "pkexec git tag -a v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "run0 git tag -a v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "env sudo git tag -a v1.2.0 -m x"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a v1.2.0 -m x | sh"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "git tag -a v1.2.0"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["git-strict:create_tag"]
+- test: "nice timeout 60 git cherry-pick abc123"
+  description: "allow: a pass-through wrapper or command position keeps the exemption"
+  expect_ids: []
+- test: "env -i PATH=/usr/bin git stash pop"
+  description: "allow: a pass-through wrapper or command position keeps the exemption"
+  expect_ids: []
+- test: "sudo -k; git merge --no-ff feature/login"
+  description: "allow: a pass-through wrapper or command position keeps the exemption"
+  expect_ids: []
+- test: "git fetch origin main && git submodule update --init"
+  description: "allow: a pass-through wrapper or command position keeps the exemption"
   expect_ids: []

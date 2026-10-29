@@ -239,7 +239,7 @@
   description: "EDGE: dryrun should be filtered out"
   expect_ids: []
 
-# -- round 2: aws --
+# -- aws --
 - test: 'aws ecr batch-delete-image --repository-name r --image-ids imageTag=v1'
   description: "ecr images"
   expect_ids: ["aws:ecr_batch_delete_image"]
@@ -275,49 +275,106 @@
   description: "negative: scaling to ten"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# ---- anchoring and housekeeping ----
 # -- aws:s3_recursive_delete --
 - test: "myaws s3 rm s3://bucket --recursive"
   description: "another tool whose name ends in aws"
   expect_ids: []
-# -- issue #189, round 1 --
+# -- issue #189 --
 - test: "aws s3api delete-bucket --bucket prod"
-  description: "issue #189 round 1: aws s3api delete-bucket --bucket prod"
+  description: "issue #189: aws s3api delete-bucket --bucket prod"
   expect_ids: ["aws:s3api_delete_bucket"]
 - test: "cdk destroy --force"
-  description: "issue #189 round 1: cdk destroy --force"
+  description: "issue #189: cdk destroy --force"
   expect_ids: ["aws:cdk_destroy"]
 - test: "npx cdk destroy"
-  description: "issue #189 round 1: npx cdk destroy"
+  description: "issue #189: npx cdk destroy"
   expect_ids: ["aws:cdk_destroy"]
 - test: "aws configure get region"
-  description: "negative (issue #189 round 1): aws configure get region"
+  description: "negative (issue #189): aws configure get region"
   expect_ids: []
 - test: "cdk deploy"
-  description: "negative (issue #189 round 1): cdk deploy"
+  description: "negative (issue #189): cdk deploy"
   expect_ids: []
 - test: "aws s3api list-buckets"
-  description: "negative (issue #189 round 1): aws s3api list-buckets"
+  description: "negative (issue #189): aws s3api list-buckets"
   expect_ids: []
-# -- issue #189, round 3: IaC teardown + bulk object delete --
+# -- issue #189: IaC teardown + bulk object delete --
 - test: "aws s3api delete-objects --bucket b --delete file://d.json"
-  description: "round 3: bulk delete-objects"
+  description: "bulk delete-objects"
   expect_ids: ["aws:s3api_delete_bucket"]
 - test: "serverless remove --stage prod"
-  description: "round 3: serverless remove"
+  description: "serverless remove"
   expect_ids: ["aws:iac_destroy"]
 - test: "sls remove"
-  description: "round 3: sls remove alias"
+  description: "sls remove alias"
   expect_ids: ["aws:iac_destroy"]
 - test: "sam delete --stack-name app"
-  description: "round 3: sam delete"
+  description: "sam delete"
   expect_ids: ["aws:iac_destroy"]
 - test: "amplify delete"
-  description: "round 3: amplify delete"
+  description: "amplify delete"
   expect_ids: ["aws:iac_destroy"]
 - test: "npx sst remove --stage prod"
-  description: "round 3: sst remove"
+  description: "sst remove"
   expect_ids: ["aws:iac_destroy"]
 - test: "serverless deploy"
-  description: "negative round 3: a deploy is not a teardown"
+  description: "negative: a deploy is not a teardown"
+  expect_ids: []
+
+# -- dry-run flags --
+- test: "aws ec2 terminate-instances --instance-ids i-123 --dry-run"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --instance-ids i-123"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --no-dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --dry-run --no-dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+
+# -- the last dry-run value wins --
+- test: "aws s3 sync . s3://bucket --delete --dryrun"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "aws s3 rm s3://bucket/ --recursive --exclude \"*--dryrun*\""
+  description: "the --dryrun text is part of a pattern, not the option"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --no-dry-run --dry-run"
+  description: "negative: the last value is a dry run"
+  expect_ids: []
+- test: "aws --no-cli-pager ec2 terminate-instances --instance-ids i-123 --dry-run"
+  description: "negative: a dry run; the --no- word is another option"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "aws ec2 terminate-instances --instance-ids i-1 --profile --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 --region --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws s3 rm s3://b/x --recursive --exclude --dryrun"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 --no-cli-pager --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --instance-ids i-1 --region=us-east-1 --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --dry-run --instance-ids i-1"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws s3 rm s3://b/x --recursive --dryrun"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
   expect_ids: []

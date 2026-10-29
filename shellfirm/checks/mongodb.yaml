@@ -82,6 +82,10 @@
   test: (?:^|\s)mongorestore\b.*\s--drop\b
   id: mongodb:mongorestore_drop
   severity: High
+  filters:
+    # `--dryRun` (exact spelling, its own word) restores nothing.
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--drop|--gzip|--noIndexRestore|--preserveUUID|--stopOnError|-v|--verbose|--quiet|--no-dry-run)\s+--dryRun(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
   description: "mongorestore --drop drops every collection it restores before restoring it (documents added since the dump are lost)."
   alternative: "mongorestore <dump-dir>"
   alternative_info: "Without --drop, existing documents are kept and duplicates are reported."

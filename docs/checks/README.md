@@ -3,15 +3,15 @@
 
 # Built-in checks
 
-496 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
+499 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
 
 | Group | Checks | Enabled by default |
 |---|---:|---|
 | [aws](#aws) | 29 | yes |
 | [azure](#azure) | 11 | yes |
 | [base](#base) | 30 | yes |
-| [database](#database) | 78 | yes |
-| [docker](#docker) | 17 | yes |
+| [database](#database) | 79 | yes |
+| [docker](#docker) | 18 | yes |
 | [exfil](#exfil) | 11 | yes |
 | [flyio](#flyio) | 4 | yes |
 | [fs](#fs) | 68 | yes |
@@ -25,7 +25,7 @@
 | [netlify](#netlify) | 3 | yes |
 | [network](#network) | 18 | yes |
 | [npm](#npm) | 4 | yes |
-| [psql](#psql) | 11 | yes |
+| [psql](#psql) | 12 | yes |
 | [redis](#redis) | 19 | yes |
 | [shell](#shell) | 14 | yes |
 | [terraform](#terraform) | 27 | yes |
@@ -139,6 +139,7 @@
 | `database:explain_analyze_write` | MEDIUM | EXPLAIN ANALYZE really executes the statement it explains. | `BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;` |
 | `database:prepare_write` | MEDIUM | This prepares a DELETE/UPDATE/TRUNCATE/DROP that runs on every EXECUTE. |  |
 | `database:terminate_backend` | MEDIUM | pg_terminate_backend kills client connections; their open transactions are rolled back. |  |
+| `database:side_effect_function` | MEDIUM | This query calls a function with a side effect: it removes or exports large objects, cancels backends, drops a replication slot, writes server files, runs SQL on another server or reloads the configuration. |  |
 | `database:drop_keyspace` | CRITICAL | Dropping a Cassandra keyspace permanently deletes every table in it. |  |
 | `database:cqlsh_drop` | CRITICAL | This runs a DROP KEYSPACE/TABLE or TRUNCATE statement through cqlsh (Cassandra). |  |
 | `database:clickhouse_drop` | CRITICAL | This runs a DROP DATABASE/TABLE or TRUNCATE statement through clickhouse-client. |  |
@@ -210,6 +211,7 @@
 | `docker:volume_prune` | HIGH | This removes unused volumes and their data (every one, unless --filter keeps some). |  |
 | `docker:remove_network` | MEDIUM | Removing a Docker network can disconnect containers using it. |  |
 | `docker:compose_down_volumes` | HIGH | This stops the containers and deletes their volumes and data. | `docker-compose down` |
+| `docker:compose_rm_volumes` | HIGH | This removes the stopped service containers and deletes their anonymous volumes and data. | `docker compose rm` |
 | `docker:stop_all_containers` | MEDIUM | This stops all running containers. |  |
 | `docker:image_prune_all` | HIGH | This removes all unused images, not just dangling ones. | `docker image prune` |
 | `docker:container_prune` | MEDIUM | This removes stopped containers (every one, unless --filter keeps some). |  |
@@ -285,7 +287,7 @@
 | `fs:partprobe_disk_update` | HIGH | Re-reading the partition table can affect mounted partitions. |  |
 | `fs:blockdev_disk_modify` | HIGH | Changing block device parameters can affect disk operations. |  |
 | `fs:mount_operations` | HIGH | Mounting a raw block device can affect system stability. |  |
-| `fs:lvm_operations` | CRITICAL | Removing a logical volume, physical volume or volume group deletes all of its data. |  |
+| `fs:lvm_operations` | CRITICAL | Removing a logical volume, physical volume or volume group, or shrinking a logical volume, deletes its data. |  |
 | `fs:filesystem_backup` | HIGH | Dumping or restoring a raw filesystem device can affect system stability. |  |
 | `fs:encryption_operations` | CRITICAL | Encrypting or reformatting a device with cryptsetup can make its data inaccessible. |  |
 | `fs-strict:change_permissions` | LOW | This changes file permissions. |  |
@@ -359,14 +361,14 @@
 | `git:filter_branch` | HIGH | This rewrites Git history. | `git-filter-repo` |
 | `git:gc_prune` | HIGH | This permanently deletes unreachable objects. |  |
 | `git:delete_ref` | HIGH | This deletes a Git reference. |  |
-| `git:merge_no_ff` | MEDIUM | This creates a merge commit or aborts an ongoing merge. |  |
-| `git:cherry_pick` | MEDIUM | This applies existing commits onto the current branch. |  |
+| `git:merge_no_ff` | MEDIUM | This aborts the merge in progress and discards the changes it made, or merges as another user (root-owned files in the repository). |  |
+| `git:cherry_pick` | MEDIUM | This abandons the cherry-pick in progress (--abort), drops the commit being applied (--skip), or applies commits as another user. |  |
 | `git:bisect` | MEDIUM | This starts a bisect session that checks out other commits. |  |
-| `git:worktree_management` | MEDIUM | This adds or removes a Git worktree. |  |
+| `git:worktree_management` | MEDIUM | This removes a Git worktree with its files, resets a branch to a new start point (add -B), or adds a worktree as another user. |  |
 | `git-strict:add_all` | LOW | This stages every changed file. |  |
 | `git-strict:commit_all` | LOW | This commits every changed tracked file. |  |
 | `git-strict:rebase` | LOW | This rewrites commit history by moving commits to a new base. |  |
-| `git-strict:stash_pop_drop` | LOW | This applies or removes stashed changes. |  |
+| `git-strict:stash_pop_drop` | LOW | This permanently deletes a stash entry, or applies one as another user. |  |
 | `git:stash_clear` | HIGH | This permanently deletes all stash entries. | `git stash list` |
 | `git-strict:submodule_update` | LOW | This updates or deinitializes Git submodules. |  |
 | `git-strict:create_tag` | LOW | This creates an annotated tag. |  |
@@ -553,6 +555,7 @@
 | `psql:pg_ctl_immediate` | HIGH | pg_ctl stop -m immediate aborts the server without a clean shutdown (crash recovery on the next start, connections are cut). | `pg_ctl stop -m fast -D <datadir>` |
 | `psql:pg_resetwal` | CRITICAL | pg_resetwal rewrites the write-ahead log; it can leave the database corrupted and is a last-resort recovery tool. |  |
 | `psql:pg_dropcluster` | CRITICAL | pg_dropcluster deletes a PostgreSQL cluster: its data directory and every database in it. |  |
+| `psql:client_file_write` | MEDIUM | psql writes a file on this machine (\copy … TO FILE, \o FILE, \w FILE, \g FILE): it can overwrite any file you can write, such as .env or a shell startup file. |  |
 | `psql:gexec` | MEDIUM | \gexec runs every value the query returns as a new SQL statement; those statements are not checked. |  |
 | `psql:pgbench_initialize` | MEDIUM | pgbench -i drops and recreates the pgbench_* tables (pgbench_accounts, pgbench_branches, ...) in the target database. |  |
 | `psql:patronictl_remove` | HIGH | patronictl remove deletes the cluster's state from the DCS (leader key, members, configuration): Patroni loses track of the cluster. |  |
