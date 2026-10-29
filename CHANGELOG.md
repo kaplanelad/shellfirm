@@ -1,5 +1,10 @@
 ## Unreleased
 
+## 0.4.1
+
+A bug-fix release: fewer false alarms from the AI-agent hooks and from
+specific checks, plus a few detection gaps closed.
+
 ### Fixed
 
 - **Fewer false alarms from agent self-protection.** A command that only
