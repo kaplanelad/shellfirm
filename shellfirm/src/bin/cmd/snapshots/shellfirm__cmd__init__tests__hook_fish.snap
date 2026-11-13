@@ -71,7 +71,8 @@ if status is-interactive
 
     # The source of the function $argv[1] when its body is worth checking
     # with a call: a small function that is not one of fish's own (those in
-    # $__fish_data_dir/functions, unless redefined) and not shellfirm's.
+    # $__fish_data_dir/functions or embedded in fish binary, unless redefined),
+    # and not shellfirm's.
     # Which functions are fish's own is remembered for the session (until a
     # line could define functions, or a file for one shows up in a function
     # directory that comes before fish's own).
@@ -96,6 +97,15 @@ if status is-interactive
         end
         functions -q -- $w; or return 1
         set -l file (functions --details -- $w 2>/dev/null)
+        # fish compiles its own functions into the binary: `cd` is
+        # reported as `embedded:functions/cd.fish`, not as a path in
+        # $__fish_data_dir. Reading its body would expand fish's whole
+        # directory handling (nextd, prevd, __fish_data_with_directory) into
+        # the check, where its `command rm -r $temp` looks like a deletion.
+        if string match -q -- 'embedded:*' $file
+            set -a __shellfirm_fn_shipped $w
+            return 1
+        end
         if set -q __fish_data_dir[1]; and string match -q -- "$__fish_data_dir/functions/*" $file
             set -a __shellfirm_fn_shipped $w
             return 1
@@ -430,9 +440,11 @@ if status is-interactive
             set todo
             for w in $next
                 set -a seen $w
-                # fish's own functions (from its data directory) are not read.
+                # fish's own functions (from its data directory, or embedded
+                # in fish binary) are not read.
                 set -l file (functions --details -- $w 2>/dev/null)
                 string match -q -- "$__fish_data_dir/*" $file; and continue
+                string match -q -- 'embedded:*' $file; and continue
                 set -a todo (functions --no-details -- $w 2>/dev/null | string match -ra '[A-Za-z0-9_:.@+-]+')
             end
         end

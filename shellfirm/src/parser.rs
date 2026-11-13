@@ -3069,9 +3069,9 @@ fn process_commands(
             };
             if let Some(fetch) = fetched {
                 let shell = if runner && !matches!(prog.as_str(), "source" | ".") {
-                    prog.clone()
+                    &prog
                 } else {
-                    "sh".to_string()
+                    "sh"
                 };
                 out.push(format!("{fetch} | {shell}"));
             }
