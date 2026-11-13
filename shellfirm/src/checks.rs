@@ -511,7 +511,7 @@ fn folders_with_uncommitted_work(
             if let Ok(rel) = path.strip_prefix(&root) {
                 let rel = rel.display().to_string();
                 if !rel.is_empty() && !candidates.iter().any(|(o, _)| *o == op) {
-                    candidates.push((op.clone(), rel));
+                    candidates.push((op, rel));
                 }
             }
         }
