@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Fixed
+
+- **fish:** the fish hook now skips expanding functions whose reported
+  source starts with `embedded:`, matching the existing behavior for
+  functions under `$__fish_data_dir/functions/`. Previously, embedded
+  function bodies were included in risk checks and could trigger false
+  alarms during routine commands.
+
 ## 0.4.1
 
 A bug-fix release: fewer false alarms from the AI-agent hooks and from
