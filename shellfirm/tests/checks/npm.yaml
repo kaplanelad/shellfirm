@@ -44,7 +44,7 @@
   description: "match npm unpublish at end of string (boundary check)"
   expect_ids: ["npm:unpublish"]
 # edge case: tab character between npm and unpublish — \s should match tab
-# UNCERTAIN: depends on whether test runner passes literal \t
+# UNCERTAIN: depends on whether test harness passes literal \t
 # - test: "npm\tunpublish"
 #   description: "match npm unpublish with tab separator"
 #   expect_ids: ["npm:unpublish"]
@@ -139,6 +139,14 @@
 # UNCERTAIN: regex `pnpm\s+unpublish(\s|$)` has no word boundary, so "npnpm unpublish" likely matches
 - test: "npnpm unpublish"
   description: "negative: npnpm should not match pnpm_unpublish (word boundary via (^|\\s))"
+  expect_ids: []
+
+# -- help requests are print-only --
+- test: "npm unpublish --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "npm deprecate --help"
+  description: "negative: a help request only prints usage"
   expect_ids: []
 
 # -- dry-run flags --

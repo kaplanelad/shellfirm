@@ -1091,7 +1091,7 @@
 - test: "rm -rf /usr/local"
   description: "full path, / not standalone — should not match recursively_delete"
   expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf ./dist"
+- test: "rm -rf ./myapp"
   description: ". followed by /, not standalone — should not match recursively_delete"
   expect_ids: ["fs-strict:recursive_deletion"]
 
@@ -1842,9 +1842,9 @@
   description: "deeper below home stays the strict catch-all"
   expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -rf ~/projects/webapp/node_modules"
-  description: "a dependency folder named by a home path as written"
+  description: "a cache operand must be relative; a home-path operand asks"
   expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf ./build"
+- test: "rm -rf ./myproj"
   description: "negative: inside the current directory"
   expect_ids: ["fs-strict:recursive_deletion"]
 # -- fs:delete_repository / fs:sensitive_path (marker segments) --
@@ -1873,7 +1873,7 @@
 - test: 'rm -rf /tmp/work/build'
   description: "a nested /tmp path still prompts (not a throwaway top-level entry)"
   expect_ids: ["fs-strict:recursive_deletion"]
-# -- fs:wipefs / fs:umount_lazy (R4) --
+# -- fs:wipefs / fs:umount_lazy --
 - test: 'wipefs -a /dev/sda'
   description: "wipe all signatures"
   expect_ids: ["fs:wipefs"]
@@ -2281,7 +2281,7 @@
 - test: "echo alias g=git >> ~/.zshrc"
   description: "an alias for a non-destructive program is only the append"
   expect_ids: ["fs:append_shell_startup_file"]
-# -- Windows drive / profile deletes (issue #189) --
+# -- Windows drive / profile deletes --
 - test: 'rmdir /s /q d:\'
   description: "cmd: a whole drive (agent incident; rmdir is also fs-strict)"
   expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
@@ -2357,116 +2357,115 @@
 - test: 'git format-patch -1'
   description: "negative: git format-patch"
   expect_ids: []
-# -- issue #189 --
 - test: "rd /s/q C:\\"
-  description: "issue #189: rd /s/q C:\\"
+  description: "rd /s/q C:\\"
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "rd /S/Q D:\\"
-  description: "issue #189: rd /S/Q D:\\"
+  description: "rd /S/Q D:\\"
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "rmdir /s/q C:\\"
-  description: "issue #189: rmdir /s/q C:\\ (rmdir is also fs-strict)"
+  description: "rmdir /s/q C:\\ (rmdir is also fs-strict)"
   expect_ids: ["fs-strict:folder_deletion", "fs:windows_recursive_delete"]
 - test: "format /q D:"
-  description: "issue #189: format /q D:"
+  description: "format /q D:"
   expect_ids: ["fs:windows_format_drive"]
 - test: "format /Q C:"
-  description: "issue #189: format /Q C:"
+  description: "format /Q C:"
   expect_ids: ["fs:windows_format_drive"]
 - test: "powershell.exe -Command \"Remove-Item -Recurse -Force C:\\\""
-  description: "issue #189: powershell.exe -Command \"Remove-Item -Recurse -Force C:\\\""
+  description: "powershell.exe -Command \"Remove-Item -Recurse -Force C:\\\""
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "pwsh.exe -c \"Remove-Item -Recurse -Force D:\\\""
-  description: "issue #189: pwsh.exe -c \"Remove-Item -Recurse -Force D:\\\""
+  description: "pwsh.exe -c \"Remove-Item -Recurse -Force D:\\\""
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "powershell -NoProfile \"Remove-Item -Recurse -Force C:\\Users\\dev\""
-  description: "issue #189: powershell -NoProfile \"Remove-Item -Recurse -Force C:\\Users\\"
+  description: "powershell -NoProfile \"Remove-Item -Recurse -Force C:\\Users\\"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "powershell -ExecutionPolicy Bypass \"rd /s /q C:\\\""
-  description: "issue #189: powershell -ExecutionPolicy Bypass \"rd /s /q C:\\\""
+  description: "powershell -ExecutionPolicy Bypass \"rd /s /q C:\\\""
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "cmd /c\"rd /s /q D:\\\""
-  description: "issue #189: cmd /c\"rd /s /q D:\\\""
+  description: "cmd /c\"rd /s /q D:\\\""
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "Remove-Item -Path:C:\\Users\\dev -Recurse -Force"
-  description: "issue #189: Remove-Item -Path:C:\\Users\\dev -Recurse -Force"
+  description: "Remove-Item -Path:C:\\Users\\dev -Recurse -Force"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "Remove-Item -Recurse:$true -Force C:\\"
-  description: "issue #189: Remove-Item -Recurse:$true -Force C:\\"
+  description: "Remove-Item -Recurse:$true -Force C:\\"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "Remove-Item -Recurse -Force ${env:USERPROFILE}"
-  description: "issue #189: Remove-Item -Recurse -Force ${env:USERPROFILE}"
+  description: "Remove-Item -Recurse -Force ${env:USERPROFILE}"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "Remove-Item -Recurse -Force ~\\*"
-  description: "issue #189: Remove-Item -Recurse -Force ~\\*"
+  description: "Remove-Item -Recurse -Force ~\\*"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "Remove-Item -Recurse -Force $HOME\\*"
-  description: "issue #189: Remove-Item -Recurse -Force $HOME\\*"
+  description: "Remove-Item -Recurse -Force $HOME\\*"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "rd /s /q %APPDATA%"
-  description: "issue #189: rd /s /q %APPDATA%"
+  description: "rd /s /q %APPDATA%"
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "Remove-Item -Recurse -Force $env:LOCALAPPDATA"
-  description: "issue #189: Remove-Item -Recurse -Force $env:LOCALAPPDATA"
+  description: "Remove-Item -Recurse -Force $env:LOCALAPPDATA"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "rd /s /q C:\\Users\\dev\\Documents"
-  description: "issue #189: rd /s /q C:\\Users\\dev\\Documents"
+  description: "rd /s /q C:\\Users\\dev\\Documents"
   expect_ids: ["fs:windows_recursive_delete"]
 - test: "Remove-Item -Recurse -Force C:\\Users\\dev\\.ssh"
-  description: "issue #189: Remove-Item -Recurse -Force C:\\Users\\dev\\.ssh"
+  description: "Remove-Item -Recurse -Force C:\\Users\\dev\\.ssh"
   expect_ids: ["fs:windows_remove_item_recursive"]
 - test: "Get-ChildItem C:\\ -Recurse | Remove-Item -Force"
-  description: "issue #189: Get-ChildItem C:\\ -Recurse | Remove-Item -Force"
+  description: "Get-ChildItem C:\\ -Recurse | Remove-Item -Force"
   expect_ids: ["fs:windows_pipeline_delete"]
 - test: "gci C:\\Users\\dev | ri -Recurse -Force"
-  description: "issue #189: gci C:\\Users\\dev | ri -Recurse -Force"
+  description: "gci C:\\Users\\dev | ri -Recurse -Force"
   expect_ids: ["fs:windows_pipeline_delete"]
 - test: "ls ~ | rm -Recurse -Force"
-  description: "issue #189: ls ~ | rm -Recurse -Force"
+  description: "ls ~ | rm -Recurse -Force"
   expect_ids: ["fs:windows_pipeline_delete"]
 - test: "dd if=/dev/zero of=/dev/disk2"
-  description: "issue #189: dd if=/dev/zero of=/dev/disk2"
+  description: "dd if=/dev/zero of=/dev/disk2"
   expect_ids: ["fs:dd_block_device"]
 - test: "cat /dev/urandom > /dev/sda"
-  description: "issue #189: cat /dev/urandom > /dev/sda"
+  description: "cat /dev/urandom > /dev/sda"
   expect_ids: ["fs:write_to_block_device"]
 - test: "diskutil eraseDisk JHFS+ X disk2"
-  description: "issue #189: diskutil eraseDisk JHFS+ X disk2"
+  description: "diskutil eraseDisk JHFS+ X disk2"
   expect_ids: ["fs:diskutil_erase"]
 - test: "grep 'rm -rf /' notes.md"
-  description: "negative (issue #189): grep 'rm -rf /' notes.md"
+  description: "negative: grep 'rm -rf /' notes.md"
   expect_ids: []
 - test: "rd /s /q .\\dist"
-  description: "negative (issue #189): rd /s /q .\\dist"
+  description: "negative: rd /s /q .\\dist"
   expect_ids: []
 - test: "rd /s /q C:\\Users\\dev\\project\\dist"
-  description: "negative (issue #189): rd /s /q C:\\Users\\dev\\project\\dist"
+  description: "negative: rd /s /q C:\\Users\\dev\\project\\dist"
   expect_ids: []
 - test: "Remove-Item -Recurse -Force .\\dist"
-  description: "negative (issue #189): Remove-Item -Recurse -Force .\\dist"
+  description: "negative: Remove-Item -Recurse -Force .\\dist"
   expect_ids: []
 - test: "Remove-Item -Recurse:$false C:\\x"
-  description: "negative (issue #189): Remove-Item -Recurse:$false C:\\x"
+  description: "negative: Remove-Item -Recurse:$false C:\\x"
   expect_ids: []
 - test: "Get-ChildItem .\\dist | Remove-Item -Recurse"
-  description: "negative (issue #189): Get-ChildItem .\\dist | Remove-Item -Recurse"
+  description: "negative: Get-ChildItem .\\dist | Remove-Item -Recurse"
   expect_ids: []
 - test: "ls ~ | rm -rf foo"
   description: "not a pipeline delete (rm ignores its input): only the fs-strict rm -rf of foo"
   expect_ids: ["fs-strict:recursive_deletion"]
 - test: "format-patch"
-  description: "negative (issue #189): format-patch"
+  description: "negative: format-patch"
   expect_ids: []
 - test: "git format-patch -1"
-  description: "negative (issue #189): git format-patch -1"
+  description: "negative: git format-patch -1"
   expect_ids: []
 - test: "dd if=/dev/zero of=./disk.img bs=1M count=10"
-  description: "negative (issue #189): dd if=/dev/zero of=./disk.img bs=1M count=10"
+  description: "negative: dd if=/dev/zero of=./disk.img bs=1M count=10"
   expect_ids: []
 - test: "diskutil list"
-  description: "negative (issue #189): diskutil list"
+  description: "negative: diskutil list"
   expect_ids: []
-# -- issue #189 (Windows spellings, pipeline scope) --
+# -- Windows spellings, pipeline scope --
 - test: 'rd/s/q C:\'
   description: "switch glued to the command name"
   expect_ids: ["fs:windows_recursive_delete"]
@@ -2494,7 +2493,7 @@
 - test: 'Get-Command Clear-Disk'
   description: "negative: looking a cmdlet up"
   expect_ids: []
-# -- issue #189: device / disk destruction breadth --
+# -- device / disk destruction breadth --
 - test: "diskutil apfs deleteVolume disk2s1"
   description: "delete an APFS volume"
   expect_ids: ["fs:diskutil_erase"]
@@ -2525,7 +2524,7 @@
 - test: "bash.exe -c 'rm -rf /'"
   description: "bash.exe payload is recursed"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
-# -- issue #189: macOS/Linux critical delete targets (deep subpaths) --
+# -- macOS/Linux critical delete targets (deep subpaths) --
 - test: "rm -rf /Users/dev"
   description: "a full macOS user home"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
@@ -2544,6 +2543,32 @@
 - test: "rm -rf /lib64"
   description: "Linux lib64"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+
+# -- help requests are print-only --
+- test: "sh -c 'rm -rf ~/projects' --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+- test: "kubectl exec api-0 -- rm -rf /data --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
+- test: "ssh prod 'rm -rf /var/www' --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rsync -avh --delete src/ /srv/www/"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs:rsync_delete"]
+- test: "rsync -a -h --delete src/ /srv/www/"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs:rsync_delete"]
+- test: "chown -h -R nobody /etc"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs:recursively_chown"]
+- test: "rm -rf ~/projects -- --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+- test: "shred --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
 
 # -- dry-run flags --
 - test: "rsync -avn --delete site/ /tmp/preview/"
@@ -2632,6 +2657,104 @@
 - test: "npx rimraf node_modules"
   description: "negative: only deletes a regenerable cache or dependency folder"
   expect_ids: []
+- test: "rm -rf dist"
+  description: "negative: deletes a regenerable build-output folder"
+  expect_ids: []
+- test: "rm -rf build"
+  description: "negative: deletes a regenerable build-output folder"
+  expect_ids: []
+- test: "rm -rf target"
+  description: "negative: deletes a regenerable build-output folder"
+  expect_ids: []
+- test: "rm -rf out"
+  description: "negative: deletes a regenerable build-output folder"
+  expect_ids: []
+- test: "rm -rf coverage"
+  description: "negative: deletes a regenerable coverage folder"
+  expect_ids: []
+- test: "rm -rf .output"
+  description: "negative: deletes a regenerable build-output folder"
+  expect_ids: []
+- test: "rm -rf dist build coverage"
+  description: "negative: several regenerable build-output folders"
+  expect_ids: []
+- test: "rm -rf build src"
+  description: "a regenerable folder mixed with a source folder still flags"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf /dist"
+  description: "an absolute build-output path is outside the project and still flags"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
+- test: "pnpm -C / dlx rimraf usr"
+  description: "a runner cwd option rebases the inner delete onto the system path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "pnpm --dir / exec rm -rf usr"
+  description: "a runner cwd option rebases the inner delete onto the system path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "yarn --cwd / dlx rimraf usr"
+  description: "a runner cwd option rebases the inner delete onto the system path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "npm --prefix / exec rimraf usr"
+  description: "a runner cwd option rebases the inner delete onto the system path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "pnpm dlx rimraf node_modules"
+  description: "negative: a runner without a cwd option only deletes a regenerable folder"
+  expect_ids: []
+- test: "pnpm -C ./sub dlx rimraf node_modules"
+  description: "negative: a relative cwd option still resolves to a regenerable folder"
+  expect_ids: []
+# A bounded exemption tolerates a discard redirect (`2>/dev/null`, `>/dev/null
+# 2>&1`, `&>/dev/null`, `2>&1`, `1>&2`) on the operand. Any other redirect
+# still voids the exemption and its target is judged on its own.
+- test: "rm -rf node_modules 2>/dev/null"
+  description: "negative: a regenerable delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "rm -rf node_modules >/dev/null 2>&1"
+  description: "negative: a regenerable delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "rm -rf node_modules &>/dev/null"
+  description: "negative: a regenerable delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "rm -rf 2>/dev/null node_modules"
+  description: "negative: operands after a discard redirect are still evaluated and stay exempt"
+  expect_ids: []
+- test: "rm -rf .cache 2>/dev/null"
+  description: "negative: a cache delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "rm yarn.lock 2>/dev/null"
+  description: "negative: a lockfile delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "chmod 600 .env 2>/dev/null"
+  description: "negative: a dotfile owner-only chmod with a discard redirect is still exempt"
+  expect_ids: []
+- test: "find . -name node_modules -delete 2>/dev/null"
+  description: "negative: a cache find-delete with a discard redirect is still exempt"
+  expect_ids: []
+- test: "find . -name node_modules -prune -exec rm -rf {} + 2>/dev/null"
+  description: "negative: a cache find -exec rm with a discard redirect is still exempt"
+  expect_ids: []
+# A non-discard redirect voids the exemption: the delete asks again and the
+# write target is judged on its own.
+- test: "rm -rf node_modules > ~/.bashrc"
+  description: "a redirect onto a startup file voids the exemption and the write is judged"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:flush_file_content", "fs:overwrite_system_file", "fs:recursively_delete_outside"]
+- test: "rm -rf node_modules >> .git/config"
+  description: "a redirect onto a real file voids the exemption"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf node_modules 2> ~/.bashrc"
+  description: "a stderr redirect onto a startup file voids the exemption"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:flush_file_content", "fs:overwrite_system_file", "fs:recursively_delete_outside"]
+- test: "rm -rf node_modules > /dev/sda"
+  description: "a redirect onto a block device voids the exemption"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:write_to_block_device"]
+- test: "chmod 777 .env 2>/dev/null"
+  description: "a discard redirect does not exempt a world-writable chmod"
+  expect_ids: ["fs-strict:change_permissions"]
+- test: "find . -name '*.log' -delete 2>/dev/null"
+  description: "a discard redirect does not exempt a non-cache filtered find-delete"
+  expect_ids: ["fs:delete_find_files_filtered"]
+- test: "rm -rf node_modules; rm -rf src"
+  description: "a second delete of a real folder still asks"
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm -rf node_modules/.cache"
   description: "negative: only deletes a regenerable cache or dependency folder"
   expect_ids: []
@@ -2650,69 +2773,48 @@
 - test: "cd ~/projects/webapp && rm -rf node_modules && npm ci"
   description: "negative: only deletes a regenerable cache or dependency folder"
   expect_ids: []
-- test: "rm -rf ~/projects/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf ~/x/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf $HOME/projects/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf \"$HOME/projects/node_modules\""
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf ${HOME}/x/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "D=~/projects; rm -rf \"$D/node_modules\""
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "for d in ~/projects; do rm -rf \"$d/node_modules\"; done"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf ~+/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf /home/dev/projects/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "npx rimraf \"$HOME/x/node_modules\""
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "npx rimraf ~/x/node_modules"
-  description: "a cache folder is exempt only by a relative path as written"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "cd - && rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "popd && rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "cd -- - && rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "pushd +1 && rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf node_modules; cd -; rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "CDPATH=/ cd usr && rm -rf node_modules"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs-strict:recursive_deletion"]
-- test: "rm -rf \"node_modules\""
-  description: "negative: only deletes a regenerable cache or dependency folder"
-  expect_ids: []
-- test: "cd apps/web && rm -rf node_modules"
-  description: "negative: only deletes a regenerable cache or dependency folder"
-  expect_ids: []
 - test: "rm -rf pkg/node_modules/*"
   description: "not only regenerable folders"
+  expect_ids: ["fs-strict:recursive_deletion"]
+# A cache operand must be relative: a home or absolute path is a real
+# top-level delete and asks (the exemption was never meant to cover these).
+- test: "rm -rf ~/projects/node_modules"
+  description: "a home-path operand is not a relative cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/x/node_modules"
+  description: "a home-path operand is not a relative cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/projects/webapp/node_modules"
+  description: "a home-path operand is not a relative cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf $HOME/projects/node_modules"
+  description: "a $HOME operand is not a relative cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: 'rm -rf "$HOME/projects/node_modules"'
+  description: "a quoted $HOME operand is not a relative cache"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ${HOME}/x/node_modules"
+  description: "a ${HOME} operand is not a relative cache"
   expect_ids: ["fs-strict:recursive_deletion"]
 - test: "find . -type d -name __pycache__ -exec rm -rf {} +"
   description: "negative: only deletes a regenerable cache or dependency folder"
   expect_ids: []
+# A cd to a literal relative directory keeps a relative cache delete bounded
+# inside the project; a cd the parser cannot resolve (`cd -`, `cd -- -`,
+# `popd`) leaves the directory unknown, so a relative cache operand is no
+# longer relative and asks.
+- test: "cd apps && rm -rf node_modules"
+  description: "negative: a known cd keeps a relative cache delete bounded"
+  expect_ids: []
+- test: "cd - && rm -rf node_modules"
+  description: "an unknown cd target makes a relative cache operand unknown"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "cd -- - && rm -rf node_modules"
+  description: "an unknown cd target makes a relative cache operand unknown"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "popd && rm -rf node_modules"
+  description: "an unknown cd target makes a relative cache operand unknown"
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "find . -name '*.py' -delete"
   description: "not only regenerable folders"
   expect_ids: ["fs:delete_find_files_filtered"]
@@ -2817,6 +2919,11 @@
 - test: "chmod go-rwx .env"
   description: "negative: owner-only mode on one project dotfile"
   expect_ids: []
+
+# -- echo after a compound keyword or xargs --
+- test: "for n in a b; do echo kubectl drain $n > /tmp/x.sh; done; bash /tmp/x.sh"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["fs:flush_file_content", "kubernetes:drain_node"]
 
 # -- rsync dry run: only a real -n / --dry-run word counts --
 - test: "rsync -av --delete site/ /srv/my-node/"
@@ -3059,11 +3166,11 @@
   description: "deletes source files"
   expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find $SRC -name '*.pyc' -delete"
-  description: "a variable start folder"
-  expect_ids: ["fs:delete_find_files_filtered"]
+  description: "a variable start folder can point anywhere, so it is critical"
+  expect_ids: ["fs:delete_find_files_critical_root"]
 - test: "find src/../.. -name __pycache__ -exec rm -rf {} +"
-  description: "the start folder leaves the project"
-  expect_ids: ["fs:delete_find_files_filtered"]
+  description: "the start folder leaves the project, so it is critical"
+  expect_ids: ["fs:delete_find_files_critical_root", "fs:delete_find_files_filtered"]
 - test: "find src -name __pycache__ -exec rm -rf {} + ; rm -rf src"
   description: "a real delete follows"
   expect_ids: ["fs-strict:recursive_deletion"]
@@ -3263,7 +3370,7 @@
   expect_ids: ["fs:parted_disk_modify"]
 - test: "printf 'rm 1\\nquit\\n' | parted /dev/sdb"
   description: "parted runs every command word in order: a write keeps it flagged"
-  expect_ids: ["fs:parted_disk_modify"]
+  expect_ids: ["fs-strict:any_deletion", "fs:parted_disk_modify"]
 - test: "parted /dev/sdb"
   description: "parted runs every command word in order: a write keeps it flagged"
   expect_ids: ["fs:parted_disk_modify"]
@@ -3337,27 +3444,6 @@
   expect_ids: ["fs:encryption_operations"]
 
 # -- find: clearing regenerable tool folders --
-- test: "cd - && find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "cd -- - && find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "cd - ; find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "popd && find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "pushd && find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "pushd +1 && find . -name node_modules -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
-- test: "cd - && find . -name .next -prune -exec rm -rf {} +"
-  description: "after cd -, popd or pushd without a directory the directory is unknown"
-  expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find apps -name .next -type d -prune -exec rm -rf {} +"
   description: "negative: a regenerable tool folder below a relative folder"
   expect_ids: []
@@ -3392,8 +3478,8 @@
   description: "not only a regenerable tool folder below a relative folder"
   expect_ids: ["fs:delete_find_files_filtered"]
 - test: "find .. -name .next -type d -prune -exec rm -rf {} +"
-  description: "not only a regenerable tool folder below a relative folder"
-  expect_ids: ["fs:delete_find_files_filtered"]
+  description: "a parent-directory (..) start reaches outside the project, so it is critical"
+  expect_ids: ["fs:delete_find_files_critical_root", "fs:delete_find_files_filtered"]
 - test: "find apps -name '.next*' -type d -prune -exec rm -rf {} +"
   description: "not only a regenerable tool folder below a relative folder"
   expect_ids: ["fs:delete_find_files_filtered"]
@@ -5424,6 +5510,9 @@
 - test: "bash <<'EOF'\nsudo rm -rf node_modules\nEOF"
   description: "flag: close variant of an exempt command that must keep asking"
   expect_ids: ["fs-strict:recursive_deletion"]
+- test: "echo 'sudo rm -rf node_modules' | while read c; do $c; done"
+  description: "flag: close variant of an exempt command that must keep asking"
+  expect_ids: ["fs-strict:recursive_deletion"]
 - test: "sudo bash <<'EOF'\nrm -rf node_modules\nEOF"
   description: "flag: close variant of an exempt command that must keep asking"
   expect_ids: ["fs-strict:recursive_deletion"]
@@ -5595,3 +5684,4 @@
 - test: "parted /dev/sdb print free | tee /tmp/sdb.txt"
   description: "allow: parted print written to a file with tee"
   expect_ids: []
+

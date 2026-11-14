@@ -3,7 +3,7 @@
 
 # Built-in checks
 
-499 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
+500 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
 
 | Group | Checks | Enabled by default |
 |---|---:|---|
@@ -25,7 +25,7 @@
 | [netlify](#netlify) | 3 | yes |
 | [network](#network) | 18 | yes |
 | [npm](#npm) | 4 | yes |
-| [psql](#psql) | 12 | yes |
+| [psql](#psql) | 13 | yes |
 | [redis](#redis) | 19 | yes |
 | [shell](#shell) | 14 | yes |
 | [terraform](#terraform) | 27 | yes |
@@ -272,7 +272,7 @@
 | `fs:chmod_credentials` | HIGH | This changes the permissions of your SSH or GnuPG keys so that other users can read them (ssh then refuses the keys), or so that nobody can. | `chmod -R go-rwx ~/.ssh` |
 | `fs:delete_find_files` | CRITICAL | find -delete without a name, time or size filter deletes everything under the path: here the filesystem root, your home directory, a system directory, the repository or the current directory. | `find <path> -name '<pattern>' -print` |
 | `fs:delete_find_files_dir` | MEDIUM | find -delete without a name, time or size filter deletes every file under the given directory. | `find <path> -name '<pattern>' -print` |
-| `fs:delete_find_files_critical_root` | CRITICAL | find -delete under the filesystem root, your home directory or a system directory deletes every matching file there. | `find <path> -name '<pattern>' -print` |
+| `fs:delete_find_files_critical_root` | CRITICAL | find -delete under the filesystem root, your home directory, a system directory, a parent directory (..) or an unresolved variable path deletes every matching file there. | `find <path> -name '<pattern>' -print` |
 | `fs:delete_find_files_filtered` | MEDIUM | find -delete permanently deletes every file matching the filter. | `find <path> -name '<pattern>' -print` |
 | `fs:dd_block_device` | CRITICAL | Writing directly to a block device can overwrite the whole disk. |  |
 | `fs:mkfs_format` | CRITICAL | Formatting a device erases all data on it. |  |
@@ -556,6 +556,7 @@
 | `psql:pg_resetwal` | CRITICAL | pg_resetwal rewrites the write-ahead log; it can leave the database corrupted and is a last-resort recovery tool. |  |
 | `psql:pg_dropcluster` | CRITICAL | pg_dropcluster deletes a PostgreSQL cluster: its data directory and every database in it. |  |
 | `psql:client_file_write` | MEDIUM | psql writes a file on this machine (\copy … TO FILE, \o FILE, \w FILE, \g FILE): it can overwrite any file you can write, such as .env or a shell startup file. |  |
+| `psql:client_write_env` | MEDIUM | psql writes to a .env / .envrc file (where secrets and environment settings live): \copy … TO FILE or \o FILE can overwrite it. |  |
 | `psql:gexec` | MEDIUM | \gexec runs every value the query returns as a new SQL statement; those statements are not checked. |  |
 | `psql:pgbench_initialize` | MEDIUM | pgbench -i drops and recreates the pgbench_* tables (pgbench_accounts, pgbench_branches, ...) in the target database. |  |
 | `psql:patronictl_remove` | HIGH | patronictl remove deletes the cluster's state from the DCS (leader key, members, configuration): Patroni loses track of the cluster. |  |

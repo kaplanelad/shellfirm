@@ -280,26 +280,25 @@
 - test: "myaws s3 rm s3://bucket --recursive"
   description: "another tool whose name ends in aws"
   expect_ids: []
-# -- issue #189 --
 - test: "aws s3api delete-bucket --bucket prod"
-  description: "issue #189: aws s3api delete-bucket --bucket prod"
+  description: "aws s3api delete-bucket --bucket prod"
   expect_ids: ["aws:s3api_delete_bucket"]
 - test: "cdk destroy --force"
-  description: "issue #189: cdk destroy --force"
+  description: "cdk destroy --force"
   expect_ids: ["aws:cdk_destroy"]
 - test: "npx cdk destroy"
-  description: "issue #189: npx cdk destroy"
+  description: "npx cdk destroy"
   expect_ids: ["aws:cdk_destroy"]
 - test: "aws configure get region"
-  description: "negative (issue #189): aws configure get region"
+  description: "negative: aws configure get region"
   expect_ids: []
 - test: "cdk deploy"
-  description: "negative (issue #189): cdk deploy"
+  description: "negative: cdk deploy"
   expect_ids: []
 - test: "aws s3api list-buckets"
-  description: "negative (issue #189): aws s3api list-buckets"
+  description: "negative: aws s3api list-buckets"
   expect_ids: []
-# -- issue #189: IaC teardown + bulk object delete --
+# -- IaC teardown + bulk object delete --
 - test: "aws s3api delete-objects --bucket b --delete file://d.json"
   description: "bulk delete-objects"
   expect_ids: ["aws:s3api_delete_bucket"]
@@ -335,6 +334,91 @@
 - test: "aws ec2 terminate-instances --instance-ids i-123 --dry-run --no-dry-run"
   description: "still a real run: no effective dry-run flag"
   expect_ids: ["aws:ec2_terminate"]
+
+# -- the last dry-run value wins --
+- test: "aws s3 sync . s3://bucket --delete --dryrun"
+  description: "negative: the last dry-run value is a dry run"
+  expect_ids: []
+- test: "aws s3 rm s3://bucket/ --recursive --exclude \"*--dryrun*\""
+  description: "the --dryrun text is part of a pattern, not the option"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --no-dry-run --dry-run"
+  description: "negative: the last value is a dry run"
+  expect_ids: []
+- test: "aws --no-cli-pager ec2 terminate-instances --instance-ids i-123 --dry-run"
+  description: "negative: a dry run; the --no- word is another option"
+  expect_ids: []
+
+# -- a dry-run word right after an option that may take a value is not a dry run --
+- test: "aws ec2 terminate-instances --instance-ids i-1 --profile --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 --region --dry-run"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 '--dry-run'"
+  description: "a quoted dry-run word does not count as a dry run"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws s3 rm s3://b/x --recursive --exclude --dryrun"
+  description: "a dry-run word right after an option that may take a value is that value: a real run"
+  expect_ids: ["aws:s3_recursive_delete"]
+- test: "aws ec2 terminate-instances --instance-ids i-1 --no-cli-pager --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --instance-ids i-1 --region=us-east-1 --dry-run"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --dry-run --instance-ids i-1"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+- test: "aws s3 rm s3://b/x --recursive --dryrun"
+  description: "negative: the word before the dry-run flag cannot take it as a value"
+  expect_ids: []
+
+# -- help requests are print-only --
+- test: "aws cloudformation delete-stack --stack-name help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["aws:cfn_delete_stack"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "aws cloudformation delete-stack --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "aws cloudformation delete-stack help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "aws rds delete-db-instance --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+
+# -- dry-run flags --
+- test: "aws ec2 terminate-instances --instance-ids i-123 --dry-run"
+  description: "negative: a dry run changes nothing"
+  expect_ids: []
+- test: "aws ec2 terminate-instances --instance-ids i-123"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --no-dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "aws ec2 terminate-instances --instance-ids i-123 --dry-run --no-dry-run"
+  description: "still a real run: no effective dry-run flag"
+  expect_ids: ["aws:ec2_terminate"]
+
+# -- echo after a compound keyword or xargs --
+- test: "xargs aws ec2 terminate-instances --instance-ids < ids.txt"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["aws:ec2_terminate"]
+- test: "xargs echo aws ec2 terminate-instances --instance-ids < ids.txt"
+  description: "negative: echo only prints the command"
+  expect_ids: []
 
 # -- the last dry-run value wins --
 - test: "aws s3 sync . s3://bucket --delete --dryrun"

@@ -112,3 +112,8 @@
 - test: "echo yes | netlify env:clone --to site-id"
   description: "match netlify env:clone after pipe"
   expect_ids: ["netlify:env_clone"]
+
+# -- help requests are print-only --
+- test: "netlify sites:delete --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
