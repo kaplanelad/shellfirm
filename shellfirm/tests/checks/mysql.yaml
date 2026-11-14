@@ -40,7 +40,6 @@
   description: "negative: query cache"
   expect_ids: []
 
-# -- round 4 --
 - test: 'PURGE BINARY LOGS BEFORE NOW()'
   description: "purge binary logs"
   expect_ids: ["mysql:purge_binary_logs"]
@@ -77,7 +76,6 @@
   description: "negative: a harmless init command"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG) ----
 # -- mysql:safe_updates_off --
 - test: "mysql -e \"SET SQL_SAFE_UPDATES = 0\""
   description: "turning safe updates off"
@@ -94,3 +92,8 @@
 - test: "mysql -e \"SET SQL_SAFE_UPDATES = 1\""
   description: "turning it on"
   expect_ids: []
+
+# -- help requests are print-only --
+- test: "mysql -h prod -e 'DROP DATABASE shop'"
+  description: "the help word does not make this print-only"
+  expect_ids: ["database:drop_database", "mysql:drop"]

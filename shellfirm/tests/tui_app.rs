@@ -1065,8 +1065,6 @@ fn custom_check_form_caret_follows_cursor() {
     assert_eq!(buf[(pos.x, pos.y)].symbol(), "d", "cursor at {pos:?}");
 }
 
-// ── Round 4 ──────────────────────────────────────────
-
 fn ch(c: char) -> KeyEvent {
     key(KeyCode::Char(c))
 }
@@ -1412,8 +1410,6 @@ fn behavior_summary_uses_words() {
     assert!(text.contains("Audit: off"), "{text}");
     assert!(text.contains("Blast radius: on"), "{text}");
 }
-
-// -- round 6 ------------------------------
 
 fn ctrl_c() -> KeyEvent {
     KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)

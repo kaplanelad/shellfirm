@@ -173,3 +173,8 @@
 - test: "vercel domain remove"
   description: "match vercel domain (singular) remove at end of string"
   expect_ids: ["vercel:domain_remove"]
+
+# -- help requests are print-only --
+- test: "vercel remove --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []

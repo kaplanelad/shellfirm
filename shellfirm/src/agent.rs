@@ -3036,6 +3036,57 @@ fn walk_once(
 }
 
 /// The words of a parsed segment, quotes stripped.
+/// The client-side file a psql meta-command writes, if it is a plain file.
+/// `\copy … TO FILE`, `\o FILE`, `\w FILE` and `\g FILE` write `FILE`;
+/// `TO PROGRAM`, `TO STDOUT`, a `|cmd` pipe and `\copy … FROM …` do not and
+/// return nothing (psql.yaml still asks for the program / pipe forms).
+fn psql_meta_write_target(words: &[String]) -> Option<String> {
+    let not_special = |s: &str| {
+        !s.starts_with('|')
+            && !s.eq_ignore_ascii_case("stdout")
+            && !s.eq_ignore_ascii_case("pstdout")
+            && !s.eq_ignore_ascii_case("program")
+    };
+    let file = match words.first()?.as_str() {
+        "\\copy" => {
+            let to = words.iter().position(|w| w.eq_ignore_ascii_case("to"))?;
+            words.get(to + 1)?
+        }
+        "\\o" | "\\out" | "\\w" | "\\write" | "\\g" | "\\gx" => words.get(1)?,
+        _ => return None,
+    };
+    not_special(file).then(|| file.clone())
+}
+
+/// The client-side files written by the psql meta-commands inside `psql`'s
+/// `-c` / `--command` values. A quoted path is blanked in the de-spaced
+/// segment, so the value is read here (spaces restored, quotes stripped) to
+/// reach a sensitive target such as `'~/.bashrc'`.
+fn psql_c_meta_targets(words: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut i = 1;
+    while i < words.len() {
+        let w = words[i].as_str();
+        let value = if w == "-c" || w == "--command" {
+            i += 1;
+            words.get(i).map(String::as_str)
+        } else {
+            w.strip_prefix("--command=")
+                .or_else(|| w.strip_prefix("-c").filter(|v| !v.is_empty()))
+        };
+        if let Some(v) = value {
+            let meta: Vec<String> = crate::parser::desentinel(v)
+                .split(' ')
+                .filter(|s| !s.is_empty())
+                .map(strip_word_quotes)
+                .collect();
+            out.extend(psql_meta_write_target(&meta));
+        }
+        i += 1;
+    }
+    out
+}
+
 fn segment_words(seg: &str) -> Vec<String> {
     seg.split(' ')
         .filter(|w| !w.is_empty())
@@ -3190,6 +3241,18 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
         .first()
         .map(|w| w.rsplit('/').next().unwrap_or(w).to_string())
         .unwrap_or_default();
+    // A psql meta-command that writes a client-side file (`\copy … TO FILE`,
+    // `\o FILE`, `\w FILE`, `\g FILE`). The parser lists each one as its own
+    // segment. A sensitive target (`.env`, `~/.bashrc`, a git hook, a startup
+    // file) is then judged like any other write; `TO PROGRAM`, `\o |cmd` and
+    // `\copy FROM` are not plain-file writes and are left to psql.yaml.
+    if prog.starts_with('\\') {
+        targets.extend(psql_meta_write_target(words));
+        return targets;
+    }
+    if prog == "psql" {
+        targets.extend(psql_c_meta_targets(words));
+    }
     let mut target_dir: Option<&str> = None;
     let mut out_file: Option<&str> = None;
     while i < words.len() {
@@ -3270,11 +3333,6 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
     if prog == "cargo" {
         targets.extend(cargo_write_targets(&words[1..]));
     }
-    // `docker|podman [container] cp SRC DEST`, `kubectl cp SRC DEST`: a
-    // local destination (no `NAME:` prefix) is written like `cp`'s.
-    if matches!(prog.as_str(), "docker" | "podman" | "kubectl") {
-        targets.extend(container_cp_local_targets(&operands));
-    }
     // `gio trash FILE`, `gio remove FILE`, `gio move SRC DEST`.
     let gio_sub = (prog == "gio").then(|| operands.first().copied()).flatten();
     match prog.as_str() {
@@ -3333,32 +3391,108 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
         _ if is_git_write => {
             targets.extend(operands.iter().skip(1).map(ToString::to_string));
         }
+        // `docker cp CONTAINER:/x DEST`, `kubectl cp pod:/x DEST`: a local DEST
+        // is a write target (the container / pod side is not local).
+        "docker" | "podman" | "kubectl" => {
+            targets.extend(container_cp_targets(&prog, words));
+        }
         _ => {}
     }
     targets
 }
 
-/// The local paths a `docker|podman [container] cp` or `kubectl cp` writes,
-/// from its operands (the words that are not options): every operand after
-/// the source that does not name a container path (`NAME:PATH`). An option
-/// value after `cp` counts too, which only adds a path to judge.
-fn container_cp_local_targets(operands: &[&str]) -> Vec<String> {
-    // Before `cp`: only `container` and a global option's address value
-    // (`-H tcp://host`).
-    let Some(at) = operands.iter().position(|w| *w == "cp").filter(|&at| {
-        operands[..at]
-            .iter()
-            .all(|w| *w == "container" || w.contains("://"))
-    }) else {
+/// The local destination written by `docker|podman cp`, `docker container cp`
+/// or `kubectl cp`. `cp SRC DEST` copies both ways; only a local `DEST` (no
+/// container / pod reference) is written here. docker treats an argument as a
+/// container reference when a colon precedes the first `/` (`web:/x`), kubectl
+/// when it has any colon (`ns/pod:/x`).
+fn container_cp_targets(prog: &str, words: &[String]) -> Vec<String> {
+    let mut i = 1;
+    if matches!(prog, "docker" | "podman") && words.get(i).map(String::as_str) == Some("container")
+    {
+        i += 1;
+    }
+    if words.get(i).map(String::as_str) != Some("cp") {
+        return Vec::new();
+    }
+    i += 1;
+    let kubectl = prog == "kubectl";
+    // Options that take a separate value (`kubectl cp -c app …`); every other
+    // dash word is a flag. `--opt=value` carries its value in one token.
+    let value_opts: &[&str] = if kubectl {
+        &[
+            "-c",
+            "--container",
+            "-n",
+            "--namespace",
+            "--retries",
+            "--kubeconfig",
+            "--context",
+            "--cluster",
+            "--as",
+            "--as-group",
+            "-s",
+            "--server",
+            "--token",
+            "--request-timeout",
+            "--cache-dir",
+            "--user",
+            "--tls-server-name",
+            "--certificate-authority",
+            "--client-certificate",
+            "--client-key",
+            "-v",
+            "--v",
+        ]
+    } else {
+        &[]
+    };
+    let mut operands: Vec<&str> = Vec::new();
+    while i < words.len() {
+        let w = words[i].as_str();
+        if w == "--" {
+            operands.extend(words[i + 1..].iter().map(String::as_str));
+            break;
+        }
+        if w.starts_with('-') && w != "-" {
+            i += usize::from(!w.contains('=') && value_opts.contains(&w)) + 1;
+            continue;
+        }
+        operands.push(w);
+        i += 1;
+    }
+    let Some(dest) = operands.get(1).copied() else {
         return Vec::new();
     };
-    let in_container = |w: &str| w.contains(':') && !w.starts_with(['/', '.', '~']);
-    operands
-        .iter()
-        .skip(at + 2)
-        .filter(|w| !in_container(w))
-        .map(ToString::to_string)
-        .collect()
+    let is_local = if kubectl {
+        !dest.contains(':')
+    } else {
+        !docker_container_ref(dest)
+    };
+    if !is_local || dest == "-" {
+        return Vec::new();
+    }
+    let mut out = vec![dest.to_string()];
+    // `docker cp CONTAINER:/x dir/` writes `dir/<name>`.
+    if dest.ends_with('/') {
+        if let Some(src) = operands.first() {
+            let name = src
+                .trim_end_matches('/')
+                .rsplit(['/', ':'])
+                .next()
+                .unwrap_or(src);
+            if !name.is_empty() {
+                out.push(format!("{}/{name}", dest.trim_end_matches('/')));
+            }
+        }
+    }
+    out
+}
+
+/// Whether `s` is a docker / podman container reference (`name:/path`): a colon
+/// that comes before the first `/`, with a non-empty name part.
+fn docker_container_ref(s: &str) -> bool {
+    s.find(':').is_some_and(|c| c > 0 && !s[..c].contains('/'))
 }
 
 /// The files `cargo ARGS` writes besides its build output: the test binary's
@@ -6559,7 +6693,7 @@ mod tests {
         // libtest `--logfile PATH` creates or truncates PATH, rustdoc
         // `--persist-doctests DIR` and cargo `--target-dir DIR` write into
         // DIR: with or without a prefix.
-        let env = unmounted_home_env();
+        let env = home_env("/home/dev/projects/webapp");
         let config = "shellfirm-self:protected_file_write";
         for (c, id) in [
             ("cargo test -- --logfile ~/.claude/settings.json", config),
@@ -7113,18 +7247,6 @@ mod tests {
         MockEnvironment {
             cwd: cwd.into(),
             home: Some("/home/dev".into()),
-            ..Default::default()
-        }
-    }
-
-    /// [`home_env`] under a root that exists nowhere. Write targets are
-    /// canonicalised on the real file system, and on macOS `/home` is an
-    /// automounter path where each lookup is slow, so tests that check many
-    /// write targets use this.
-    fn unmounted_home_env() -> MockEnvironment {
-        MockEnvironment {
-            cwd: "/nonexistent-shellfirm-test/home/dev/projects/webapp".into(),
-            home: Some("/nonexistent-shellfirm-test/home/dev".into()),
             ..Default::default()
         }
     }
@@ -8049,7 +8171,7 @@ mod tests {
         // The local shell opens the target of an unquoted redirect after a
         // container / remote command, so every local write rule judges it
         // exactly as the same redirect after `cat`.
-        let env = unmounted_home_env();
+        let env = home_env("/home/dev/projects/webapp");
         let targets = [
             ".git/hooks/pre-commit",
             ".git/hooks/post-checkout",
@@ -8161,7 +8283,7 @@ mod tests {
 
     #[test]
     fn psql_output_and_log_files_are_local_write_targets() {
-        let env = unmounted_home_env();
+        let env = home_env("/home/dev/projects/webapp");
         for target in [
             ".envrc",
             "~/.bashrc",
@@ -8189,35 +8311,104 @@ mod tests {
     }
 
     #[test]
-    fn container_copies_to_a_local_path_are_local_write_targets() {
-        let env = unmounted_home_env();
+    fn psql_meta_command_file_writes_are_local_write_targets() {
+        let env = home_env("/home/dev/projects/webapp");
+        // `\copy … TO FILE`, `\o FILE`, `\w FILE`, `\g FILE` write a client-side
+        // file; a sensitive target is judged like the same redirect.
         for target in [
             ".envrc",
             "~/.bashrc",
             "CLAUDE.md",
             ".git/hooks/pre-commit",
             ".claude/settings.json",
-            "~/.claude/settings.json",
-            ".shellfirm.yaml",
-            "/tmp/out.txt",
-            "report.csv",
         ] {
-            let expected = write_rule_ids(&format!("cp /tmp/p {target}"), &env);
+            let expected = write_rule_ids(&format!("cat /tmp/p > {target}"), &env);
+            assert!(!expected.is_empty(), "oracle empty for {target}");
             for cmd in [
-                format!("docker cp web:/p {target}"),
-                format!("podman cp web:/p {target}"),
-                format!("docker container cp web:/p {target}"),
-                format!("docker -H tcp://h cp web:/p {target}"),
-                format!("kubectl cp default/web-1:/p {target}"),
-                format!("kubectl cp -c app web-1:/p {target}"),
+                format!("psql -d warehouse -c \"\\copy t TO {target}\""),
+                format!("psql -d warehouse -c \"\\o {target}\""),
+                format!("psql -d warehouse -c \"\\w {target}\""),
+                format!("psql -d warehouse -c \"\\g {target}\""),
             ] {
                 assert_eq!(write_rule_ids(&cmd, &env), expected, "{cmd}");
             }
         }
-        // The container side is not a local write.
+        // An ordinary relative or /tmp file is not a protected write target.
+        for target in ["report.csv", "/tmp/out.txt", "data/export.csv"] {
+            for cmd in [
+                format!("psql -d warehouse -c \"\\copy t TO {target}\""),
+                format!("psql -d warehouse -c \"\\o {target}\""),
+            ] {
+                assert!(write_rule_ids(&cmd, &env).is_empty(), "{cmd}");
+            }
+        }
+        // `TO PROGRAM`, an `\o |cmd` pipe to a reader and `\copy … FROM` are not
+        // plain-file writes, so they resolve no protected target here (psql.yaml
+        // still asks for the program / pipe forms).
         for cmd in [
-            "docker cp .envrc web:/root/.envrc",
-            "kubectl cp CLAUDE.md web-1:/app/CLAUDE.md",
+            "psql -c \"\\copy t TO PROGRAM 'id'\"",
+            "psql -c \"\\o |less\"",
+            "psql -c \"\\copy t FROM ~/.bashrc\"",
+        ] {
+            assert!(write_rule_ids(cmd, &env).is_empty(), "{cmd}");
+        }
+        // A pipe to a program that itself writes a protected file is still a
+        // write of that file.
+        assert!(write_rule_ids("psql -c \"\\o |tee ~/.bashrc\"", &env)
+            .contains(&"shellfirm-self:rc_file_edit"));
+        // A quoted sensitive target (blanked in the de-spaced segment) is read
+        // from the -c value, so it is still judged a write.
+        for cmd in [
+            "psql -c \"\\copy t TO '.envrc'\"",
+            "psql -c \"\\copy t TO '~/.bashrc'\"",
+            "psql -c \"\\o '.git/hooks/pre-commit'\"",
+        ] {
+            assert!(!write_rule_ids(cmd, &env).is_empty(), "{cmd}");
+        }
+        // A quoted ordinary file is still only an ordinary write.
+        for cmd in [
+            "psql -c \"\\copy t TO 'orders.csv'\"",
+            "psql -c \"\\o 'report.txt'\"",
+        ] {
+            assert!(write_rule_ids(cmd, &env).is_empty(), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn container_cp_destinations_are_local_write_targets() {
+        let env = home_env("/home/dev/projects/webapp");
+        for target in [
+            ".envrc",
+            "~/.bashrc",
+            "CLAUDE.md",
+            ".git/hooks/pre-commit",
+            ".claude/settings.json",
+            ".shellfirm.yaml",
+            "~/.claude/settings.json",
+        ] {
+            let expected = write_rule_ids(&format!("cat /tmp/p > {target}"), &env);
+            assert!(!expected.is_empty(), "control: {target}");
+            for cmd in [
+                format!("docker cp sf-test:/x {target}"),
+                format!("docker cp c:/x {target}"),
+                format!("podman cp c:/x {target}"),
+                format!("docker container cp c:/x {target}"),
+                format!("kubectl cp default/web-1:/x {target}"),
+                format!("kubectl cp -c app web-1:/x {target}"),
+                format!("kubectl cp --namespace prod web-1:/x {target}"),
+            ] {
+                assert_eq!(write_rule_ids(&cmd, &env), expected, "{cmd}");
+            }
+        }
+        // The pre-existing local-to-local precedent still flags.
+        assert!(!write_rule_ids("cp /tmp/x ~/.claude/settings.json", &env).is_empty());
+        // Uploading a local file INTO a container writes nothing locally, and a
+        // scratch destination is not protected.
+        for cmd in [
+            "docker cp .envrc sf-test:/x",
+            "kubectl cp .envrc web-1:/x",
+            "docker cp sf-test:/x /tmp/out.txt",
+            "docker cp sf-test:/x report.csv",
         ] {
             assert!(write_rule_ids(cmd, &env).is_empty(), "{cmd}");
         }

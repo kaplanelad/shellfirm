@@ -261,7 +261,7 @@
 - test: 'docker kill web'
   description: "negative: one container"
   expect_ids: []
-# -- docker:run_mount_host_root (R4) --
+# -- docker:run_mount_host_root --
 - test: 'docker run -v /:/host -it alpine sh'
   description: "host root bind mount"
   expect_ids: ["docker:run_mount_host_root"]
@@ -318,20 +318,30 @@
 - test: "docker volume ls"
   description: "negative: listing volumes"
   expect_ids: []
-# -- issue #189 --
 - test: "podman system reset -f"
-  description: "issue #189: podman system reset -f"
+  description: "podman system reset -f"
   expect_ids: ["docker:podman_system_reset"]
 - test: "podman ps -a"
-  description: "negative (issue #189): podman ps -a"
+  description: "negative: podman ps -a"
   expect_ids: []
-# -- issue #189: podman parity --
+# -- podman parity --
 - test: "podman volume prune -f"
   description: "podman volume prune"
   expect_ids: ["docker:volume_prune"]
 - test: "podman system prune -a"
   description: "podman system prune -a"
   expect_ids: ["docker:system_prune_all"]
+
+# -- help requests are print-only --
+- test: "docker run --rm -v /:/host alpine sh -c 'rm -rf /host/etc' --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["docker:run_mount_host_root"]
+- test: "docker run -h box --rm -v /:/host alpine rm -rf /host/etc"
+  description: "the help word does not make this print-only"
+  expect_ids: ["docker:run_mount_host_root"]
+- test: "docker volume prune --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
 
 # -- docker compose --dry-run (the last dry-run word, not an option's value) --
 - test: "docker compose down -v --dry-run"
