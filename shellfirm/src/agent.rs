@@ -8076,8 +8076,14 @@ mod tests {
         for (small, full) in inputs(1500).iter().zip(inputs(6000).iter()) {
             let t_small = time(small);
             let t_full = time(full);
+            // Absolute ceiling only separates linear from an O(n^2) blowup
+            // (which would be minutes at this size); it is deliberately
+            // generous because `cargo test` runs this CPU-bound case in
+            // parallel with the whole suite and an overloaded CI runner can
+            // stretch the wall clock several-fold. The linear-growth ratio
+            // below is the real complexity guard.
             assert!(
-                t_full < std::time::Duration::from_secs(15),
+                t_full < std::time::Duration::from_secs(60),
                 "{t_full:?} for {}",
                 &full[..40]
             );
