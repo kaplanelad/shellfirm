@@ -58,7 +58,7 @@ pub const LINE_CONTEXT_MARKER: &str = "shellfirm-line-context";
 /// The parser drops the wrapper, so an exemption written for the bare
 /// command (`rm -rf node_modules`) would also skip `sudo rm -rf
 /// node_modules`, and the root escalation would never run. The copy is
-/// matched by every check that is not in [`PRIVILEGE_SURVIVORS`]: its
+/// matched by every check that is not in `PRIVILEGE_SURVIVORS`: its
 /// `^`-anchored exemptions do not skip it. A check's test can name the copy
 /// (`^shellfirm-privileged\s+git\s+cherry-pick`) to match what it leaves
 /// alone for the user's own commands, and an exemption that still applies
