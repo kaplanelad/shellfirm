@@ -2,11 +2,11 @@
 
 ### Fixed
 
-- **fish:** the fish hook now skips expanding functions whose reported
-  source starts with `embedded:`, matching the existing behavior for
-  functions under `$__fish_data_dir/functions/`. Previously, embedded
-  function bodies were included in risk checks and could trigger false
-  alarms during routine commands.
+- **fish:** on fish 4.2+, commands such as `cd`, `prevd`, `nextd`
+  and `ls` no longer trigger false challenges: fish's built-in
+  (embedded) functions are no longer expanded into the check.
+- **fish:** redefinitions of prompt helpers, and functions defined and
+  called on the same line, are now checked.
 
 ## 0.4.1
 

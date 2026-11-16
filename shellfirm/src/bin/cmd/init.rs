@@ -5058,7 +5058,7 @@ if status is-interactive
         # $__fish_data_dir. Reading its body would expand fish's whole
         # directory handling (nextd, prevd, __fish_data_with_directory) into
         # the check, where its `command rm -r $temp` looks like a deletion.
-        if string match -q -- 'embedded:*' $file
+        if string match -q -- "embedded:functions/$w.fish" $file; and not test -e "$file"
             set -a __shellfirm_fn_shipped $w
             return 1
         end
@@ -5085,8 +5085,17 @@ if status is-interactive
     # into commands with fish's own tokenizer, so redirections (`>&2`,
     # `2>&1`) stay what they are, and an argument is put in quoted when it
     # has characters that would change the body's meaning. Functions already
-    # in __shellfirm_fn_seen are not repeated. $argv[2] = probe: print only
-    # the names of the functions that would be expanded.
+    # in __shellfirm_fn_seen are not repeated unless an explicit probe
+    # candidate list is provided.
+    #
+    # Parameters:
+    #   $argv[1]: Command text to scan.
+    #   $argv[2] (optional): `probe` prints function names instead of expanded
+    #     bodies. Omit to print expanded bodies.
+    #   $argv[3..-1] (optional, probe only): Candidate function names to match.
+    #     When provided, only these names are reported; session definitions
+    #     and __shellfirm_fn_seen are not consulted. This supports definitions
+    #     parsed from input that has not yet executed.
     function __shellfirm_function_bodies
         set -l toks
         printf '%s' $argv[1] | read -lzat toks
@@ -5121,6 +5130,10 @@ if status is-interactive
             set -q words[1]; or continue
             # `command x` / `builtin x` / `exec x` do not call a function.
             contains -- $words[1] command builtin exec; and continue
+            if test "$argv[2]" = probe; and set -q argv[3]
+                contains -- $words[1] $argv[3..-1]; and echo $words[1]
+                continue
+            end
             contains -- $words[1] $__shellfirm_fn_seen; and continue
             functions -q -- $words[1]; or continue
             set -l body (__shellfirm_function_source $words[1]); or continue
@@ -5153,7 +5166,7 @@ if status is-interactive
             string replace -a -- \x1f '$argv[' $body
         end
         for s in $subs[1..4]
-            __shellfirm_function_bodies $s $argv[2]
+            __shellfirm_function_bodies $s $argv[2..-1]
         end
     end
 
@@ -5318,11 +5331,18 @@ if status is-interactive
         set -l reach (__shellfirm_hook_reach)
         set -l depth 0
         set -l fnlevel -1
+        set -l fnstart 0
+        set -l fnname
+        set -l names
+        set -l bodies
         set -l kept
         set -l i 0
         for st in $stmts
             set i (math $i + 1)
-            set -l words (string trim -- $st | string split -n ' ')
+            set -l words
+            # Use fish's quoting and escaping rules so a quoted command name
+            # such as "name" can match a saved function name.
+            printf '%s' $st | read -lzat words
             while set -q words[1]; and contains -- $words[1] and or not time
                 set -e words[1]
             end
@@ -5337,7 +5357,19 @@ if status is-interactive
                             return
                         end
                         set depth (math $depth - 1)
-                        test $depth -eq $fnlevel; and set fnlevel -1
+                        # This end closes the function once its enclosing depth is restored.
+                        if test $depth -eq $fnlevel
+                            set fnlevel -1
+                            # Save the definition for calls later in this input; add it to
+                            # `kept` only if a later call is found.
+                            set -l slot (contains -i -- $fnname $names)
+                            if not set -q slot[1]
+                                set -a names $fnname
+                                set slot (count $names)
+                            end
+                            # Reassemble the complete definition and restore newline placeholders.
+                            set bodies[$slot] (string join \n -- $stmts[$fnstart..$i] | string replace -a \x1e \n | string collect)
+                        end
                 end
                 continue
             end
@@ -5358,6 +5390,8 @@ if status is-interactive
                         continue
                     end
                     set fnlevel $depth
+                    set fnstart $i
+                    set fnname $words[2]
                     set depth (math $depth + 1)
                     continue
                 case abbr alias
@@ -5366,6 +5400,22 @@ if status is-interactive
                     set depth (math $depth + 1)
                 case end
                     set depth (math $depth - 1)
+            end
+            if set -q names[1]
+                # Literal statements only need their command word. For pipes
+                # and substitutions, reuse the existing function-call scanner.
+                while set -q words[1]; and contains -- $words[1] not '!' begin time if while else eval
+                    set -e words[1]
+                end
+                set -l calls $words[1]
+                if test $specs[$i] != 0
+                    set calls (__shellfirm_function_bodies (string replace -a \x1e \n -- $st) probe $names)
+                end
+                for name in $calls
+                    if set -l slot (contains -i -- $name $names)
+                        set -a kept $bodies[$slot]
+                    end
+                end
             end
             set -a kept (string replace -a \x1e \n -- $st)
         end
@@ -5396,11 +5446,9 @@ if status is-interactive
             set todo
             for w in $next
                 set -a seen $w
-                # fish's own functions (from its data directory, or embedded
-                # in fish binary) are not read.
-                set -l file (functions --details -- $w 2>/dev/null)
-                string match -q -- "$__fish_data_dir/*" $file; and continue
-                string match -q -- 'embedded:*' $file; and continue
+                # Read fish's own functions too: they only add names here.
+                # Skipping them would let redefined prompt helpers run
+                # unchecked.
                 set -a todo (functions --no-details -- $w 2>/dev/null | string match -ra '[A-Za-z0-9_:.@+-]+')
             end
         end
@@ -8542,13 +8590,13 @@ done
         assert!(hook.contains("\"$__fish_data_dir/functions/*\""));
         // fish reports `cd` as `embedded:functions/cd.fish`;
         // reading one expands fish's `command rm -r $temp` into the check.
-        assert!(hook.contains("'embedded:*'"));
+        assert!(hook.contains("\"embedded:functions/$w.fish\""));
         let script = format!(
             r#"{hook}
 function nuke; kubectl delete ns $argv; end
 function redir; echo hi >&2; echo $argv[1] 2>&1; end
 function a1; kubectl delete ns $argv; end; function a2; a1 $argv; end; function a3; a2 $argv; end; function a4; a3 $argv; end
-for c in 'cd /tmp' 'prevd' 'ls' 'nuke q1' 'redir "a;b"' 'echo (nuke q2)' 'command nuke q3'
+for c in 'cd /tmp' 'prevd' 'nextd' 'ls' 'nuke q1' 'redir "a;b"' 'echo (nuke q2)' 'command nuke q3'
     set -g __shellfirm_fn_seen
     set -l r (__shellfirm_function_bodies $c | string join ' | ')
     echo "FB:$c=>$r"
@@ -8558,6 +8606,38 @@ set r (__shellfirm_bind_commands "bind \ct 'kubectl delete ns bd'; bind \ce end-
 set r (__shellfirm_strip_defs 'function hk --on-event fish_prompt; kubectl delete ns ev; end' | string join ' | '); echo "DEFS:$r"
 set r (__shellfirm_strip_defs 'function hk; kubectl delete ns ev; end' | string join ' | '); echo "PLAIN:$r"
 set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' | string join ' | '); echo "PROMPTFN:$r"
+set r (__shellfirm_strip_defs 'function prompt_pwd; rm -rf ~/x; end' | string join ' | '); echo "REACH:$r"
+for c in \
+    'function zz; rm -rf ~/x; end; zz' \
+    'function zz; if true; rm -rf ~/x; end; end; true && zz' \
+    'function zz; rm -rf ~/x; end; echo hi | zz' \
+    'function zz; rm -rf ~/x; end; not zz' \
+    'function zz; rm -rf ~/x; end; "zz"' \
+    'function zz; rm -rf ~/x; end; echo (zz)' \
+    'function zz; rm -rf ~/x; end; eval zz'
+    set r (__shellfirm_strip_defs $c | string join ' | ')
+    if not string match -q -- '*rm -rf ~/x*' "$r"
+        echo "UNCHECKED:$c"
+        exit 1
+    end
+end
+for c in \
+    'function zz; rm -rf ~/x; end; echo zz' \
+    'function zz; zz; rm -rf ~/x; end' \
+    'zz; function zz; rm -rf ~/x; end' \
+    'function zz; rm -rf ~/x; end; command zz' \
+    'function zz; rm -rf ~/x; end; function unused; zz; end' \
+    'function zz; rm -rf ~/x; end; echo "(zz)"' \
+    'function zz; rm -rf ~/x; end; function harmless; echo ok; end; harmless' \
+    'function zz; rm -rf ~/x; end; function zz; echo ok; end; zz'
+    set r (__shellfirm_strip_defs $c | string join ' | ')
+    if string match -q -- '*rm -rf ~/x*' "$r"
+        echo "FALSE-POSITIVE:$c"
+        exit 1
+    end
+end
+functions -q zz; and exit 1
+echo SAME-LINE:ok
 "#
         );
         let Ok(out) = std::process::Command::new("fish")
@@ -8568,6 +8648,7 @@ set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' 
             eprintln!("fish not installed; skipping");
             return;
         };
+        assert!(out.status.success(), "fish failed: {out:?}");
         let out = (
             String::from_utf8_lossy(&out.stdout).into_owned(),
             String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -8577,6 +8658,7 @@ set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' 
             &[
                 "FB:cd /tmp=>\n",
                 "FB:prevd=>\n",
+                "FB:nextd=>\n",
                 "FB:ls=>\n",
                 "kubectl delete ns q1",
                 "echo hi >&2; echo 'a;b' 2>&1;",
@@ -8587,8 +8669,125 @@ set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' 
                 "DEFS:function hk --on-event fish_prompt",
                 "PLAIN:\n",
                 "PROMPTFN:function fish_prompt",
+                "REACH:function prompt_pwd |  rm -rf ~/x |  end",
+                "SAME-LINE:ok",
             ],
         );
+    }
+
+    /// A file can have an `embedded:` prefix on Unix; its functions still
+    /// need checking, even when its path matches fish's embedded layout.
+    #[cfg(unix)]
+    #[test]
+    fn fish_hook_checks_file_functions_and_prompt_helpers() {
+        let dir = tree_fs::TreeBuilder::default().create().unwrap();
+        fs::create_dir(dir.root.join("embedded:functions")).unwrap();
+        fs::write(
+            dir.root.join("embedded:evil.fish"),
+            "function evil; kubectl delete ns prefix; end\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.root.join("embedded:functions/spoof.fish"),
+            "function spoof; kubectl delete ns exact; end\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.root.join("prompt.fish"),
+            "function fish_prompt; my_helper; end\nfunction my_helper; echo ok; end\n",
+        )
+        .unwrap();
+        let script = format!(
+            r#"{hook}
+source embedded:evil.fish
+source embedded:functions/spoof.fish
+for c in 'evil' 'spoof'
+    set -g __shellfirm_fn_seen
+    set r (__shellfirm_function_bodies $c | string join ' | ')
+    echo "FILE:$c=>$r"
+end
+source "$PWD/prompt.fish"
+# fish 4.9 makes this variable read-only; older official builds leave it unset.
+set -e __fish_data_dir 2>/dev/null
+set r (__shellfirm_strip_defs 'function my_helper; rm -rf ~/x; end' | string join ' | '); echo "FILE-REACH:$r"
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Ok(out) = std::process::Command::new("fish")
+            .args(["--no-config", "-i", "-c", &script])
+            .current_dir(&dir.root)
+            .stdin(std::process::Stdio::null())
+            .output()
+        else {
+            eprintln!("fish not installed; skipping");
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let out = (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        );
+        assert_has(
+            &out,
+            &[
+                "FILE:evil=>function evil",
+                "kubectl delete ns prefix",
+                "FILE:spoof=>function spoof",
+                "kubectl delete ns exact",
+                "FILE-REACH:function my_helper |  rm -rf ~/x |  end",
+            ],
+        );
+    }
+
+    /// A relative file source must remain distinguishable from an embedded
+    /// function after changing the working directory.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "KFAIL: changing directories makes a relative embedded: source look built-in"]
+    fn fish_hook_checks_file_functions_after_changing_directory() {
+        let dir = tree_fs::TreeBuilder::default().create().unwrap();
+        fs::create_dir(dir.root.join("embedded:functions")).unwrap();
+        fs::create_dir(dir.root.join("other")).unwrap();
+        fs::write(
+            dir.root.join("embedded:functions/spoof.fish"),
+            "function spoof; echo CWD_MARKER; end\n",
+        )
+        .unwrap();
+        let script = format!(
+            r#"{hook}
+source embedded:functions/spoof.fish; or exit 1
+set -g __shellfirm_fn_seen
+set r (__shellfirm_function_bodies spoof | string join ' | ')
+echo "BEFORE-CD:$r"
+builtin cd other; or exit 1
+# Scan the same loaded function again, without the seen-function shortcut.
+set -g __shellfirm_fn_seen
+set r (__shellfirm_function_bodies spoof | string join ' | ')
+echo "AFTER-CD:$r"
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Ok(out) = std::process::Command::new("fish")
+            .args(["--no-config", "-i", "-c", &script])
+            .current_dir(&dir.root)
+            .stdin(std::process::Stdio::null())
+            .output()
+        else {
+            eprintln!("fish not installed; skipping");
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let out = (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        );
+        for prefix in ["BEFORE-CD:", "AFTER-CD:"] {
+            let expanded = lines_with(&out, prefix).join("\n");
+            assert!(
+                expanded.contains("function spoof") && expanded.contains("echo CWD_MARKER"),
+                "file function was not expanded at {prefix}: {out:?}"
+            );
+        }
     }
 
     #[test]
