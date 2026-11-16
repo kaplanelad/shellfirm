@@ -5080,6 +5080,100 @@ if status is-interactive
         printf '%s' $body
     end
 
+    # Extract command substitutions from one raw token, without evaluating it.
+    # Each substitution is NUL-terminated so embedded newlines stay intact.
+    #
+    # Start with the command template `echo ARG`, for example:
+    #   echo prefix(pwd)(whoami)
+    # For the call inspecting ARG, each case below shows the raw token and
+    # this helper's output, not the output of echo or the inner commands.
+    # \n and \0 denote newline and NUL bytes.
+    #   Plain text:             hello              -> no output
+    #   Multiple substitutions: prefix(pwd)(whoami) -> pwd\0whoami\0
+    #   Nested substitution:    (echo (pwd))        -> echo (pwd)\0
+    #   Quoted literal:         "(pwd)"             -> no output
+    #   Quoted substitution:    "$(pwd)"            -> pwd\0
+    #   Multiline substitution: (echo a\necho b)    -> echo a\necho b\0
+    # Nested substitutions stay in the extracted text for the caller to scan.
+    function __shellfirm_extract_command_substitutions
+        string match -q '*(*' -- $argv[1]; or return
+        set -l mode unquoted
+        # Stack of modes to restore when nested substitutions close.
+        set -l outer_modes
+        set -l escaped 0
+        set -l previous_character ''
+        set -l substitution_start 0
+        set -l position 0
+        for character in (string split '' -- $argv[1])
+            set position (math $position + 1)
+
+            # Handle escapes before interpreting quotes or parentheses.
+            # Inside comments, even backslashes are ordinary text.
+            if test "$mode" != comment
+                if test $escaped = 1
+                    set escaped 0
+                    # An escaped dollar sign cannot introduce $(...).
+                    set previous_character ''
+                    continue
+                end
+                if test "$character" = '\\'
+                    set escaped 1
+                    set previous_character "$character"
+                    continue
+                end
+            end
+
+            # Classify the character in its current context. Only unquoted
+            # parentheses and a double-quoted $(...) affect nesting.
+            set -l boundary none
+            switch $mode
+                case comment
+                    test "$character" = \n; and set mode unquoted
+                case single_quoted
+                    test "$character" = "'"; and set mode unquoted
+                case double_quoted
+                    if test "$character" = '"'
+                        set mode unquoted
+                    else if test "$character" = '('; and test "$previous_character" = '$'
+                        set boundary open
+                    end
+                case unquoted
+                    switch "$character"
+                        case "'"
+                            set mode single_quoted
+                        case '"'
+                            set mode double_quoted
+                        case '#'
+                            string match -qr '^\s?$' -- "$previous_character"; and set mode comment
+                        case '('
+                            set boundary open
+                        case ')'
+                            set boundary close
+                    end
+            end
+
+            # Enter a substitution in unquoted mode, then restore its outer
+            # context on exit. Emit only when the outermost pair closes.
+            switch $boundary
+                case open
+                    set -q outer_modes[1]; or set substitution_start (math $position + 1)
+                    set -a outer_modes $mode
+                    set mode unquoted
+                case close
+                    if set -q outer_modes[1]
+                        set mode $outer_modes[-1]
+                        set -e outer_modes[-1]
+                        if not set -q outer_modes[1]
+                            set -l length (math $position - $substitution_start)
+                            set -l body (string sub -s $substitution_start -l $length -- $argv[1] | string collect)
+                            printf '%s\0' "$body"
+                        end
+                    end
+            end
+            set previous_character "$character"
+        end
+    end
+
     # Bodies of small functions (fish aliases) called anywhere in $argv[1],
     # with `$argv` replaced by the arguments of the call. The text is split
     # into commands with fish's own tokenizer, so redirections (`>&2`,
@@ -5098,12 +5192,24 @@ if status is-interactive
     #     parsed from input that has not yet executed.
     function __shellfirm_function_bodies
         set -l toks
-        printf '%s' $argv[1] | read -lzat toks
+        set -l raw 1
+        # --tokenize-raw was added in fish 4.1. Older fish keeps its previous
+        # tokenizer path; do not require a newer fish just to load the hook.
+        if not printf '%s\0' $argv[1] | read -lza --tokenize-raw toks 2>/dev/null
+            set raw 0
+            printf '%s' $argv[1] | read -lzat toks
+        end
         set -l seg
         set -l subs
         set -l n 0
         set -l skip 0
         for t in $toks ';'
+            # Substitutions in redirection targets also run commands.
+            if test $raw = 1
+                set -a subs (__shellfirm_extract_command_substitutions "$t" | string split0)
+            else if string match -q -- '*(*' $t
+                set -a subs (string match -ra -- '\(([^()]*)\)' $t | string match -rv -- '^\(')
+            end
             if test $skip = 1
                 set skip 0
                 continue
@@ -5115,11 +5221,14 @@ if status is-interactive
                     continue
                 end
                 string match -qr -- '^[0-9]*[<>]|^&>' $t; and continue
-                # Command substitutions run commands of their own.
-                if string match -q -- '*(*' $t
-                    set -a subs (string match -ra -- '\(([^()]*)\)' $t | string match -rv -- '^\(')
+                # Decode words only after recognizing operators and extracting
+                # substitutions: quoted ";" and "(name)" are just arguments.
+                if test $raw = 1
+                    printf '%s\0' "$t" | read -lzat word
+                    set -a seg $word
+                else
+                    set -a seg $t
                 end
-                set -a seg $t
                 continue
             end
             set -l words $seg
@@ -5146,7 +5255,7 @@ if status is-interactive
             set -l q
             for a in $words
                 if string match -qr -- '[^A-Za-z0-9_./~:=@%+,-]' $a
-                    set -a q "'"(string replace -a -- "'" "\\'" (string replace -a -- '\\' '\\\\' $a))"'"
+                    set -a q "'"(string replace -a -- "'" "\\'" (string replace -a -- '\\' '\\\\' $a | string collect) | string collect)"'"
                 else
                     set -a q $a
                 end
@@ -5165,7 +5274,7 @@ if status is-interactive
             set body (string replace -a -- '$argv' "$q" $body | string collect)
             string replace -a -- \x1f '$argv[' $body
         end
-        for s in $subs[1..4]
+        for s in $subs
             __shellfirm_function_bodies $s $argv[2..-1]
         end
     end
@@ -5402,18 +5511,29 @@ if status is-interactive
                     set depth (math $depth - 1)
             end
             if set -q names[1]
-                # Literal statements only need their command word. For pipes
-                # and substitutions, reuse the existing function-call scanner.
-                while set -q words[1]; and contains -- $words[1] not '!' begin time if while else eval
-                    set -e words[1]
-                end
-                set -l calls $words[1]
-                if test $specs[$i] != 0
-                    set calls (__shellfirm_function_bodies (string replace -a \x1e \n -- $st) probe $names)
-                end
-                for name in $calls
+                # Resolve calls against the definitions available here, including
+                # calls made by their bodies. A per-statement seen set breaks cycles
+                # without hiding a definition changed before a later statement.
+                set -l todo (__shellfirm_function_bodies (string replace -a \x1e \n -- $st) probe $names)
+                set -l seen
+                set -l bytes 0
+                while set -q todo[1]
+                    set -l name $todo[1]
+                    set -e todo[1]
+                    contains -- $name $seen; and continue
+                    if test (count $seen) -ge 64; or test $bytes -ge 64000
+                        set -a kept "shellfirm-function-depth-limit $name # same-line function expansion limit"
+                        break
+                    end
+                    set -a seen $name
                     if set -l slot (contains -i -- $name $names)
-                        set -a kept $bodies[$slot]
+                        set -l lines (string split \n -- $bodies[$slot])
+                        # Apply the same definition rules inside a called body, so
+                        # merely defining a nested function does not execute it.
+                        set -l body (__shellfirm_strip_defs (string join \n -- $lines[2..-2] | string collect) | string collect)
+                        set -a kept "$lines[1]"\n"$body"\n"end"
+                        set bytes (math $bytes + (string length -- "$body"))
+                        set -a todo (__shellfirm_function_bodies "$body" probe $names)
                     end
                 end
             end
@@ -8596,7 +8716,8 @@ done
 function nuke; kubectl delete ns $argv; end
 function redir; echo hi >&2; echo $argv[1] 2>&1; end
 function a1; kubectl delete ns $argv; end; function a2; a1 $argv; end; function a3; a2 $argv; end; function a4; a3 $argv; end
-for c in 'cd /tmp' 'prevd' 'nextd' 'ls' 'nuke q1' 'redir "a;b"' 'echo (nuke q2)' 'command nuke q3'
+for c in 'cd /tmp' 'prevd' 'nextd' 'ls' 'nuke q1' 'redir "a;b"' 'redir "one
+two"' 'echo (nuke q2)' 'command nuke q3'
     set -g __shellfirm_fn_seen
     set -l r (__shellfirm_function_bodies $c | string join ' | ')
     echo "FB:$c=>$r"
@@ -8662,6 +8783,7 @@ echo SAME-LINE:ok
                 "FB:ls=>\n",
                 "kubectl delete ns q1",
                 "echo hi >&2; echo 'a;b' 2>&1;",
+                "echo hi >&2; echo 'one | two' 2>&1;",
                 "kubectl delete ns q2",
                 "FB:command nuke q3=>\n",
                 "PROBE:a1",
@@ -8673,6 +8795,146 @@ echo SAME-LINE:ok
                 "SAME-LINE:ok",
             ],
         );
+    }
+
+    /// Extract raw command text while preserving quote contexts and NUL boundaries.
+    #[test]
+    fn fish_hook_extracts_command_substitutions() {
+        let cases: &[(&str, &[&str])] = &[
+            ("hello", &[]),
+            ("(pwd)", &["pwd"]),
+            ("prefix(pwd)(whoami)", &["pwd", "whoami"]),
+            ("(echo (pwd))", &["echo (pwd)"]),
+            (r#""(pwd)""#, &[]),
+            (r#""$(pwd)""#, &["pwd"]),
+            ("'$(pwd)'", &[]),
+            (r"\(pwd\)", &[]),
+            (r#""\$(pwd)""#, &[]),
+            (r#""$(pwd)(literal)$(whoami)""#, &["pwd", "whoami"]),
+            (r#""$(echo "$(pwd)")""#, &[r#"echo "$(pwd)""#]),
+            (r#""escaped \"(literal) $(pwd)""#, &["pwd"]),
+            (
+                "(echo 'unmatched ) (')(pwd)",
+                &["echo 'unmatched ) ('", "pwd"],
+            ),
+            ("# (ignored)", &[]),
+            ("(echo '# literal')", &["echo '# literal'"]),
+            ("(echo first\necho second)", &["echo first\necho second"]),
+            (
+                "(echo first # unmatched ) (\necho second)",
+                &["echo first # unmatched ) (\necho second"],
+            ),
+            (
+                "(echo first # comment \\\necho second)(pwd)",
+                &["echo first # comment \\\necho second", "pwd"],
+            ),
+            ("(echo 目录)(pwd)", &["echo 目录", "pwd"]),
+            ("(unfinished", &[]),
+            ("(pwd)(unfinished", &["pwd"]),
+        ];
+        let script = format!(
+            r#"{hook}
+for token in $argv
+    printf 'TOKEN\0'
+    __shellfirm_extract_command_substitutions "$token"
+end
+# A token with no substitutions may return nonzero without an error.
+true
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Ok(out) = std::process::Command::new("fish")
+            .args(["--no-config", "-i", "-c", &script, "--"])
+            .args(cases.iter().map(|(token, _)| token))
+            .stdin(std::process::Stdio::null())
+            .output()
+        else {
+            eprintln!("fish not installed; skipping");
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let actual: Vec<_> = stdout.split_terminator('\0').collect();
+        let expected: Vec<_> = cases
+            .iter()
+            .flat_map(|(_, bodies)| std::iter::once("TOKEN").chain(bodies.iter().copied()))
+            .collect();
+        assert_eq!(
+            actual,
+            expected,
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Feed the hook's output to the real matcher without executing any input.
+    #[test]
+    fn fish_hook_same_line_calls_preserve_syntax_and_follow_chains() {
+        let cases = [
+            ("function zz; rm -rf ~; end; zz", true),
+            (r#"function zz; rm -rf ~; end; echo "$(zz)""#, true),
+            (r#"function zz; rm -rf ~; end; echo "$(echo (zz))""#, true),
+            ("function zz; rm -rf ~; end; function yy; zz; end; yy", true),
+            ("function yy; zz; end; function zz; rm -rf ~; end; yy", true),
+            ("function zz; zz; rm -rf ~; end; zz", true),
+            ("function zz; yy; end; function yy; zz; rm -rf ~; end; zz", true),
+            ("function zz; rm -rf ~; end; echo hi > (zz)", true),
+            ("function zz; rm -rf ~; end; echo (true) (true) (true) (true) (zz)", true),
+            (r#"function zz; rm -rf ~; end; echo "(zz)" | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo "(zz)" > /dev/null"#, false),
+            (r#"function zz; rm -rf ~; end; echo ";" zz | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo \(zz\) | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo "\$(zz)" | cat"#, false),
+            ("function zz; rm -rf ~; end; echo '$(zz)' | cat", false),
+            (r#"function zz; rm -rf ~; end; echo (echo "(zz)")"#, false),
+            ("function zz; rm -rf ~; end; echo zz", false),
+            ("function zz; zz; rm -rf ~; end", false),
+            ("zz; function zz; rm -rf ~; end", false),
+            ("function zz; rm -rf ~; end; command zz", false),
+            ("function zz; rm -rf ~; end; function zz; echo ok; end; zz", false),
+            ("function zz; function unused; rm -rf ~; end; echo ok; end; zz", false),
+            ("function zz; rm -rf ~; end; function yy; function unused; zz; end; echo ok; end; yy", false),
+        ];
+        let script = format!(
+            r#"{hook}
+for input in $argv
+    set check (__shellfirm_strip_defs "$input" | string collect)
+    printf '%s\0' "$check"
+end
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Ok(out) = std::process::Command::new("fish")
+            .args(["--no-config", "-i", "-c", &script, "--"])
+            .args(cases.iter().map(|(input, _)| input))
+            .stdin(std::process::Stdio::null())
+            .output()
+        else {
+            eprintln!("fish not installed; skipping");
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let outputs: Vec<_> = stdout.split_terminator('\0').collect();
+        assert_eq!(outputs.len(), cases.len(), "{stdout:?}");
+        let checks = shellfirm::checks::get_all().unwrap();
+        let home = PathBuf::from("/home/test");
+        let env = shellfirm::env::MockEnvironment {
+            cwd: PathBuf::from("/work"),
+            home: Some(home.clone()),
+            existing_paths: [home].into_iter().collect(),
+            ..Default::default()
+        };
+        for ((input, risky), output) in cases.iter().zip(outputs) {
+            let matches = shellfirm::checks::run_check_on_command_with_env(&checks, output, &env);
+            assert_eq!(
+                matches
+                    .iter()
+                    .any(|check| check.id == "fs:recursively_delete"),
+                *risky,
+                "input: {input}\ncheck text: {output}\nmatched: {matches:?}"
+            );
+        }
     }
 
     /// A file can have an `embedded:` prefix on Unix; its functions still
