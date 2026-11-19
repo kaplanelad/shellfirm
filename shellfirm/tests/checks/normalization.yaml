@@ -1,6 +1,6 @@
 ---
 # Regression cases for the shell-aware parser (src/parser.rs) and the
-# round-1 catalog fixes. Every path is reported as existing by the test env.
+# Catalog fixes. Every path is reported as existing by the test env.
 
 # -- quoting: quoted operands are unquoted before matching --
 - test: 'rm -rf "/"'
@@ -148,7 +148,7 @@
 - test: "rm -rf -- /"
   description: "end-of-options marker"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
-- test: "true && rm -rf build"
+- test: "true && rm -rf myapp"
   description: "chained recursive delete of a normal dir is Medium only"
   expect_ids: ["fs-strict:recursive_deletion"]
 - test: "rm file.txt"
@@ -292,7 +292,7 @@
   description: "grep of history is not re-execution"
   expect_ids: []
 
-# -- round 6: zsh brace forms --
+# -- zsh brace forms --
 - test: "{git push -f}"
   description: "zsh group closed on the last word"
   expect_ids: ["git:force_push"]
@@ -330,7 +330,7 @@
   description: "negative: a braced variable in a group"
   expect_ids: []
 
-# -- round 7: a parenthesised word before the command --
+# -- a parenthesised word before the command --
 - test: "case x in (a) git push -f ;; esac"
   description: "an opening ( before a case pattern"
   expect_ids: ["git:force_push"]

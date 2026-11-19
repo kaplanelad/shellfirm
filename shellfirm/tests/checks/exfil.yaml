@@ -73,7 +73,7 @@
 - test: "tar czf /tmp/b.tgz ~/.ssh && ls -l /tmp/b.tgz"
   description: "an archive of the keys, not sent"
   expect_ids: ["exfil:archive_secret_dir"]
-# -- reading, printing and searching for secrets (issue #189) --
+# -- reading, printing and searching for secrets --
 - test: 'cat ~/.ssh/id_rsa'
   description: "a private key read"
   expect_ids: ["exfil:read_secret_file"]
@@ -188,152 +188,151 @@
 - test: 'gitleaks detect --source .'
   description: "negative: scanning the project"
   expect_ids: []
-# -- issue #189 --
 - test: "grep . ~/.ssh/id_rsa"
-  description: "issue #189: grep . ~/.ssh/id_rsa"
+  description: "grep . ~/.ssh/id_rsa"
   expect_ids: ["exfil:read_secret_file"]
 - test: "grep aws_secret ~/.aws/credentials"
-  description: "issue #189: grep aws_secret ~/.aws/credentials"
+  description: "grep aws_secret ~/.aws/credentials"
   expect_ids: ["exfil:read_secret_file"]
 - test: "rg . ~/.aws/credentials"
-  description: "issue #189: rg . ~/.aws/credentials"
+  description: "rg . ~/.aws/credentials"
   expect_ids: ["exfil:read_secret_file"]
 - test: "grep token ~/.npmrc"
-  description: "issue #189: grep token ~/.npmrc"
+  description: "grep token ~/.npmrc"
   expect_ids: ["exfil:read_secret_file"]
 - test: "type %USERPROFILE%\\.ssh\\id_rsa"
-  description: "issue #189: type %USERPROFILE%\\.ssh\\id_rsa"
+  description: "type %USERPROFILE%\\.ssh\\id_rsa"
   expect_ids: ["exfil:read_secret_file"]
 - test: "copy %USERPROFILE%\\.ssh\\id_rsa C:\\temp\\k"
-  description: "issue #189: copy %USERPROFILE%\\.ssh\\id_rsa C:\\temp\\k"
+  description: "copy %USERPROFILE%\\.ssh\\id_rsa C:\\temp\\k"
   expect_ids: ["exfil:read_secret_file"]
 - test: "pbcopy < ~/.ssh/id_ed25519"
-  description: "issue #189: pbcopy < ~/.ssh/id_ed25519"
+  description: "pbcopy < ~/.ssh/id_ed25519"
   expect_ids: ["exfil:read_secret_file"]
 - test: "jq . ~/.docker/config.json"
-  description: "issue #189: jq . ~/.docker/config.json"
+  description: "jq . ~/.docker/config.json"
   expect_ids: ["exfil:read_secret_file"]
 - test: "openssl rsa -in ~/.ssh/id_rsa -text"
-  description: "issue #189: openssl rsa -in ~/.ssh/id_rsa -text"
+  description: "openssl rsa -in ~/.ssh/id_rsa -text"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.ssh/github_key"
-  description: "issue #189: cat ~/.ssh/github_key"
+  description: "cat ~/.ssh/github_key"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.ssh/id_*"
-  description: "issue #189: cat ~/.ssh/id_*"
+  description: "cat ~/.ssh/id_*"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.ssh/id_rsa.bak"
-  description: "issue #189: cat ~/.ssh/id_rsa.bak"
+  description: "cat ~/.ssh/id_rsa.bak"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.pgpass"
-  description: "issue #189: cat ~/.pgpass"
+  description: "cat ~/.pgpass"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.my.cnf"
-  description: "issue #189: cat ~/.my.cnf"
+  description: "cat ~/.my.cnf"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.vault-token"
-  description: "issue #189: cat ~/.vault-token"
+  description: "cat ~/.vault-token"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.aws/sso/cache/abc.json"
-  description: "issue #189: cat ~/.aws/sso/cache/abc.json"
+  description: "cat ~/.aws/sso/cache/abc.json"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat ~/.claude/.credentials.json"
-  description: "issue #189: cat ~/.claude/.credentials.json"
+  description: "cat ~/.claude/.credentials.json"
   expect_ids: ["exfil:read_secret_file"]
 - test: "cat /etc/shadow"
-  description: "issue #189: cat /etc/shadow"
+  description: "cat /etc/shadow"
   expect_ids: ["exfil:read_secret_file"]
 - test: "gh auth status --show-token"
-  description: "issue #189: gh auth status --show-token"
+  description: "gh auth status --show-token"
   expect_ids: ["exfil:print_token"]
 - test: "kubectl config view --raw"
-  description: "issue #189: kubectl config view --raw"
+  description: "kubectl config view --raw"
   expect_ids: ["exfil:print_token"]
 - test: "kubectl get secret db -o yaml"
-  description: "issue #189: kubectl get secret db -o yaml"
+  description: "kubectl get secret db -o yaml"
   expect_ids: ["exfil:print_token"]
 - test: "aws secretsmanager get-secret-value --secret-id prod/db"
-  description: "issue #189: aws secretsmanager get-secret-value --secret-id prod/db"
+  description: "aws secretsmanager get-secret-value --secret-id prod/db"
   expect_ids: ["exfil:print_token"]
 - test: "aws ssm get-parameter --name /prod/db --with-decryption"
-  description: "issue #189: aws ssm get-parameter --name /prod/db --with-decryption"
+  description: "aws ssm get-parameter --name /prod/db --with-decryption"
   expect_ids: ["exfil:print_token"]
 - test: "gcloud secrets versions access latest --secret db"
-  description: "issue #189: gcloud secrets versions access latest --secret db"
+  description: "gcloud secrets versions access latest --secret db"
   expect_ids: ["exfil:print_token"]
 - test: "az keyvault secret show --vault-name v --name db"
-  description: "issue #189: az keyvault secret show --vault-name v --name db"
+  description: "az keyvault secret show --vault-name v --name db"
   expect_ids: ["exfil:print_token"]
 - test: "vault kv get secret/db"
   description: "negative: reading a Vault secret is everyday work (see terraform.yaml)"
   expect_ids: []
 - test: "op read op://vault/item/password"
-  description: "issue #189: op read op://vault/item/password"
+  description: "op read op://vault/item/password"
   expect_ids: ["exfil:print_token"]
 - test: "gpg --export-secret-keys --armor"
-  description: "issue #189: gpg --export-secret-keys --armor"
+  description: "gpg --export-secret-keys --armor"
   expect_ids: ["exfil:print_token"]
 - test: "locate id_rsa"
-  description: "issue #189: locate id_rsa"
+  description: "locate id_rsa"
   expect_ids: ["exfil:search_secret_files"]
 - test: "Get-ChildItem C:\\Users -Recurse -Include id_rsa"
-  description: "issue #189: Get-ChildItem C:\\Users -Recurse -Include id_rsa"
+  description: "Get-ChildItem C:\\Users -Recurse -Include id_rsa"
   expect_ids: ["exfil:search_secret_files"]
 - test: "cp x ~/.kube/config"
-  description: "negative (issue #189): cp x ~/.kube/config"
+  description: "negative: cp x ~/.kube/config"
   expect_ids: []
 - test: "install -m 600 key ~/.ssh/id_deploy"
-  description: "negative (issue #189): install -m 600 key ~/.ssh/id_deploy"
+  description: "negative: install -m 600 key ~/.ssh/id_deploy"
   expect_ids: []
 - test: "cp ~/.ssh/id_ed25519.pub /tmp/pub"
-  description: "negative (issue #189): cp ~/.ssh/id_ed25519.pub /tmp/pub"
+  description: "negative: cp ~/.ssh/id_ed25519.pub /tmp/pub"
   expect_ids: []
 - test: "cat ~/.ssh/config"
-  description: "negative (issue #189): cat ~/.ssh/config"
+  description: "negative: cat ~/.ssh/config"
   expect_ids: []
 - test: "cat ~/.ssh/known_hosts"
-  description: "negative (issue #189): cat ~/.ssh/known_hosts"
+  description: "negative: cat ~/.ssh/known_hosts"
   expect_ids: []
 - test: "cat ~/.ssh/id_rsa.pub"
-  description: "negative (issue #189): cat ~/.ssh/id_rsa.pub"
+  description: "negative: cat ~/.ssh/id_rsa.pub"
   expect_ids: []
 - test: "cat .env"
-  description: "negative (issue #189): cat .env"
+  description: "negative: cat .env"
   expect_ids: []
 - test: "grep Host ~/.ssh/config"
-  description: "negative (issue #189): grep Host ~/.ssh/config"
+  description: "negative: grep Host ~/.ssh/config"
   expect_ids: []
 - test: "grep -r TODO src/"
-  description: "negative (issue #189): grep -r TODO src/"
+  description: "negative: grep -r TODO src/"
   expect_ids: []
 - test: "type rm"
-  description: "negative (issue #189): type rm"
+  description: "negative: type rm"
   expect_ids: []
 - test: "type -a ls"
-  description: "negative (issue #189): type -a ls"
+  description: "negative: type -a ls"
   expect_ids: []
 - test: "kubectl config view"
-  description: "negative (issue #189): kubectl config view"
+  description: "negative: kubectl config view"
   expect_ids: []
 - test: "kubectl get secrets"
-  description: "negative (issue #189): kubectl get secrets"
+  description: "negative: kubectl get secrets"
   expect_ids: []
 - test: "gh auth status"
-  description: "negative (issue #189): gh auth status"
+  description: "negative: gh auth status"
   expect_ids: []
 - test: "locate README.md"
-  description: "negative (issue #189): locate README.md"
+  description: "negative: locate README.md"
   expect_ids: []
 - test: "echo hi > /dev/null"
-  description: "negative (issue #189): echo hi > /dev/null"
+  description: "negative: echo hi > /dev/null"
   expect_ids: []
 - test: "vssadmin list shadows"
-  description: "negative (issue #189): vssadmin list shadows"
+  description: "negative: vssadmin list shadows"
   expect_ids: []
 - test: "find ~/projects/webapp -name '*.pem'"
-  description: "negative (issue #189): find ~/projects/webapp -name '*.pem'"
+  description: "negative: find ~/projects/webapp -name '*.pem'"
   expect_ids: []
-# -- issue #189 (grep value, redirect target, --help) --
+# -- grep value, redirect target, --help --
 - test: 'grep -m 1 token ~/.npmrc'
   description: "grep with a value-taking option before the secret file"
   expect_ids: ["exfil:read_secret_file"]
@@ -361,7 +360,7 @@
 - test: 'gh help auth'
   description: "negative: help subcommand"
   expect_ids: []
-# -- issue #189: secret-read & token-print breadth --
+# -- secret-read & token-print breadth --
 - test: "cat ~/.ssh/work"
   description: "a key with no id_/_key name"
   expect_ids: ["exfil:read_secret_file"]
@@ -455,7 +454,7 @@
 - test: "Get-ChildItem C:\\project -Recurse -Include *.pem"
   description: "negative: searching a project dir, not home"
   expect_ids: []
-# -- issue #189: touch-but-no-output false positives --
+# -- touch-but-no-output false positives --
 - test: "sed -i 's/old/new/' ~/.aws/credentials"
   description: "negative: in-place edit prints nothing"
   expect_ids: []
@@ -471,7 +470,7 @@
 - test: "sed -n 'p' ~/.aws/credentials"
   description: "sed without -i prints the file"
   expect_ids: ["exfil:read_secret_file"]
-# -- issue #189: dd/~user reads, public-key backups --
+# -- dd/~user reads, public-key backups --
 - test: "dd if=/home/dev/.ssh/id_rsa of=/tmp/k"
   description: "dd reads a private key"
   expect_ids: ["exfil:read_secret_file"]
@@ -490,7 +489,7 @@
 - test: "cat ~/.ssh/id_ed25519.pub.old"
   description: "negative: public-key backup"
   expect_ids: []
-# -- issue #189: /proc/self/environ and `op item get` --
+# -- /proc/self/environ and `op item get` --
 - test: "cat /proc/self/environ"
   description: "reading the current process environment (secrets)"
   expect_ids: ["exfil:read_secret_file"]

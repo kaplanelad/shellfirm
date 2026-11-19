@@ -147,7 +147,7 @@
 - test: "pulumi stack rm prod"
   description: "removes a stack"
   expect_ids: ["terraform:pulumi_stack_rm"]
-# -- terraform:import / taint / state_push_force (R4) --
+# -- terraform:import / taint / state_push_force --
 - test: 'terraform import aws_instance.web i-123'
   description: "import"
   expect_ids: ["terraform:import"]
@@ -302,6 +302,11 @@
 - test: "terraform plan -out=p && terraform apply p"
   description: "a normal plan applied on the same line is the plan-file check only"
   expect_ids: ["terraform:apply_plan_file"]
+
+# -- help requests are print-only --
+- test: "terraform state rm --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
 
 # -- the last dry-run value wins --
 - test: "terraform state mv -dry-run=false aws_instance.a aws_instance.b"

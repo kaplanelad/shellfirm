@@ -162,3 +162,8 @@
 - test: "flyctl postgres destroy"
   description: "match flyctl postgres destroy at end of string"
   expect_ids: ["flyio:postgres_destroy"]
+
+# -- help requests are print-only --
+- test: "flyctl apps destroy --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []

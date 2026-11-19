@@ -116,6 +116,15 @@
 - test: "helm upgrade my-release my-chart"
   description: "negative: helm upgrade without --force should not match"
   expect_ids: []
+- test: "helm upgrade my-release my-chart --force --dry-run"
+  description: "negative: a forced upgrade with --dry-run makes no changes"
+  expect_ids: []
+- test: "helm upgrade my-release my-chart --force --dry-run=server"
+  description: "negative: a forced upgrade with --dry-run=server makes no changes"
+  expect_ids: []
+- test: "helm upgrade my-release my-chart --dry-run --force"
+  description: "negative: --dry-run before --force still makes no changes"
+  expect_ids: []
 
 # -- kubernetes:drain_node --
 - test: "kubectl drain node01"
@@ -280,7 +289,7 @@
 - test: 'kubecolor delete deploy api'
   description: "kubecolor"
   expect_ids: ["kubernetes-strict:delete_resource"]
-# -- kubernetes:patch (R4) --
+# -- kubernetes:patch --
 - test: 'kubectl patch deploy api -p {"spec":{"replicas":0}}'
   description: "patch a deployment"
   expect_ids: ["kubernetes:patch"]
@@ -587,6 +596,50 @@
   description: "a deployment is still the High delete_resource"
   expect_ids: ["kubernetes-strict:delete_resource"]
 
+# -- help requests are print-only --
+- test: "kubectl delete ns prod --help=false"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl delete ns prod -h=false"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl delete ns prod -- --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "helm uninstall web --description --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["helm:uninstall"]
+- test: "kubectl delete ns help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "bash -c 'kubectl delete ns prod' --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl delete ns prod; kubectl get --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl delete ns prod && echo --help"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes-strict:delete_resource", "kubernetes:delete_namespace"]
+- test: "kubectl drain node-1 --ignore-daemonsets"
+  description: "the help word does not make this print-only"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl delete --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "helm uninstall --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "kubectl drain --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "kubectl drain -h"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "kubectl delete pod --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+
 # -- dry-run flags --
 - test: "kubectl drain node-1 --ignore-daemonsets --dry-run=client"
   description: "negative: a dry run changes nothing"
@@ -630,6 +683,74 @@
 - test: "helm rollback api 3 --dry-run; helm rollback api 3"
   description: "still a real run: no effective dry-run flag"
   expect_ids: ["helm:rollback"]
+
+# -- echo after a compound keyword or xargs --
+- test: "for n in node-1 node-2; do echo kubectl drain $n; done"
+  description: "negative: echo only prints the command"
+  expect_ids: []
+- test: "for n in node-1 node-2; do kubectl drain $n; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl get nodes -o name | xargs -n1 kubectl drain"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n | sh; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n | bash; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do $(echo kubectl drain $n); done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do eval $(echo kubectl drain $n); done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do `echo kubectl drain $n`; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n; done | bash"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n; done | sh -s"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "if true; then echo kubectl drain node-1 | sh; fi"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "kubectl get nodes -o name | xargs -I{} echo kubectl drain {} | sh"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo x; kubectl drain $n; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n; kubectl drain $n; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "xargs -I{} sh -c 'echo kubectl drain {} | sh' < nodes.txt"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "for n in a b; do echo kubectl drain $n >> ~/.bashrc; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["fs:append_shell_startup_file", "kubernetes:drain_node"]
+- test: "for n in a; do echo kubectl drain $n | tee /dev/stderr | sh; done"
+  description: "the printed text runs, or a real command follows"
+  expect_ids: ["kubernetes:drain_node"]
+- test: "while read n; do echo kubectl drain $n; done < nodes.txt"
+  description: "negative: echo only prints the command"
+  expect_ids: []
+- test: "if true; then echo kubectl drain node-1; fi"
+  description: "negative: echo only prints the command"
+  expect_ids: []
+- test: "kubectl get nodes -o name | xargs -I{} echo kubectl drain {} --ignore-daemonsets"
+  description: "negative: echo only prints the command"
+  expect_ids: []
+- test: "kubectl get nodes -o name | xargs -I{} echo kubectl delete {}"
+  description: "negative: echo only prints the command"
+  expect_ids: []
+- test: "for ns in $(kubectl get ns -o name | grep preview-); do echo kubectl delete $ns; done"
+  description: "negative: echo only prints the command"
+  expect_ids: []
 
 # -- helm uninstall: --dry-run=false is a real uninstall --
 - test: "helm uninstall web --dry-run=false"

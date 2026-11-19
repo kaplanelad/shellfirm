@@ -819,8 +819,13 @@ mod test_command_cli_command {
             )
             .unwrap();
             assert_eq!(result.code, EXIT_CHALLENGE_NOT_PASSED, "{depth}");
+            // Generous ceiling: this only needs to catch an O(n^2) / stack
+            // blowup (minutes at 50k depth), not a constant-factor change.
+            // The suite runs this in parallel, so a loaded CI runner can
+            // stretch the wall clock several-fold; linearity itself is
+            // asserted by `deep_substitution_nesting_is_linear_and_flagged`.
             assert!(
-                started.elapsed().as_secs() < 30,
+                started.elapsed().as_secs() < 90,
                 "{depth}: {:?}",
                 started.elapsed()
             );

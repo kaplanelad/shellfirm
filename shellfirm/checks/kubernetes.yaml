@@ -96,6 +96,14 @@
   description: "Force-upgrading a Helm release deletes and recreates resources."
   id: helm:upgrade_force
   severity: High
+  filters:
+    # A preview persists nothing, so `--force --dry-run` is harmless (matches
+    # the dry-run carve-out the other force rules already have). Bare
+    # `--dry-run` and `--dry-run=client|server|true` are previews; a later
+    # `--dry-run=none|false` or `--no-dry-run` is a real run and stays flagged,
+    # as does a `--dry-run` that is only an option's value (`--timeout --dry-run`).
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--install|--atomic|--wait|--wait-for-jobs|--force|--no-hooks|--cleanup-on-fail|--reset-values|--reuse-values|--debug|--no-dry-run)\s+--dry-run(?:=(?:client|server|true|True|TRUE|t|T|1))?(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
 - from: kubernetes
   test: (?:^|\s)(kubectl|k)\s+drain\s+
   description: "Draining a node evicts all pods and marks the node unschedulable."

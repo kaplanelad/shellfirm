@@ -111,6 +111,14 @@
   description: 'patronictl failover --force'
   expect_ids: ["psql:patronictl_failover_force"]
 
+# -- help requests are print-only --
+- test: "dropdb -h prod-db mydb"
+  description: "the help word does not make this print-only"
+  expect_ids: ["psql:dropdb"]
+- test: "psql -h prod -c 'DROP TABLE orders'"
+  description: "the help word does not make this print-only"
+  expect_ids: ["database:drop_table", "psql:drop"]
+
 # -- pg_restore --clean without a database --
 - test: "pg_restore --clean --if-exists -f /tmp/restore_preview.sql /tmp/warehouse.dump"
   description: "negative: without a database pg_restore only writes the script"
@@ -207,16 +215,28 @@
   description: "negative: the word before the dry-run flag cannot take it as a value"
   expect_ids: []
 
-# -- psql meta-commands that write a local file --
+# -- psql meta-commands that pipe output to a program (still ask) --
+# A plain-file `\copy … TO FILE` / `\o FILE` write is routine and no longer
+# asks here; a sensitive target (`.env`, `~/.bashrc`, a git hook, a startup
+# file) is judged as a write on its own (agent.rs, shellfirm-self:*).
+- test: "psql -c \"\\copy orders to program 'gzip'\""
+  description: "flag: \\copy TO PROGRAM runs a program on this machine"
+  expect_ids: ["psql:client_file_write"]
+- test: "psql -c '\\o |gzip'"
+  description: "flag: \\o pipes query output to a program"
+  expect_ids: ["psql:client_file_write"]
 - test: "psql -c \"\\\\copy orders TO '.env'\""
-  description: "flag: psql \\copy TO writes a local file"
-  expect_ids: ["psql:client_file_write"]
+  description: "flag: \\copy TO writes to an .env secrets file"
+  expect_ids: ["psql:client_write_env"]
 - test: "psql -c '\\o /home/dev/.bashrc'"
-  description: "flag: \\o sends query output to a local file"
-  expect_ids: ["psql:client_file_write"]
+  description: "no match here: a sensitive plain-file write is judged on its own"
+  expect_ids: []
 - test: "psql -d w -c \"\\copy orders to 'orders.csv' csv\""
-  description: "flag: \\copy TO writes a local file"
-  expect_ids: ["psql:client_file_write"]
+  description: "no match: an ordinary local file write is routine"
+  expect_ids: []
+- test: "psql -c '\\o report.txt'"
+  description: "no match: an ordinary local file write is routine"
+  expect_ids: []
 - test: "psql -c '\\copy orders to stdout'"
   description: "no match: \\copy TO STDOUT prints"
   expect_ids: []

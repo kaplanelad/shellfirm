@@ -62,9 +62,21 @@
     # `\copy … TO STDOUT` / `pstdout` prints.
     - type: NotMatches
       value: (?i)\\copy[\s\x01].*[\s\x01]to[\s\x01]+(?:stdout|pstdout)(?:[\s\x01;]|$)
-    # Output to a scratch file (`\o /tmp/out.txt`) or thrown away.
+    # A plain output file (`\o out.txt`, `\copy … TO data.csv`, a `/tmp` or
+    # `/dev/null` path): writing a file on this machine is routine, and a
+    # sensitive target (`.env`, `~/.bashrc`, a git hook, a startup file) is
+    # caught as a write on its own (agent.rs). A `TO PROGRAM` / `\o |cmd` pipe
+    # has no `.` / `/` / `~` path and still asks.
     - type: NotMatches
-      value: (?i)\\(?:copy[\s\x01].*[\s\x01]to|o(?:ut)?|w(?:rite)?|gx?)[\s\x01]+['"]?(?:/tmp/|/var/tmp/|/dev/null(?:[\s\x01'";]|$))
+      value: (?i)\\(?:copy[\s\x01].*[\s\x01]to|o(?:ut)?|w(?:rite)?|gx?)[\s\x01]+(?:['"]{2}|['"]?[^\s\x01|'"]*[./~][^\s\x01'"]*)
+# A `.env` / `.envrc` write target is sensitive (secrets, environment
+# settings), and unlike a shell startup file it is not caught as a write on
+# its own, so the plain-output exemption above must not cover it.
+- from: psql
+  test: (?i)(?:^|[\s\x01])\\(?:copy[\s\x01].*[\s\x01]to[\s\x01]+|o(?:ut)?[\s\x01]+|w(?:rite)?[\s\x01]+|gx?[\s\x01]+)['"]?(?:[^\s\x01'"]*/)?\.env(?:rc)?(?:[\s\x01'";]|$)
+  description: "psql writes to a .env / .envrc file (where secrets and environment settings live): \\copy … TO FILE or \\o FILE can overwrite it."
+  id: psql:client_write_env
+  severity: Medium
 # psql `\gexec` runs every value a query returns as a new statement: the
 # standard "generate DROP/TRUNCATE for every table" one-liner. The
 # statements it runs are not visible here (`shellfirm wrap psql` asks too).

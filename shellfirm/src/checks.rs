@@ -62,11 +62,7 @@ pub const LINE_CONTEXT_MARKER: &str = "shellfirm-line-context";
 /// `^`-anchored exemptions do not skip it. A check's test can name the copy
 /// (`^shellfirm-privileged\s+git\s+cherry-pick`) to match what it leaves
 /// alone for the user's own commands, and an exemption that still applies
-/// is written to accept it (`^(?:shellfirm-privileged\s+)?rm …`). The same
-/// copy is made for a segment whose exemption the line rules out otherwise:
-/// a command out of command position, an `rm` operand that is not a
-/// relative path as written, and anything after a change to an unknown
-/// directory (see `command_position`).
+/// is written to accept it (`^(?:shellfirm-privileged\s+)?rm …`).
 pub const PRIVILEGED_MARKER: &str = "shellfirm-privileged";
 
 /// Checks whose exemptions still apply when the line runs something as
@@ -322,6 +318,7 @@ const REGENERABLE_DIRS: &[&str] = &[
     ".venv",
     "venv",
     ".gradle",
+    ".output",
     "bin",
     "obj",
     "tmp",
@@ -2294,9 +2291,7 @@ struct Position {
     own: std::collections::HashSet<String>,
     /// Segments of anything else: what a wrapper, runner, name or
     /// expansion that is not allowed in front runs, payloads, remote and
-    /// container commands, an `rm` with an operand that is not a relative
-    /// path as written, and every command after `cd -`, `popd` or `pushd`
-    /// without a directory.
+    /// container commands.
     tainted: std::collections::HashSet<String>,
     /// The code a privileged shell reads from a heredoc / here-string.
     shell_stdin: Vec<String>,
@@ -2329,14 +2324,78 @@ fn defined_names(command: &str) -> Vec<String> {
 /// Which segments of `command` (its parsed `segments`) a command in
 /// command position produces, and which come from anything else.
 #[allow(clippy::too_many_lines)]
+/// Whether `rest` (the command words, `rest[0]` the program named `base`) is
+/// an exempt rimraf runner: one of the known runners with only its own
+/// options, then `rimraf` and its operands. Any other option
+/// (`-p`/`--package`, `-c`/`--call`, `--shell-mode`, the global cwd options
+/// `-C`/`--dir`/`--cwd`/`--prefix`, …) means it is not this form, so the
+/// unwrapped `rm` stays tainted and privilege applies. It is a fixed list:
+/// a new runner is not exempt by default.
+fn rimraf_runner(base: &str, rest: &[RawWord]) -> bool {
+    if !rest.iter().all(|w| w.plain) {
+        return false;
+    }
+    // From index `i`, consume the runner's own options (`allowed`); the first
+    // word after them must be `rimraf`.
+    let rimraf_after = |mut i: usize, allowed: &[&str]| -> bool {
+        while let Some(w) = rest.get(i) {
+            if w.text == "rimraf" {
+                return true;
+            }
+            if allowed.contains(&w.text.as_str()) {
+                i += 1;
+            } else {
+                return false;
+            }
+        }
+        false
+    };
+    // Skip the runner's own working-directory options (`pnpm -C DIR`,
+    // `pnpm --dir DIR`, `yarn --cwd DIR`, `npm --prefix DIR`, and their glued
+    // `--dir=DIR` forms) from index `i`, returning the index of the first word
+    // after them. The parser rebases the inner command's operands onto that
+    // directory, so the runner stays the known, non-privileged form either way.
+    let skip_cwd = |mut i: usize, seps: &[&str], glued: &[&str]| -> usize {
+        while let Some(w) = rest.get(i) {
+            if seps.contains(&w.text.as_str()) {
+                i += 2;
+            } else if glued
+                .iter()
+                .any(|g| w.text.starts_with(g) && w.text.len() > g.len())
+            {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        i
+    };
+    let subcommand_at = |i: usize, name: &str| rest.get(i).is_some_and(|w| w.text == name);
+    match base {
+        "npx" => rimraf_after(1, &["-y", "--yes"]),
+        "bunx" => rimraf_after(1, &[]),
+        "pnpm" => {
+            let i = skip_cwd(1, &["-C", "--dir"], &["-C=", "--dir="]);
+            subcommand_at(i, "dlx") && rimraf_after(i + 1, &[])
+        }
+        "yarn" => {
+            let i = skip_cwd(1, &["--cwd"], &["--cwd="]);
+            subcommand_at(i, "dlx") && rimraf_after(i + 1, &[])
+        }
+        "npm" => {
+            let i = skip_cwd(1, &["--prefix"], &["--prefix="]);
+            (subcommand_at(i, "exec") || subcommand_at(i, "x"))
+                && rimraf_after(i + 1, &["-y", "--yes", "--"])
+        }
+        _ => false,
+    }
+}
+
 fn command_position(command: &str, segments: &[String], depth: usize, out: &mut Position) {
     let cmds = raw_commands(command);
     let defined = defined_names(command);
     let mut before: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut start = 0;
-    // After `cd -`, `popd` or `pushd` without a directory the line runs in a
-    // directory it does not show: what follows is not judged as run here.
-    let mut directory_unknown = false;
     for (n, cmd) in cmds.iter().enumerate() {
         let text = command.get(start..cmd.end).unwrap_or_default();
         start = cmd.end;
@@ -2359,11 +2418,6 @@ fn command_position(command: &str, segments: &[String], depth: usize, out: &mut 
         // A substitution runs its code whatever the command is.
         for code in &cmd.substitutions {
             out.tainted.extend(crate::parser::parse(code).segments);
-        }
-        if directory_unknown {
-            out.tainted.extend(new);
-            out.tainted.extend(crate::parser::parse(text).segments);
-            continue;
         }
         // `}`, `fi`, `done`: the end of a compound command; what the parse
         // adds there belongs to the commands inside it.
@@ -2416,16 +2470,6 @@ fn command_position(command: &str, segments: &[String], depth: usize, out: &mut 
             continue;
         }
         let base = w.text.rsplit('/').next().unwrap_or_default();
-        directory_unknown = changes_to_unknown_directory(command, base, &rest[1..]);
-        // `rm -rf ~/x/node_modules`, `rm -rf "$D/node_modules"`: an operand
-        // that is not a relative path as written (a home or absolute path,
-        // `~+`, a variable or substitution) is not judged by the spelling the
-        // parser resolves it to.
-        if base == "rm" && rest[1..].iter().any(|w| !relative_as_written(w)) {
-            out.tainted.extend(alone);
-            out.tainted.extend(new);
-            continue;
-        }
         let first = |s: &str| {
             let f = s.split(' ').next().unwrap_or_default();
             f == base || f == w.text
@@ -2445,13 +2489,11 @@ fn command_position(command: &str, segments: &[String], depth: usize, out: &mut 
             out.tainted.extend(sub.tainted.iter().cloned());
             out.shell_stdin.extend(sub.shell_stdin.iter().cloned());
         }
-        // The exempt form `npx rimraf DIR…` is the command as written.
-        let rimraf = base == "npx"
-            && rest[1..]
-                .iter()
-                .find(|w| !matches!(w.text.as_str(), "-y" | "--yes"))
-                .is_some_and(|w| w.plain && w.text == "rimraf")
-            && rest.iter().all(|w| w.plain && relative_as_written(w));
+        // The exempt form is a known runner (`npx rimraf DIR…`, `pnpm dlx
+        // rimraf …`, `bunx rimraf …`, `yarn dlx rimraf …`, `npm exec|x
+        // rimraf …`) with only its own options: the command is then the one
+        // the user wrote.
+        let rimraf = rimraf_runner(base, rest);
         for s in new.into_iter().chain(alone) {
             if first(&s)
                 || (rimraf && s.starts_with("rm "))
@@ -2464,37 +2506,6 @@ fn command_position(command: &str, segments: &[String], depth: usize, out: &mut 
         }
         out.own.extend(sub.own);
     }
-}
-
-/// Whether `cd`, `pushd` or `popd` (`base`, with its `args`) leaves the
-/// directory unknown: `cd -` (also `cd -- -`, `cd -N` / `+N`), `popd`,
-/// `pushd` without a directory or with `+N` / `-N`, and any of them when the
-/// line sets `CDPATH`.
-fn changes_to_unknown_directory(command: &str, base: &str, args: &[RawWord]) -> bool {
-    let stack_index = |w: &str| {
-        w.strip_prefix(['+', '-'])
-            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
-    };
-    match base {
-        "popd" => true,
-        "cd" | "pushd" if command.contains("CDPATH") => true,
-        "cd" => args.iter().any(|w| w.text == "-" || stack_index(&w.text)),
-        "pushd" => args
-            .iter()
-            .all(|w| w.text.starts_with(['-', '+']) || stack_index(&w.text)),
-        _ => false,
-    }
-}
-
-/// Whether the word `w` of an `rm` is an option or a relative path as
-/// written: no `~`, `/`, variable, substitution or backslash (quotes
-/// around a literal name are fine).
-fn relative_as_written(w: &RawWord) -> bool {
-    let t = w.text.as_str();
-    if t.starts_with('-') {
-        return true;
-    }
-    !t.contains(['$', '`', '\\']) && !t.trim_start_matches(['\'', '"']).starts_with(['~', '/'])
 }
 
 /// The [`PRIVILEGED_MARKER`] copies of a line (see [`command_position`]),
@@ -3290,6 +3301,7 @@ fn bare_in_flat(flat: &str, seg: &str) -> bool {
 /// psql of its own (`bare`) `-o` / `-L` (their target is judged as a
 /// write). Anything else (`-v NAME=…`, `-P`, `--set`, `-o` on a piped or
 /// wrapped psql) may change what the file runs or writes.
+#[allow(clippy::too_many_lines)]
 fn psql_reader_options(words: &[String], bare: bool) -> bool {
     const BOOL_LONG: &[&str] = &[
         "--no-password",
@@ -3312,6 +3324,16 @@ fn psql_reader_options(words: &[String], bare: bool) -> bool {
         "--port",
         "--file",
         "--command",
+        // Display options that take a value: they only format output.
+        "--field-separator",
+        "--record-separator",
+    ];
+    // Extra display-only flags: HTML output, and the zero-byte field / record
+    // separators. They never run or write anything.
+    const BOOL_DISPLAY: &[&str] = &[
+        "--html",
+        "--field-separator-zero",
+        "--record-separator-zero",
     ];
     let on_error_stop = |v: &str| {
         matches!(
@@ -3319,12 +3341,78 @@ fn psql_reader_options(words: &[String], bare: bool) -> bool {
             "ON_ERROR_STOP=1" | "ON_ERROR_STOP=on" | "ON_ERROR_STOP=true"
         )
     };
+    // `-P|--pset NAME[=VALUE]`: a display setting. Any known display name, or
+    // `pager=off|0|false` (turning the pager on would run the PAGER program).
+    let pset_ok = |v: &str| {
+        const NAMES: &[&str] = &[
+            "format",
+            "border",
+            "expanded",
+            "fieldsep",
+            "recordsep",
+            "footer",
+            "null",
+            "numericlocale",
+            "tuples_only",
+            "title",
+            "tableattr",
+            "linestyle",
+            "csv_fieldsep",
+            "columns",
+            "xheader_width",
+        ];
+        let name = v.split('=').next().unwrap_or("");
+        NAMES.contains(&name)
+            || name.starts_with("unicode_")
+            || matches!(v, "pager=off" | "pager=0" | "pager=false")
+    };
     let mut i = 1;
     while let Some(w) = words.get(i) {
         let w = w.as_str();
         i += 1;
-        if w == "<" || w == "-f" || w == "-c" || matches!(w, "-d" | "-U" | "-h" | "-p") {
+        // A connection string (`-d`, positional, or glued `-dCONN`) must use
+        // only allowlisted keys: an `options=` key can run server-side code,
+        // so the SQL that runs is unknown.
+        if matches!(w, "-d" | "--dbname") {
+            match words.get(i) {
+                Some(v) if crate::parser::conninfo_ok(v) => {}
+                _ => return false,
+            }
             i += 1;
+            continue;
+        }
+        if let Some(v) = w.strip_prefix("--dbname=") {
+            if !crate::parser::conninfo_ok(v) {
+                return false;
+            }
+            continue;
+        }
+        if w == "<" || w == "-f" || w == "-c" || matches!(w, "-U" | "-h" | "-p") {
+            i += 1;
+            continue;
+        }
+        // Display options that take a separator value: skip the value.
+        if matches!(w, "-F" | "--field-separator" | "-R" | "--record-separator") {
+            i += 1;
+            continue;
+        }
+        if matches!(w, "-P" | "--pset") {
+            if !words.get(i).is_some_and(|v| pset_ok(v)) {
+                return false;
+            }
+            i += 1;
+            continue;
+        }
+        if let Some(v) = w
+            .strip_prefix("--pset=")
+            .or_else(|| w.strip_prefix("-P").filter(|s| !s.is_empty()))
+        {
+            if !pset_ok(v) {
+                return false;
+            }
+            continue;
+        }
+        if BOOL_DISPLAY.contains(&w) {
             continue;
         }
         if matches!(w, "-o" | "-L" | "--output" | "--log-file") {
@@ -3360,24 +3448,40 @@ fn psql_reader_options(words: &[String], bare: bool) -> bool {
         if BOOL_LONG.contains(&w) || w.starts_with('>') || w.starts_with("2>") || w == "1" {
             continue;
         }
-        if let Some((name, _)) = w.split_once('=') {
-            if VALUE_LONG.contains(&name) {
-                continue;
+        // A `--long=value` option: only the allowlisted ones. A positional
+        // `key=value` conninfo (`host=… dbname=…`) or a URI carrying a query
+        // string (`…?sslmode=require`) is not an option and is judged as a
+        // connection string below.
+        if w.starts_with("--") {
+            if let Some((name, _)) = w.split_once('=') {
+                if VALUE_LONG.contains(&name) {
+                    continue;
+                }
+                return false;
             }
-            return false;
         }
         if let Some(short) = w.strip_prefix('-').filter(|s| !s.starts_with('-')) {
             let mut chars = short.chars();
             match chars.next() {
-                // `-dDB`, `-Uuser`, `-hHOST`, `-p5432`, `-fFILE`.
-                Some('d' | 'U' | 'h' | 'p' | 'f') if !chars.as_str().is_empty() => continue,
+                // `-dDB`: the glued connection string is checked too.
+                Some('d') if !chars.as_str().is_empty() => {
+                    if !crate::parser::conninfo_ok(chars.as_str()) {
+                        return false;
+                    }
+                    continue;
+                }
+                // `-Uuser`, `-hHOST`, `-p5432`, `-fFILE`, and the display
+                // separators `-F,` / `-R;` (the glued rest is their value).
+                Some('U' | 'h' | 'p' | 'f' | 'F' | 'R') if !chars.as_str().is_empty() => continue,
                 Some('o' | 'L') if !chars.as_str().is_empty() => {
                     if !bare {
                         return false;
                     }
                     continue;
                 }
-                _ if !short.is_empty() && short.chars().all(|c| "wWXqAtxeab1".contains(c)) => {
+                // Display-only flag bundles: alignment, quiet, echo, the HTML
+                // and zero-byte separators (`-z`, `-0`, `-H`).
+                _ if !short.is_empty() && short.chars().all(|c| "wWXqAtxeab1z0H".contains(c)) => {
                     continue;
                 }
                 _ => return false,
@@ -3386,17 +3490,98 @@ fn psql_reader_options(words: &[String], bare: bool) -> bool {
         if w.starts_with('-') {
             return false;
         }
-        // An operand: the database (and user) name.
+        // An operand: the database / connection string (or the user name as a
+        // second operand). A connection string with a non-allowlisted key
+        // (`options=`) runs server-side code, so the SQL is unknown.
+        if !crate::parser::conninfo_ok(w) {
+            return false;
+        }
     }
+    true
+}
+
+/// Whether a SQL client's output is piped into a shell interpreter on this
+/// line (`psql … | sh`, `… | bash`): the query results then run as commands,
+/// so reading the input file must not suppress the `database:sql_from_file`
+/// flag — the output that runs is still unknown.
+fn sql_output_runs_in_shell(command: &str) -> bool {
+    static RE: OnceLock<Option<Regex>> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:psql|mysql|mariadb|sqlite3|duckdb|clickhouse-client|cockroach)\b[^|&;]*\|\s*(?:sudo\s+|command\s+|env(?:\s+[A-Za-z_][\w]*=\S*)*\s+)*(?:sh|bash|zsh|dash|ksh|ash|fish|xonsh)\b",
+        )
+        .ok()
+    })
+    .as_ref()
+    .is_some_and(|re| re.is_match(command))
+}
+
+/// Whether a psql client file-write meta-command (`\copy … TO`, `\o`/`\out`,
+/// `\w`/`\write`, `\g`/`\gx`) writes only to an ordinary target, or to none
+/// (`\o` resets output, `\g` runs the query buffer). `name` is the
+/// meta-command, `args` the rest of its line.
+fn psql_meta_write_ordinary(name: &str, args: &str) -> bool {
+    let a = args.trim();
+    let target = if name == "copy" {
+        // `\copy <src> TO <target> [WITH …]`: the token after `TO`. Without a
+        // `TO` (an import, `FROM`) nothing is written on this machine.
+        match a.to_ascii_lowercase().find(" to ") {
+            Some(p) => a[p + 4..].split_whitespace().next().unwrap_or(""),
+            None => return true,
+        }
+    } else {
+        match a.split_whitespace().next() {
+            Some(t) => t,
+            None => return true,
+        }
+    };
+    psql_write_target_ordinary(target)
+}
+
+/// Whether a psql write target is an ordinary output file. A pipe (`|cmd`), a
+/// dotfile component (`.env`, `.git/…`, `.bashrc`), a path under a home or
+/// system directory, a `~` path, a parent escape or an agent-instruction file
+/// is not: those are left for the stand-in (and the write checks) to flag.
+fn psql_write_target_ordinary(target: &str) -> bool {
+    const AGENT_FILES: &[&str] = &["CLAUDE.md", "AGENTS.md", "AGENT.md", "GEMINI.md"];
+    let t = target.trim().trim_matches(['\'', '"']);
+    if t.is_empty() {
+        return true;
+    }
+    if t.starts_with('|') {
+        return false;
+    }
+    if t.eq_ignore_ascii_case("stdout") || t.eq_ignore_ascii_case("pstdout") || t == "/dev/null" {
+        return true;
+    }
+    if t.split('/').any(|c| c == ".." || c.starts_with('.')) {
+        return false;
+    }
+    let base = t.rsplit('/').next().unwrap_or(t);
+    if AGENT_FILES.iter().any(|f| base.eq_ignore_ascii_case(f)) {
+        return false;
+    }
+    if t.starts_with('~') {
+        return false;
+    }
+    if let Some(rest) = t.strip_prefix('/') {
+        // Absolute: only a temp directory is ordinary.
+        return rest == "tmp"
+            || rest.starts_with("tmp/")
+            || rest.starts_with("var/tmp/")
+            || rest.starts_with("private/tmp/");
+    }
+    // A plain relative file.
     true
 }
 
 /// Whether a psql script does something its statements do not show: a
 /// meta-command other than the display-only ones (`\d…`, `\l`,
 /// `\conninfo`, `\x`, `\timing`, `\echo`, `\pset` but not `pager`, `\c DB`,
-/// `\set ON_ERROR_STOP|ECHO|VERBOSITY|QUIET …`, `\q`, and the includes,
-/// which are read too), or a `:name` / `:'name'` / `:"name"` interpolation
-/// outside quotes and comments.
+/// `\set ON_ERROR_STOP|ECHO|VERBOSITY|QUIET …`, `\q`, the includes, which are
+/// read too, and `\copy … TO` / `\o` / `\w` / `\g` to an ordinary target or
+/// none), or a `:name` / `:'name'` / `:"name"` interpolation outside quotes
+/// and comments.
 #[allow(clippy::too_many_lines)]
 fn psql_script_unknown(text: &str) -> bool {
     let chars: Vec<char> = text.chars().collect();
@@ -3479,6 +3664,13 @@ fn psql_script_unknown(text: &str) -> bool {
                             | "include"
                             | "include_relative"
                     )
+                    // Client file I/O (`\copy … TO FILE`, `\o`/`\out`,
+                    // `\w`/`\write`, `\g`/`\gx`) only shows / writes output.
+                    // An ordinary target (or none: `\o` resets, `\g` runs the
+                    // buffer) keeps the statements visible; a sensitive target,
+                    // a pipe or anything uncertain leaves the file unknown.
+                    || (matches!(name.as_str(), "copy" | "o" | "out" | "w" | "write" | "g" | "gx")
+                        && psql_meta_write_ordinary(&name, &args))
                     || (name == "pset" && first != "pager")
                     || (matches!(name.as_str(), "c" | "connect")
                         && args.split_whitespace().count() == 1)
@@ -5504,7 +5696,11 @@ pub fn analyze_command(
                 })
             })
     };
-    if sql_files.referenced && sql_files.all_read && !unread_source() {
+    if sql_files.referenced
+        && sql_files.all_read
+        && !unread_source()
+        && !sql_output_runs_in_shell(command)
+    {
         matches.retain(|c| c.id != "database:sql_from_file");
     }
     debug!("analyze_command: {} matches found", matches.len());
@@ -6535,9 +6731,12 @@ mod test_checks {
             "psql < queries/report.sql",
             "psql -d warehouse < queries/display.sql",
             "psql -f queries/display.sql",
-            "psql -X -q -A -t -d warehouse < queries/display.sql",
-            "psql -d warehouse -v ON_ERROR_STOP=1 < queries/report.sql",
+            "cat queries/report.sql | psql -d warehouse",
+            "cat queries/display.sql | psql -X -q -A -t -d warehouse",
+            "cat queries/report.sql | psql -d warehouse -v ON_ERROR_STOP=1",
             "psql -U ro -h db -p 5432 -w -x --csv -1 -e -a -b -d warehouse < queries/report.sql",
+            "docker exec -i pg psql -U postgres -d warehouse < queries/report.sql",
+            "kubectl exec -i pg-0 -- psql -d warehouse < queries/report.sql",
             "psql -c '\\i queries/report.sql'",
         ] {
             assert!(ids(cmd).is_empty(), "{cmd}: {:?}", ids(cmd));
@@ -7165,6 +7364,13 @@ mod test_uncommitted_work {
             "rm -rf .next",
             "rm -rf node_modules yarn.lock",
             "npx rimraf node_modules",
+            "npx -y rimraf node_modules",
+            "pnpm dlx rimraf node_modules",
+            "bunx rimraf node_modules",
+            "yarn dlx rimraf node_modules",
+            "npm exec rimraf node_modules",
+            "npm x rimraf node_modules",
+            "npm exec -- rimraf node_modules",
             "chmod 600 .env",
         ] {
             let ids = matched_ids(cmd, &env);
@@ -7186,6 +7392,9 @@ mod test_uncommitted_work {
             // A folder or a link is not one project dotfile.
             ("chmod 600 .git", "fs-strict:change_permissions"),
             ("chmod 600 .envrc", "fs-strict:change_permissions"),
+            // A runner deleting a non-cache folder still asks.
+            ("pnpm dlx rimraf src", "fs-strict:recursive_deletion"),
+            ("bunx rimraf src", "fs-strict:recursive_deletion"),
         ] {
             let ids = matched_ids(cmd, &env);
             assert!(ids.iter().any(|i| i == id), "{cmd}: {ids:?}");

@@ -1,6 +1,7 @@
 <p align="center">
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/ci.yaml/badge.svg"/>
 <img src="https://github.com/kaplanelad/shellfirm/actions/workflows/release.yml/badge.svg"/>
+<a href="https://github.com/sponsors/kaplanelad"><img src="https://img.shields.io/github/sponsors/kaplanelad?label=Sponsor&logo=GitHub&color=ea4aaa"/></a>
 </p>
 
 # shellfirm
@@ -361,6 +362,13 @@ Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the build,
 the tests and the checklist for a pull request, and
 [docs/add-new-patterns.md](docs/add-new-patterns.md) walks through adding a
 check. Found a bypass? Please report it privately; see [SECURITY.md](SECURITY.md).
+
+## Sponsor
+
+shellfirm is free and open source, built and maintained in my spare time. If it
+has saved you from a bad command, please consider
+[sponsoring the project](https://github.com/sponsors/kaplanelad). Sponsorship
+pays for new checks, bug fixes and keeping up with new AI coding tools.
 
 ## License
 

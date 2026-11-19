@@ -159,7 +159,6 @@
 - test: "gh variable set MY_VAR"
   description: "negative: variable set should not match"
   expect_ids: []
-# -- round 7 --
 - test: "gh api -X DELETE repos/acme/webapp"
   description: "deleting the repository through the API"
   expect_ids: ["github:api_delete_repo"]
@@ -205,7 +204,7 @@
   description: "gh repo delete with a name"
   expect_ids: ["github:repo_delete"]
 
-# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# ---- anchoring and housekeeping ----
 # -- github:repo_delete --
 - test: "hugh repo delete x"
   description: "another tool whose name ends in gh"
@@ -213,3 +212,17 @@
 - test: "sudo gh repo delete x"
   description: "sudo is removed by the parser"
   expect_ids: ["github:repo_delete"]
+
+# -- help requests are print-only --
+- test: "gh repo delete --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+- test: "gh repo delete help --yes"
+  description: "the help word does not make this print-only"
+  expect_ids: ["github:repo_delete"]
+- test: "gh repo delete owner/repo --yes"
+  description: "the help word does not make this print-only"
+  expect_ids: ["github:repo_delete"]
+- test: "gh release delete -h"
+  description: "negative: a help request only prints usage"
+  expect_ids: []

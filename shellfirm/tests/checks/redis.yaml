@@ -89,7 +89,7 @@
   description: "piped command"
   expect_ids: ["redis:interactive_flushall"]
 
-# -- round 3: more redis coverage --
+# -- more redis coverage --
 - test: 'FLUSHALL ASYNC'
   description: "async flushall"
   expect_ids: ["redis:interactive_flushall"]
@@ -133,7 +133,6 @@
   description: "shutdown now"
   expect_ids: ["redis:interactive_shutdown"]
 
-# -- round 4 --
 - test: 'REPLICAOF 10.0.0.5 6379'
   description: "replicaof wipes the dataset"
   expect_ids: ["redis:replicaof"]
@@ -174,7 +173,6 @@
   description: "a scoped pattern is redis:pattern_xargs_del (not the all-keys check)"
   expect_ids: ["redis:pattern_xargs_del"]
 
-# ---- round 9 (R9-CATALOG) ----
 # -- redis:pattern_xargs_del --
 - test: "redis-cli --scan --pattern 'sess:*' | xargs redis-cli del"
   description: "--scan with a pattern piped into DEL"
@@ -200,3 +198,8 @@
 - test: "myredis-cli --scan --pattern 'sess:*' | xargs redis-cli del"
   description: "another tool"
   expect_ids: []
+
+# -- help requests are print-only --
+- test: "redis-cli -h prod FLUSHALL"
+  description: "the help word does not make this print-only"
+  expect_ids: ["redis:flushall"]

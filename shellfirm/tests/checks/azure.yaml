@@ -112,6 +112,11 @@
   description: "negative: listing Cosmos DB should not match"
   expect_ids: []
 
+# -- help requests are print-only --
+- test: "az group delete --help"
+  description: "negative: a help request only prints usage"
+  expect_ids: []
+
 # -- az storage delete-batch --dryrun --
 - test: "az storage blob delete-batch --account-name sa --source backups --pattern 'tmp/*' --dryrun"
   description: "negative: --dryrun only lists what would be deleted"

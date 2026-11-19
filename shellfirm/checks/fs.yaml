@@ -91,7 +91,7 @@
       value: 1
     # Package-manager caches only (`rm -rf /root/.cache` in a Dockerfile).
     - type: NotMatches
-      value: '^rm\s+(?:-\S+\s+)*(?:(?:/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?(?:\s+|$))+$'
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2)\s+)*(?:(?:/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?(?:\s+|$))+(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
     # zsh's completion cache (`rm -rf ~/.zcompdump*`): compinit rebuilds it.
     - type: NotMatches
       value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
@@ -220,8 +220,8 @@
   alternative: "find <path> -name '<pattern>' -print"
   alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
 - from: fs
-  test: '^find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))\s(?:.*\s)?-delete(?:\s|$)'
-  description: "find -delete under the filesystem root, your home directory or a system directory deletes every matching file there."
+  test: '^find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|\.\.(?:/\S*)?|\$\{?\w+\}?\S*|\{\}|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))\s(?:.*\s)?-delete(?:\s|$)'
+  description: "find -delete under the filesystem root, your home directory, a system directory, a parent directory (..) or an unresolved variable path deletes every matching file there."
   id: fs:delete_find_files_critical_root
   severity: Critical
   filters:
@@ -240,13 +240,13 @@
       value: '\s-(?:i?name|i?path|i?wholename|i?regex|newer\S*|[ac]newer|[amc](?:time|min)|size|user|group|[ug]id|perm|empty|links|inum|samefile|i?lname|used)\s(?:.*\s)?-delete(?:\s|$)'
     # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^(?:shellfirm-privileged\s+)?find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))(?:\s|$)'
+      value: '^(?:shellfirm-privileged\s+)?find\s+(?:-[HLP]\s+)*(?:[^-\s(!]\S*\s+)*?(?:/|~|\$HOME|\.\.(?:/\S*)?|\$\{?\w+\}?\S*|\{\}|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications))(?:\s|$)'
     # Clearing caches under the current directory or one folder in it
     # (`find src -name __pycache__ -exec rm -rf {} +`, `find . -name '*.pyc'
     # -delete`, `.DS_Store`): one exact name test, no `-o` / `!` / `(` and
     # nothing else deleted.
     - type: NotMatches
-      value: '^find\s+(?:\.|[^-\s.~/$(!*?\[{][^\s/*?\[{$]*)\s+(?:-depth\s+)?(?:-type\s+[df]\s+)?-i?name\s+(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv|\*\.py[co]|\.DS_Store)\s+(?:-type\s+[df]\s+)?(?:-prune\s+)?(?:-depth\s+)?-delete$'
+      value: '^find\s+(?:\.|[^-\s.~/$(!*?\[{][^\s/*?\[{$]*)\s+(?:-depth\s+)?(?:-type\s+[df]\s+)?-i?name\s+(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv|\*\.py[co]|\.DS_Store)\s+(?:-type\s+[df]\s+)?(?:-prune\s+)?(?:-depth\s+)?-delete(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
   alternative: "find <path> -name '<pattern>' -print"
   alternative_info: "Preview what would be deleted with -print first, then add -delete when you're sure."
 - from: fs
@@ -379,7 +379,7 @@
     # itself and dot directories (`~/.ssh`).
     # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^(?:shellfirm-privileged\s+)?chmod\s+(?:[ugoa]*\+[rx]+|u[+=][rwx]+|0?(?:644|755|600|700|640|750))\s+(?:(?:\./)?[^\s/~$.*\-][^\s*]*|(?:~|\$HOME|/tmp)/[^.\s*][^\s*]*)$'
+      value: '^(?:shellfirm-privileged\s+)?chmod\s+(?:[ugoa]*\+[rx]+|u[+=][rwx]+|0?(?:644|755|600|700|640|750))\s+(?:(?:\./)?[^\s/~$.*\-][^\s*]*|(?:~|\$HOME|/tmp)/[^.\s*][^\s*]*)(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
     # Taking write access away from group / others (`chmod go-w f`, the
     # oh-my-zsh `compaudit | xargs chmod g-w,o-w` fix) only tightens
     # permissions. A recursive change on / or a system directory is still
@@ -390,7 +390,7 @@
     # access away. A folder or symbolic link (`.git`) is spelled with a
     # trailing `/` (checks.rs), so it is not skipped.
     - type: NotMatches
-      value: '^chmod\s+(?:0?600|0?400|go-rwx|og-rwx)\s+\.[^\s/*?\[{$.~][^\s/*?\[{$]*$'
+      value: '^chmod\s+(?:0?600|0?400|go-rwx|og-rwx)\s+\.[^\s/*?\[{$.~][^\s/*?\[{$]*(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
 - from: fs
   test: ^rm\s+(.+)$
   description: "This permanently deletes the given files."
@@ -406,7 +406,7 @@
     # (`rm yarn.lock`, `.eslintcache`, `*.tsbuildinfo`): relative, without
     # `..`, globs or variables.
     - type: NotMatches
-      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|\.eslintcache|(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)?\.tsbuildinfo)(?:\s+|$))+$'
+      value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2)\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|\.eslintcache|(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)?\.tsbuildinfo)(?:\s+|$))+(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
     # zsh's completion cache (`rm -f ~/.zcompdump*`): compinit rebuilds it.
     # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
@@ -424,7 +424,7 @@
     # regenerable / throwaway files, when every operand is one of them.
     # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
-      value: '^(?:shellfirm-privileged\s+)?rm\s+(?:-\S+\s+)*(?:(?:(?:(?:\./)?\.cache|/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?|/tmp/[^\s/*?]+|/var/tmp/[^\s/*?]+)(?:\s+|$))+$'
+      value: '^(?:shellfirm-privileged\s+)?rm\s+(?:-\S+\s+)*(?:(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2)\s+)*(?:(?:(?:(?:\./)?\.cache|/var/lib/apt/lists|/var/cache/(?:apt|apk|yum|dnf|debconf|pacman/pkg)|/root/\.cache|~/\.cache|\$HOME/\.cache|/root/\.npm/_cacache|/usr/share/doc|/usr/share/man)(?:/\S*)?|/tmp/[^\s/*?]+|/var/tmp/[^\s/*?]+)(?:\s+|$))+(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
     # zsh's completion cache (`rm -rf ~/.zcompdump*`): compinit rebuilds it.
     # Applies under sudo / doas too (checks.rs PRIVILEGED_MARKER).
     - type: NotMatches
@@ -433,13 +433,15 @@
     # `__pycache__`, `.mypy_cache`, `node_modules/.vite`, with
     # `package-lock.json` / `yarn.lock` / `pnpm-lock.yaml` / `bun.lock(b)`
     # beside them): a reinstall or the next run rebuilds them. Every operand
-    # is one of them, relative (or under `~/` after a `cd`), without `..`,
-    # globs, variables or a trailing `/`. Build output folders (`.next`,
-    # `.venv`, `.tox`, `.gradle`, ...) count only as relative paths
-    # (`~/.gradle` holds credentials). A symbolic link on the way is spelled
-    # with a trailing `/` (checks.rs), so it is not skipped.
+    # is one of them, relative, without `..`, globs, variables or a trailing
+    # `/`, and never starting with `/`, `~` or `$` (a home or absolute path
+    # such as `~/projects/node_modules` is a real top-level delete, so it
+    # asks). Build output folders (`.next`, `.venv`, `.tox`, `.gradle`, ...)
+    # count only as relative paths (`~/.gradle` holds credentials). A symbolic
+    # link on the way is spelled with a trailing `/` (checks.rs), so it is not
+    # skipped.
     - type: NotMatches
-      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*(?:(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+))(?:\s+(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*(?:(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+))|(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*|~/(?:[^\s/*?\[{$.][^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)))*$'
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2)\s+)*(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)\s+)*(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv|build|dist|target|out|coverage|venv|\.output)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+)(?:\s+(?:(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*(?:node_modules|__pycache__|\.mypy_cache|\.ruff_cache|\.pytest_cache|\.turbo|\.parcel-cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.gradle|\.tox|\.nox|\.dart_tool|\.nyc_output|\.venv|build|dist|target|out|coverage|venv|\.output)|node_modules(?:/(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*)+)|(?:(?:(?:[^\s/*?\[{$.~]|\.[^\s/*?\[{$.])[^\s/*?\[{$]*/)*)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)))*(?:\s*(?:(?:>|2>|&>)\s*/dev/null|2>&\s*1|1>&\s*2))*\s*$'
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion."
 - from: fs

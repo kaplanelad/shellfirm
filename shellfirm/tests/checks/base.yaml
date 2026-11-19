@@ -294,7 +294,7 @@
 - test: "print -s git push -f origin main"
   description: "negative: zsh print -s only stores text"
   expect_ids: []
-# -- base:userdel_remove_home / base:passwd_delete (R4) --
+# -- base:userdel_remove_home / base:passwd_delete --
 - test: 'userdel -r bob'
   description: "delete user and home"
   expect_ids: ["base:userdel_remove_home"]
@@ -307,7 +307,6 @@
 - test: 'passwd bob'
   description: "negative: change a password"
   expect_ids: []
-# -- round 5 --
 - test: "deluser --remove-home alice"
   description: "Debian deluser with the home directory"
   expect_ids: ["base:userdel_remove_home"]
@@ -332,7 +331,7 @@
   description: "negative: editing interactively"
   expect_ids: []
 
-# -- base:systemctl_enable (round 6, manager follow-up) --
+# -- base:systemctl_enable --
 - test: "systemctl --user enable x.service"
   description: "a user service started at every login"
   expect_ids: ["base:systemctl_enable"]
@@ -342,7 +341,6 @@
 - test: "systemctl status nginx"
   description: "negative: status"
   expect_ids: []
-# -- round 7 --
 - test: "sudo systemctl stop kubelet"
   description: "stopping the kubelet"
   expect_ids: ["systemd:stop_critical_service"]
@@ -390,102 +388,101 @@
   description: "negative: a status query"
   expect_ids: []
 
-# ---- round 9 (R9-CATALOG): anchoring and housekeeping ----
+# ---- anchoring and housekeeping ----
 # -- base:kill_9 --
 - test: "pkill_9 x"
   description: "not kill"
   expect_ids: []
-# -- issue #189, round 1 --
 - test: "vssadmin delete shadows /all /quiet"
-  description: "issue #189 round 1: vssadmin delete shadows /all /quiet"
+  description: "vssadmin delete shadows /all /quiet"
   expect_ids: ["base:delete_shadow_copies"]
 - test: "Set-MpPreference -DisableRealtimeMonitoring $true"
-  description: "issue #189 round 1: Set-MpPreference -DisableRealtimeMonitoring $true"
+  description: "Set-MpPreference -DisableRealtimeMonitoring $true"
   expect_ids: ["base:disable_antivirus"]
-# -- issue #189, round 3: Windows AV / backup / event-log breadth --
+# -- Windows AV / backup / event-log breadth --
 - test: "Set-MpPreference -DisableRealtimeMonitoring:$true"
-  description: "round 3: colon form of DisableRealtimeMonitoring"
+  description: "colon form of DisableRealtimeMonitoring"
   expect_ids: ["base:disable_antivirus"]
 - test: "Set-MpPreference -DisableBehaviorMonitoring $true"
-  description: "round 3: disable behavior monitoring"
+  description: "disable behavior monitoring"
   expect_ids: ["base:disable_antivirus"]
 - test: "sc stop WinDefend"
-  description: "round 3: stop the Defender service"
+  description: "stop the Defender service"
   expect_ids: ["base:disable_antivirus"]
 - test: "sc.exe delete WinDefend"
-  description: "round 3: delete the Defender service"
+  description: "delete the Defender service"
   expect_ids: ["base:disable_antivirus"]
 - test: "MpCmdRun.exe -RemoveDefinitions -All"
-  description: "round 3: remove Defender definitions"
+  description: "remove Defender definitions"
   expect_ids: ["base:disable_antivirus"]
 - test: "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows Defender\" /v DisableAntiSpyware /t REG_DWORD /d 1 /f"
-  description: "round 3: DisableAntiSpyware registry key"
+  description: "DisableAntiSpyware registry key"
   expect_ids: ["base:disable_antivirus"]
 - test: "Get-MpComputerStatus"
-  description: "negative round 3: reading Defender status"
+  description: "negative: reading Defender status"
   expect_ids: []
 - test: "vssadmin resize shadowstorage /for=C: /on=C: /maxsize=401MB"
-  description: "round 3: shrink shadow storage to drop copies"
+  description: "shrink shadow storage to drop copies"
   expect_ids: ["base:delete_shadow_copies"]
 - test: "bcdedit /set {default} recoveryenabled No"
-  description: "round 3: disable Windows recovery"
+  description: "disable Windows recovery"
   expect_ids: ["base:delete_shadow_copies"]
 - test: "Get-WmiObject Win32_Shadowcopy | ForEach-Object { $_.Delete() }"
-  description: "round 3: WMI shadow copy delete"
+  description: "WMI shadow copy delete"
   expect_ids: ["base:delete_shadow_copies"]
 - test: "Get-CimInstance Win32_Shadowcopy | Remove-CimInstance"
-  description: "round 3: CIM shadow copy delete"
+  description: "CIM shadow copy delete"
   expect_ids: ["base:delete_shadow_copies"]
 - test: "wevtutil cl Security"
-  description: "round 3: clear the Security event log"
+  description: "clear the Security event log"
   expect_ids: ["base:clear_event_logs"]
 - test: "Clear-EventLog -LogName Application"
-  description: "round 3: Clear-EventLog"
+  description: "Clear-EventLog"
   expect_ids: ["base:clear_event_logs"]
 - test: "wevtutil el"
-  description: "negative round 3: listing event logs"
+  description: "negative: listing event logs"
   expect_ids: []
 - test: "tmutil delete /Volumes/Backup/2026-01-01-000000"
-  description: "round 3: delete a Time Machine backup"
+  description: "delete a Time Machine backup"
   expect_ids: ["base:delete_backups_macos"]
 - test: "tmutil deletelocalsnapshots /"
-  description: "round 3: delete local APFS snapshots"
+  description: "delete local APFS snapshots"
   expect_ids: ["base:delete_backups_macos"]
 - test: "tmutil listbackups"
-  description: "negative round 3: listing backups"
+  description: "negative: listing backups"
   expect_ids: []
-# -- issue #189, round 3: more Defender-off forms --
+# -- more Defender-off forms --
 - test: "net stop WinDefend"
-  description: "round 3: stop Defender via net stop"
+  description: "stop Defender via net stop"
   expect_ids: ["base:disable_antivirus"]
 - test: "Stop-Service -Name WinDefend"
-  description: "round 3: Stop-Service Defender"
+  description: "Stop-Service Defender"
   expect_ids: ["base:disable_antivirus"]
 - test: "taskkill /F /IM MsMpEng.exe"
-  description: "round 3: kill the Defender engine process"
+  description: "kill the Defender engine process"
   expect_ids: ["base:disable_antivirus"]
 - test: "net stop spooler"
-  description: "negative round 3: stopping an unrelated service"
+  description: "negative: stopping an unrelated service"
   expect_ids: []
 - test: "Stop-Service nginx"
-  description: "negative round 3: stopping an unrelated service"
+  description: "negative: stopping an unrelated service"
   expect_ids: []
-# -- issue #189, round 3: macOS security disable, more Defender-off forms --
+# -- macOS security disable, more Defender-off forms --
 - test: "csrutil disable"
-  description: "round 3: disabling macOS System Integrity Protection"
+  description: "disabling macOS System Integrity Protection"
   expect_ids: ["base:disable_macos_security"]
 - test: "spctl --master-disable"
-  description: "round 3: disabling macOS Gatekeeper"
+  description: "disabling macOS Gatekeeper"
   expect_ids: ["base:disable_macos_security"]
 - test: "spctl --global-disable"
-  description: "round 3: disabling Gatekeeper (newer flag)"
+  description: "disabling Gatekeeper (newer flag)"
   expect_ids: ["base:disable_macos_security"]
 - test: "Set-MpPreference -MAPSReporting Disabled"
-  description: "round 3: turning off Defender cloud reporting"
+  description: "turning off Defender cloud reporting"
   expect_ids: ["base:disable_antivirus"]
 - test: "Stop-Service WinDefend"
-  description: "round 3: stopping Defender by bare service name"
+  description: "stopping Defender by bare service name"
   expect_ids: ["base:disable_antivirus"]
 - test: "csrutil status"
-  description: "negative round 3: querying SIP status is read-only"
+  description: "negative: querying SIP status is read-only"
   expect_ids: []

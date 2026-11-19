@@ -1095,13 +1095,34 @@
   expect_ids: []
 
 # -- SQL that can reach a file database stays flagged --
+- test: "sqlite3 :memory: \"ATTACH 'local.db' AS p; DROP TABLE p.orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 :memory: \"attach 'local.db' as p; drop table p.orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
 - test: "sqlite3 :memory: \".open local.db\" \"DROP TABLE orders;\""
   description: "the statements can reach a database file"
   expect_ids: ["database:drop_table"]
 - test: "sqlite3 -cmd \"ATTACH 'local.db' AS p\" :memory: \"DROP TABLE p.orders\""
   description: "the statements can reach a database file"
   expect_ids: ["database:drop_table"]
+- test: "duckdb -c \"ATTACH 'local.duckdb' AS p; DROP TABLE p.orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
 - test: "duckdb -c \".open local.duckdb\" -c \"DROP TABLE orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 local.db \"SELECT 1; DROP TABLE orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "duckdb local.duckdb -c \"SELECT 1; DROP TABLE orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "sqlite3 :memory: \"SELECT 1; ATTACH DATABASE 'local.db' AS p; DELETE FROM p.orders;\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:delete_all_rows"]
+- test: "sqlite3 :memory: \"ATTACH/**/'local.db' AS p; DROP TABLE p.orders\""
   description: "the statements can reach a database file"
   expect_ids: ["database:drop_table"]
 - test: "sqlite3 -init /tmp/i.sql :memory: \"DROP TABLE orders\""
@@ -1117,6 +1138,9 @@
   description: "the statements can reach a database file"
   expect_ids: ["database:drop_table"]
 - test: "sudo sqlite3 /var/lib/app.db \"DROP TABLE orders\""
+  description: "the statements can reach a database file"
+  expect_ids: ["database:drop_table"]
+- test: "duckdb -c \"ATTACH 'local.duckdb'; USE local; DROP TABLE orders\""
   description: "the statements can reach a database file"
   expect_ids: ["database:drop_table"]
 - test: "duckdb local.duckdb \"DROP TABLE orders\""

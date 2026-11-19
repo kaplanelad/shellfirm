@@ -129,7 +129,7 @@
   description: "negative: listing secrets should not match"
   expect_ids: []
 
-# -- round 2: gcp --
+# -- gcp --
 - test: 'gcloud spanner instances delete i1'
   description: "spanner instance"
   expect_ids: ["gcp:spanner_delete"]
@@ -157,4 +157,9 @@
   expect_ids: ["gcp:firebase_hosting_disable"]
 - test: "firebase hosting:channel:list"
   description: "listing channels is safe"
+  expect_ids: []
+
+# -- help requests are print-only --
+- test: "gcloud projects delete --help"
+  description: "negative: a help request only prints usage"
   expect_ids: []
