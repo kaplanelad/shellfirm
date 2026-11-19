@@ -7667,6 +7667,27 @@ mod tests {
         }
     }
 
+    // The Linux test jobs install fish; other platforms and local runs may
+    // omit it. Keep a missing CI dependency from silently passing the tests.
+    fn fish_required_in_ci() -> bool {
+        cfg!(target_os = "linux") && std::env::var_os("CI").is_some()
+    }
+
+    fn fish_test_output(
+        result: std::io::Result<std::process::Output>,
+    ) -> Option<std::process::Output> {
+        match result {
+            Ok(output) => Some(output),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound && !fish_required_in_ci() =>
+            {
+                eprintln!("fish not installed; skipping");
+                None
+            }
+            Err(error) => panic!("failed to start fish (required in Linux CI): {error}"),
+        }
+    }
+
     /// Run `shell -n` style syntax checks when the shell is installed.
     /// The hook is read from stdin: a Windows path (`C:\Users\…`) is
     /// not a file name every `bash` there understands (WSL's `bash.exe`).
@@ -7674,12 +7695,23 @@ mod tests {
         use std::io::Write as _;
         // A shell that cannot run a trivial command (Windows' WSL launcher
         // without a distribution) cannot judge the hook either.
-        let usable = std::process::Command::new(bin)
+        let result = std::process::Command::new(bin)
             .args(["-c", "echo ok"])
             .stdin(std::process::Stdio::null())
-            .output()
-            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok");
+            .output();
+        let output = if bin == "fish" {
+            fish_test_output(result)
+        } else {
+            result.ok()
+        };
+        let usable = output.is_some_and(|o| {
+            o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok"
+        });
         if !usable {
+            assert!(
+                bin != "fish" || !fish_required_in_ci(),
+                "fish is required in Linux CI but could not run the syntax-check probe"
+            );
             eprintln!("{bin} not installed or not usable; skipping syntax check");
             return;
         }
@@ -8761,12 +8793,12 @@ functions -q zz; and exit 1
 echo SAME-LINE:ok
 "#
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script])
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
         assert!(out.status.success(), "fish failed: {out:?}");
@@ -8843,13 +8875,13 @@ true
 "#,
             hook = Shell::Fish.hook(),
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script, "--"])
-            .args(cases.iter().map(|(token, _)| token))
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script, "--"])
+                .args(cases.iter().map(|(token, _)| token))
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
         assert!(out.status.success(), "fish failed: {out:?}");
@@ -8904,13 +8936,13 @@ end
 "#,
             hook = Shell::Fish.hook(),
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script, "--"])
-            .args(cases.iter().map(|(input, _)| input))
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script, "--"])
+                .args(cases.iter().map(|(input, _)| input))
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
         assert!(out.status.success(), "fish failed: {out:?}");
@@ -8975,13 +9007,13 @@ set r (__shellfirm_strip_defs 'function my_helper; rm -rf ~/x; end' | string joi
 "#,
             hook = Shell::Fish.hook(),
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script])
-            .current_dir(&dir.root)
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .current_dir(&dir.root)
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
         assert!(out.status.success(), "fish failed: {out:?}");
@@ -9029,13 +9061,13 @@ echo "AFTER-CD:$r"
 "#,
             hook = Shell::Fish.hook(),
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script])
-            .current_dir(&dir.root)
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .current_dir(&dir.root)
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
         assert!(out.status.success(), "fish failed: {out:?}");
