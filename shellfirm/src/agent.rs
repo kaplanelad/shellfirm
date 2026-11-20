@@ -3155,8 +3155,29 @@ fn turns_protection_off(command: &str) -> bool {
             "" | "}" | "done" | "fi" | "esac"
         ) && c.iter().any(|(r, op)| *r && op.contains('>'))
     });
+    // The words of every `cp` / `mv` / `cat` … with its statement's index:
+    // what a later statement copies or reads in.
+    let copied_in: Vec<(usize, &str)> = statements
+        .iter()
+        .enumerate()
+        .flat_map(|(i, st)| st.commands.iter().map(move |c| (i, c)))
+        .filter(|(_, c)| {
+            matches!(
+                program_of(&plain_words(c)).1,
+                "cp" | "mv" | "install" | "rsync" | "ln" | "cat" | "tee" | "dd" | "sponge"
+            )
+        })
+        .flat_map(|(i, c)| {
+            c.iter()
+                .enumerate()
+                // Its words and `<` inputs, not what it writes (`2>/tmp/log`).
+                .filter(|&(k, (r, _))| !r && (k == 0 || !c[k - 1].0 || !c[k - 1].1.contains('>')))
+                .map(move |(_, (_, w))| (i, w.as_str()))
+        })
+        .collect();
     statements.iter().enumerate().any(|(i, st)| {
-        if !group_written && writes_elsewhere_only(st, &statements[i + 1..]) {
+        let read_later = &copied_in[copied_in.partition_point(|&(at, _)| at <= i)..];
+        if !group_written && writes_elsewhere_only(st, read_later) {
             return false;
         }
         let mut texts: Vec<String> = st.commands.iter().map(|c| written_text(c)).collect();
@@ -3231,12 +3252,9 @@ fn program_of<'a>(words: &[&'a str]) -> (usize, &'a str) {
 }
 
 /// Whether a statement only prints to the terminal or `/dev/null`, or only
-/// writes plain paths that are not shellfirm's files and that no `later`
-/// statement copies or reads in.
-fn writes_elsewhere_only(
-    st: &crate::parser::Statement,
-    later: &[crate::parser::Statement],
-) -> bool {
+/// writes plain paths that are not shellfirm's files and that no later
+/// `cp` / `mv` / `cat` … names (`read_later`: their words).
+fn writes_elsewhere_only(st: &crate::parser::Statement, read_later: &[(usize, &str)]) -> bool {
     let r = self_regexes();
     let mut targets: Vec<&str> = Vec::new();
     for cmd in &st.commands {
@@ -3263,17 +3281,7 @@ fn writes_elsewhere_only(
     // The file's name is enough (`cd /tmp && cp s …`, `cat < /tmp/./s`).
     let copies_in = |path: &str| {
         let name = path.rsplit('/').next().unwrap_or(path);
-        later.iter().flat_map(|l| &l.commands).any(|c| {
-            matches!(
-                program_of(&plain_words(c)).1,
-                "cp" | "mv" | "install" | "rsync" | "ln" | "cat" | "tee" | "dd" | "sponge"
-            ) && c
-                .iter()
-                .enumerate()
-                // Its words and `<` inputs, not what it writes (`2>/tmp/log`).
-                .filter(|&(i, (r, _))| !r && (i == 0 || !c[i - 1].0 || !c[i - 1].1.contains('>')))
-                .any(|(_, (_, w))| w.contains(name))
-        })
+        read_later.iter().any(|(_, w)| w.contains(name))
     };
     targets.iter().all(|t| {
         *t == "/dev/null"
