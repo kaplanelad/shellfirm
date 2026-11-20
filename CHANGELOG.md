@@ -1,5 +1,11 @@
 ## Unreleased
 
+## 0.4.2
+
+Blocking hooks for seven more AI coding agents, `shellfirm audit replay` for
+past agent sessions, `shellfirm sandbox` for the agents' own OS sandbox, and
+new and widened checks with fewer false alarms.
+
 ### Added
 
 - **Whole home folders.** Recursively deleting a well-known folder of a home
