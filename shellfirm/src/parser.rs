@@ -916,7 +916,7 @@ fn parse_inner(command: &str) -> Parsed {
             ENCLOSING_RUNS
                 .with(|r| r.set(enclosing || print_output_runs(lexemes, Some(0), others_inspect)));
             // Build the flat (operator-preserving) representation.
-            flat_parts.push(flat_from_lexemes(lexemes, runs));
+            flat_parts.push(flat_from_lexemes(lexemes, runs, lines.len() == 1));
             // Group into simple commands and normalize each.
             let cmds = group_commands(lexemes);
             process_commands(
@@ -2205,6 +2205,68 @@ impl OpenState {
             i += 1;
         }
     }
+}
+
+/// One statement of a command line: commands joined by `|`, each as its
+/// unquoted words, and the heredoc bodies it opens. Comments are dropped.
+#[derive(Debug, Clone, Default)]
+pub struct Statement {
+    /// The pipeline's commands; a word that is a redirect operator the lexer
+    /// read unquoted is `(true, op)`.
+    pub commands: Vec<Vec<(bool, String)>>,
+    /// Bodies of the heredocs the statement opens (`cat <<EOF > f`).
+    pub heredocs: Vec<String>,
+}
+
+/// Split a command line into statements at `;`, `&&`, `||`, `&` and
+/// newlines (pipes stay inside a statement). A line the lexer cannot read
+/// is one statement of whitespace-separated words.
+#[must_use]
+pub fn statements(command: &str) -> Vec<Statement> {
+    let mut out = Vec::new();
+    for line in split_heredoc_lines(command) {
+        let mut bodies = line.heredoc_bodies.into_iter();
+        let Ok(lexemes) = lex(&line.text) else {
+            out.push(Statement {
+                commands: vec![line
+                    .text
+                    .split_whitespace()
+                    .map(|w| (false, w.to_string()))
+                    .collect()],
+                heredocs: bodies.collect(),
+            });
+            continue;
+        };
+        let mut st = Statement {
+            commands: vec![Vec::new()],
+            heredocs: Vec::new(),
+        };
+        for lexeme in lexemes {
+            match lexeme {
+                Lexeme::Word(w) => {
+                    // A body belongs to the statement that opens it.
+                    if w.redirect && matches!(w.raw.as_str(), "<<" | "<<-") {
+                        st.heredocs.extend(bodies.next());
+                    }
+                    if let Some(cmd) = st.commands.last_mut() {
+                        cmd.push((w.redirect, w.raw));
+                    }
+                }
+                Lexeme::Op(op) if op == "|" || op == "|&" => st.commands.push(Vec::new()),
+                Lexeme::Op(_) => {
+                    out.push(std::mem::take(&mut st));
+                    st.commands.push(Vec::new());
+                }
+                Lexeme::SubOpen | Lexeme::SubClose => {}
+            }
+        }
+        // Bodies the lexer did not tie to a `<<` stay with the line's last
+        // statement.
+        st.heredocs.extend(bodies);
+        out.push(st);
+    }
+    out.retain(|st| st.commands.iter().any(|c| !c.is_empty()));
+    out
 }
 
 /// Split input into logical lines. Physical lines are joined while a quote,
@@ -5978,7 +6040,7 @@ fn strip_sql_comments(s: &str) -> Option<String> {
 
 /// Build the flat operator-preserving string from a lexeme stream.
 #[allow(clippy::too_many_lines)]
-fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
+fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool, one_line: bool) -> String {
     let mut parts: Vec<String> = Vec::new();
     // Whether we are at the first word of a command, and whether the current
     // command is a data command (its arguments are not code).
@@ -6002,6 +6064,40 @@ fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
     let top = DEPTH.with(std::cell::Cell::get) == 1;
     // The lexeme index of the data command an `xargs` runs.
     let mut xargs_data_at: Option<usize> = None;
+    // `for k in shred wipe; do …`: the words after `in` (up to `do` or the
+    // separator) are data. Only in a one-line command of the line itself
+    // whose output does not run, outside any `( … )` / `<( … )`: a process
+    // substitution (`sh <(for …)`) or a loop over several lines (`done | sh`
+    // on the last one) keeps them.
+    // Nor in a line that names a shell or a runner anywhere (`done | sudo
+    // sh`, `| xargs sh`): what runs there is not worth reasoning about.
+    let one_line = one_line
+        && !lexemes.iter().any(|l| match l {
+            Lexeme::SubOpen => true,
+            Lexeme::Word(w) => {
+                let p = program_name(&w.raw);
+                SHELLS.contains(&p.as_str())
+                    || matches!(
+                        p.as_str(),
+                        "xargs" | "parallel" | "source" | "." | "eval" | "sudo" | "doas" | "su"
+                    )
+            }
+            _ => false,
+        })
+        // Nor where a variable is run as a command (`do $x; done`): the
+        // list words are what runs.
+        && !lexemes.windows(2).any(|pair| match pair {
+            [prev, Lexeme::Word(w)] if w.raw.starts_with('$') => match prev {
+                Lexeme::Op(_) | Lexeme::SubOpen => true,
+                Lexeme::Word(p) => matches!(
+                    p.raw.as_str(),
+                    "do" | "then" | "else" | "{" | "command" | "exec" | "env" | "nohup" | "time"
+                ),
+                Lexeme::SubClose => false,
+            },
+            _ => false,
+        });
+    let mut loop_header = false;
     for (i, (lx, owner)) in lexemes.iter().zip(owners).enumerate() {
         // Function bodies are definitions; they are analyzed at the call.
         if owner.is_some() {
@@ -6034,6 +6130,13 @@ fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
         }
         match lx {
             Lexeme::Word(w) => {
+                if loop_header && !at_start && matches!(w.raw.as_str(), "in" | "do") {
+                    in_data = w.raw == "in";
+                    loop_header = in_data;
+                    at_start = !in_data;
+                    parts.push(w.raw.clone());
+                    continue;
+                }
                 if at_start && after_pipe {
                     let prog = program_name(&w.raw);
                     match prog.as_str() {
@@ -6060,6 +6163,10 @@ fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
                     after_pipe = false;
                     let prog = program_name(&w.raw);
                     in_data = DATA_COMMANDS.contains(&prog.as_str()) || prog == "alias";
+                    loop_header = top
+                        && one_line
+                        && !feeds_code
+                        && matches!(prog.as_str(), "for" | "select" | "foreach");
                     history_like = prog == "history" || prog == "print";
                     if !in_data && (top || prog == "xargs") {
                         let words = command_words(&lexemes[i..]);
@@ -6081,7 +6188,13 @@ fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
                     history_like = false;
                     in_data = true;
                     parts.push(w.masked.clone());
-                } else if !in_data || keep_next || is_redirect_op(&w.raw) {
+                } else if !in_data
+                    || keep_next
+                    || is_redirect_op(&w.raw)
+                    // `echo yes | terraform apply`: a printed answer to the
+                    // next command's confirmation prompt.
+                    || matches!(w.raw.as_str(), "yes" | "yes\\n")
+                {
                     history_like = false;
                     keep_next = in_data && is_redirect_op(&w.raw);
                     parts.push(w.masked.clone());
@@ -6090,6 +6203,7 @@ fn flat_from_lexemes(lexemes: &[Lexeme], feeds_code: bool) -> String {
             Lexeme::Op(op) => {
                 at_start = true;
                 in_data = false;
+                loop_header = false;
                 xargs_data_at = None;
                 after_pipe = op == "|" || op == "|&";
                 wrapper = None;

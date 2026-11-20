@@ -47,7 +47,7 @@ your settings, below your min_severity, or the path does not exist.
 Exit codes (with --exit-code or --fail-on; otherwise always 0 on success):
   0   allowed: nothing risky matched (or below --fail-on)
   1   error (empty, unreadable or malformed input, internal failure)
-  2   usage error (also an unknown group in --list -g)
+  2   usage error (also an empty --command or an unknown group in --list -g)
   10  risky: needs human confirmation (decision \"ask\")
   11  blocked (decision \"deny\")
   74  the result could not be written to stdout (e.g. disk full)
@@ -506,6 +506,10 @@ pub fn run(
             }
         }
     } else if let Some(cmd) = matches.get_one::<String>("command") {
+        // `-c "$UNSET"` must not pass a CI step as "nothing risky".
+        if strip_bom(cmd).trim().is_empty() {
+            return Ok(usage("--command is empty"));
+        }
         cmd.clone()
     } else {
         return Ok(usage(
@@ -1633,7 +1637,11 @@ fn parse_command_input(input: &str) -> std::result::Result<String, String> {
             Ok(HookPayload {
                 action: HookAction::Command(c),
                 ..
-            }) => Ok(c),
+            }) if !c.trim().is_empty() => Ok(c),
+            Ok(HookPayload {
+                action: HookAction::Command(_),
+                ..
+            }) => Err("the command in the JSON input is empty".to_string()),
             Ok(_) => Err("JSON input is for a non-Bash tool; nothing to check".to_string()),
             Err(e) => Err(format!(
                 "Invalid JSON input: {e}. Expected {{\"command\": \"...\"}} or {{\"tool_input\": {{\"command\": \"...\"}}}}"
@@ -2750,6 +2758,17 @@ mod tests {
     }
 
     #[test]
+    fn empty_command_is_a_usage_error() {
+        let s = test_settings();
+        for c in ["", "   ", "\n\t"] {
+            let m = command()
+                .try_get_matches_from(["check", "-c", c, "--exit-code"])
+                .unwrap();
+            assert_eq!(run(&m, &s, &[]).unwrap().code, EXIT_USAGE, "{c:?}");
+        }
+    }
+
+    #[test]
     fn ask_is_not_allowed_in_json() {
         let ask = assess(
             "git push --force",
@@ -3047,6 +3066,17 @@ mod tests {
         assert_eq!(v["allowed"], false);
         assert_eq!(v["matched_rules"][0]["id"], "git:force_push");
         assert!(v["denial_reason"].is_string());
+    }
+
+    #[test]
+    fn an_empty_command_in_json_input_is_an_error() {
+        for c in [
+            r#"{"command":""}"#,
+            r#"{"command":"  "}"#,
+            r#"{"tool_input":{"command":""}}"#,
+        ] {
+            assert!(parse_command_input(c).is_err(), "{c}");
+        }
     }
 
     #[test]

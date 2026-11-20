@@ -257,7 +257,8 @@ pub struct RiskAssessment {
     /// Why a `deny` decision was made, with the same values as the audit
     /// log's `deny_reason`: `policy_deny` (an org/project policy `deny`),
     /// `user_deny` (the personal `deny_patterns_ids`), `agent_auto_deny`
-    /// (severity at or above `agent.auto_deny_severity`) or `fail_closed`.
+    /// (severity at or above `agent.auto_deny_severity`), `self_protection`
+    /// (turning off the audit log or agent protection) or `fail_closed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deny_reason: Option<String>,
     /// The policy files that deny (or enforce) a matched check.
@@ -3123,7 +3124,331 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
         }
     }
 
+    // A change that switches off the audit log or the agent protection
+    // itself: denied, not asked (see `build_assessment`).
+    if !hits.is_empty() && turns_protection_off(command) {
+        hits.push(SelfProtectionHit {
+            id: PROTECTION_OFF_RULE,
+            description: "Turns off shellfirm's audit log or agent protection \
+                          (audit_enabled / self_protection: false)",
+        });
+    }
+
     hits
+}
+
+/// Whether a command that changes shellfirm's settings writes a false
+/// `audit_enabled` / `self_protection` value. Every statement that writes
+/// counts (a `cd`, a variable, a descriptor or `{ … }` can name the settings
+/// file), except one that only prints to the terminal or `/dev/null`, or
+/// only writes plain paths that are not shellfirm's files and that no later
+/// `cp` / `mv` / `cat` … reads. Of those only text that can be written
+/// counts: not comments (also after a `\n` escape), not what is only
+/// searched for (`grep` patterns, sed / perl / awk addresses and search
+/// sides, the first argument of `.replace(`, `== false`).
+fn turns_protection_off(command: &str) -> bool {
+    let statements = crate::parser::statements(command);
+    // `{ echo …; } >> f`, `done > f`: what the group prints is written.
+    let group_written = statements.iter().flat_map(|st| &st.commands).any(|c| {
+        matches!(
+            program_of(&plain_words(c)).1,
+            "" | "}" | "done" | "fi" | "esac"
+        ) && c.iter().any(|(r, op)| *r && op.contains('>'))
+    });
+    // The words of every `cp` / `mv` / `cat` … with its statement's index:
+    // what a later statement copies or reads in.
+    let copied_in: Vec<(usize, &str)> = statements
+        .iter()
+        .enumerate()
+        .flat_map(|(i, st)| st.commands.iter().map(move |c| (i, c)))
+        .filter(|(_, c)| {
+            matches!(
+                program_of(&plain_words(c)).1,
+                "cp" | "mv" | "install" | "rsync" | "ln" | "cat" | "tee" | "dd" | "sponge"
+            )
+        })
+        .flat_map(|(i, c)| {
+            c.iter()
+                .enumerate()
+                // Its words and `<` inputs, not what it writes (`2>/tmp/log`).
+                .filter(|&(k, (r, _))| !r && (k == 0 || !c[k - 1].0 || !c[k - 1].1.contains('>')))
+                .map(move |(_, (_, w))| (i, w.as_str()))
+        })
+        .collect();
+    statements.iter().enumerate().any(|(i, st)| {
+        let read_later = &copied_in[copied_in.partition_point(|&(at, _)| at <= i)..];
+        if !group_written && writes_elsewhere_only(st, read_later) {
+            return false;
+        }
+        let mut texts: Vec<String> = st.commands.iter().map(|c| written_text(c)).collect();
+        texts.extend(st.heredocs.iter().cloned());
+        texts.iter().any(|t| {
+            let t = without_comments(&unescaped(t));
+            protection_off_regex().captures_iter(&t).any(|c| {
+                matches!(
+                    c[2].to_ascii_lowercase().as_str(),
+                    "false" | "no" | "off" | "0"
+                )
+            })
+        })
+    })
+}
+
+/// `\n`, `\t` and `\xHH` escapes (`printf`, `echo -e`) as the characters.
+fn unescaped(text: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"\\(?:x([0-9A-Fa-f]{2})|n|t)").unwrap());
+    re.replace_all(text, |c: &regex::Captures<'_>| {
+        c.get(1).map_or_else(
+            || {
+                if &c[0] == "\\n" {
+                    "\n".to_string()
+                } else {
+                    " ".to_string()
+                }
+            },
+            |hex| {
+                u8::from_str_radix(hex.as_str(), 16)
+                    .ok()
+                    .filter(u8::is_ascii)
+                    .map_or_else(String::new, |b| char::from(b).to_string())
+            },
+        )
+    })
+    .into_owned()
+}
+
+/// A command's words without redirects and the files they name; a
+/// herestring (`<<< text`) is kept, it is data the command reads.
+fn plain_words(cmd: &[(bool, String)]) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut target = false;
+    for (redirect, w) in cmd {
+        if *redirect {
+            target = w != "<<<";
+        } else if !std::mem::take(&mut target) {
+            out.push(w.as_str());
+        }
+    }
+    out
+}
+
+/// The program a command runs, past `sudo`, `env`, `VAR=x` and the like,
+/// with its index in `words`.
+fn program_of<'a>(words: &[&'a str]) -> (usize, &'a str) {
+    let mut wrapped = false;
+    for (i, w) in words.iter().enumerate() {
+        let name = w.rsplit('/').next().unwrap_or(w);
+        if matches!(
+            name,
+            "sudo" | "doas" | "env" | "command" | "nohup" | "time" | "exec"
+        ) {
+            wrapped = true;
+        } else if !((w.contains('=') && !w.starts_with('-')) || (wrapped && w.starts_with('-'))) {
+            return (i, name);
+        }
+    }
+    (words.len(), "")
+}
+
+/// Whether a statement only prints to the terminal or `/dev/null`, or only
+/// writes plain paths that are not shellfirm's files and that no later
+/// `cp` / `mv` / `cat` … names (`read_later`: their words).
+fn writes_elsewhere_only(st: &crate::parser::Statement, read_later: &[(usize, &str)]) -> bool {
+    let r = self_regexes();
+    let mut targets: Vec<&str> = Vec::new();
+    for cmd in &st.commands {
+        let words = plain_words(cmd);
+        let (at, program) = program_of(&words);
+        match program {
+            "echo" | "printf" | "print" | "cat" | "tee" => {}
+            _ => return false,
+        }
+        if program == "tee" {
+            targets.extend(words[at + 1..].iter().filter(|w| !w.starts_with('-')));
+        }
+        for pair in cmd.windows(2) {
+            if let [(true, op), (_, target)] = pair {
+                if op.contains('>') {
+                    targets.push(target);
+                }
+            }
+        }
+        if cmd.last().is_some_and(|(r, op)| *r && op.contains('>')) {
+            return false;
+        }
+    }
+    // The file's name is enough (`cd /tmp && cp s …`, `cat < /tmp/./s`).
+    let copies_in = |path: &str| {
+        let name = path.rsplit('/').next().unwrap_or(path);
+        read_later.iter().any(|(_, w)| w.contains(name))
+    };
+    targets.iter().all(|t| {
+        *t == "/dev/null"
+            || ((t.starts_with('/') || t.starts_with("~/"))
+                && !t.contains('$')
+                && !r.protected_files.is_match(&Haystack::new(t))
+                && !copies_in(t))
+    })
+}
+
+/// The text of a command that can end up written: what it prints or
+/// substitutes in, without what it only searches for.
+fn written_text(cmd: &[(bool, String)]) -> String {
+    let words = plain_words(cmd);
+    let (at, program) = program_of(&words);
+    let args = words.get(at + 1..).unwrap_or_default();
+    let text: Vec<String> = match program {
+        "grep" | "egrep" | "fgrep" | "rg" | "ag" | "ack" | "diff" | "cmp" | "test" | "[" => {
+            Vec::new()
+        }
+        // Only `config set <key> <value>` sets a value.
+        "shellfirm" => match args {
+            ["config", "set", key, value, ..] => vec![format!("{key} {value}")],
+            _ => Vec::new(),
+        },
+        "sed" | "gsed" => args.iter().map(|w| sed_written(w)).collect(),
+        // `printf 'audit_enabled: %s\n' false`: the arguments fill the format.
+        "printf" => match args.split_first() {
+            Some((format, rest)) if format.contains('%') => {
+                let mut rest = rest.iter();
+                let filled = format
+                    .split('%')
+                    .enumerate()
+                    .map(|(i, part)| match (i, part.chars().next()) {
+                        (0, _) | (_, None) => part.to_string(),
+                        (_, Some(c)) => {
+                            format!("{}{}", rest.next().unwrap_or(&""), &part[c.len_utf8()..])
+                        }
+                    })
+                    .collect::<String>();
+                std::iter::once(filled)
+                    .chain(rest.map(ToString::to_string))
+                    .collect()
+            }
+            _ => args.iter().map(ToString::to_string).collect(),
+        },
+        _ => args.iter().map(|w| without_patterns(w)).collect(),
+    };
+    text.join("\n")
+}
+
+/// What a sed script writes: the replacement of each `s` command and the
+/// text of `a` / `i` / `c`. Addresses (`/re/`) and search sides are left
+/// out. A script that does not parse comes back whole.
+fn sed_written(script: &str) -> String {
+    let chars: Vec<char> = script.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    // Read a `d`-delimited part starting at `i`; returns it and the index
+    // after the closing delimiter.
+    let part = |mut i: usize, d: char| -> Option<(String, usize)> {
+        let mut text = String::new();
+        while i < chars.len() {
+            match chars[i] {
+                '\\' if i + 1 < chars.len() => {
+                    text.push(chars[i]);
+                    text.push(chars[i + 1]);
+                    i += 1;
+                }
+                c if c == d => return Some((text, i + 1)),
+                c => text.push(c),
+            }
+            i += 1;
+        }
+        None
+    };
+    while i < chars.len() {
+        match chars[i] {
+            // An address: `/re/` or `\cREc`.
+            '/' => match part(i + 1, '/') {
+                Some((_, next)) => i = next,
+                None => return script.to_string(),
+            },
+            '\\' if i + 1 < chars.len() => match part(i + 2, chars[i + 1]) {
+                Some((_, next)) => i = next,
+                None => return script.to_string(),
+            },
+            's' if chars
+                .get(i + 1)
+                .is_some_and(|d| !d.is_alphanumeric() && !d.is_whitespace() && *d != '\\') =>
+            {
+                let d = chars[i + 1];
+                let Some((_, next)) = part(i + 2, d) else {
+                    return script.to_string();
+                };
+                let Some((replacement, next)) = part(next, d) else {
+                    return script.to_string();
+                };
+                out.push_str(&replacement);
+                out.push('\n');
+                i = next;
+            }
+            'a' | 'i' | 'c' if chars.get(i + 1).is_none_or(|c| !c.is_alphanumeric()) => {
+                let end = chars[i..]
+                    .iter()
+                    .position(|&c| c == '\n')
+                    .map_or(chars.len(), |p| i + p);
+                out.extend(&chars[i + 1..end]);
+                out.push('\n');
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
+/// Code without what it only searches for: the search side of `s/…/…/`,
+/// `/…/` regex literals, and the first argument of `.replace(`.
+fn without_patterns(code: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(
+            r#"(?x)
+            (?:^|[\s;{(])s/(?:[^/\\]|\\.)*/      # perl/sed s/search/
+            | (?:^|[\s;{(!~,])m?/(?:[^/\\\n]|\\.)+/   # /regex/ literal
+            | \.replace\(\s*(?:'[^']*'|"[^"]*")\s*,   # .replace(old,
+            "#,
+        )
+        .unwrap()
+    });
+    re.replace_all(code, " ").into_owned()
+}
+
+/// Text without `#` comments (a `#` at the start of a line or after
+/// whitespace, to the end of the line).
+fn without_comments(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            let cut = line
+                .char_indices()
+                .find(|&(i, c)| {
+                    c == '#'
+                        && line[..i]
+                            .chars()
+                            .next_back()
+                            .is_none_or(char::is_whitespace)
+                })
+                .map_or(line.len(), |(i, _)| i);
+            &line[..cut]
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Self-protection rule for a change that turns off the audit log or the
+/// agent protection: always denied in agent mode.
+pub const PROTECTION_OFF_RULE: &str = "shellfirm-self:protection_off";
+
+fn protection_off_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r#"(?i)\b(audit_enabled|self_protection)["'\]]*\s*(?:\|?=|:|\s)\s*(?:(?:!!?\w+|&\w+)\s+)*["']?(true|false|yes|no|on|off|0|1)\b"#,
+        )
+        .unwrap()
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -5947,7 +6272,11 @@ fn build_assessment(
         matched_rules.push(MatchedRule {
             id: hit.id.into(),
             description: hit.description.into(),
-            severity: Severity::High,
+            severity: if hit.id == PROTECTION_OFF_RULE {
+                Severity::Critical
+            } else {
+                Severity::High
+            },
             group: SELF_PROTECTION_GROUP.into(),
             origin: "self-protection".into(),
             blast_radius_scope: None,
@@ -6070,7 +6399,16 @@ fn build_assessment(
         (Decision::Allow, None)
     };
 
-    let (decision, reason) = if self_hits.is_empty() || decision != Decision::Allow {
+    let (decision, reason) = if self_hits.iter().any(|h| h.id == PROTECTION_OFF_RULE) {
+        (
+            Decision::Deny,
+            Some(
+                "This command would turn off shellfirm's audit log or agent protection; an AI \
+                 agent may not do that (change it yourself in a terminal)"
+                    .to_string(),
+            ),
+        )
+    } else if self_hits.is_empty() || decision != Decision::Allow {
         (decision, reason)
     } else {
         (
@@ -6111,6 +6449,9 @@ fn build_assessment(
         blast_radius_detail: br_top.map(|(_, info)| info.description.clone()),
         deny_reason: match decision {
             Decision::Deny if pipeline.is_denied => attribution.deny_reason,
+            Decision::Deny if self_hits.iter().any(|h| h.id == PROTECTION_OFF_RULE) => {
+                Some("self_protection".to_string())
+            }
             Decision::Deny => Some("agent_auto_deny".to_string()),
             _ => None,
         },
@@ -6993,6 +7334,116 @@ mod tests {
         for c in cases {
             let hits = self_protection_hits(c);
             assert!(hits.is_empty(), "unexpected hit for {c:?}: {hits:?}");
+        }
+    }
+
+    #[test]
+    fn turning_off_audit_or_protection_is_denied() {
+        let cfg = AgentConfig::default();
+        for c in [
+            "shellfirm config set audit_enabled false",
+            "sed -i 's/audit_enabled: true/audit_enabled: false/' ~/.config/shellfirm/settings.yaml",
+            "echo 'audit_enabled: false' >> ~/.config/shellfirm/settings.yaml",
+            "yq -i '.agent.self_protection = false' ~/.config/shellfirm/settings.yaml",
+        ] {
+            let a = assess(c, &cfg);
+            assert_eq!(a.decision, Decision::Deny, "{c}");
+            assert!(a.matched_rules.iter().any(|r| r.id == PROTECTION_OFF_RULE), "{c}");
+            assert_eq!(a.deny_reason.as_deref(), Some("self_protection"), "{c}");
+        }
+        // Other changes still ask; reads and messages are not changes.
+        assert_eq!(
+            assess("shellfirm config severity high", &cfg).decision,
+            Decision::Ask
+        );
+        assert_eq!(
+            assess("shellfirm config set audit_enabled true", &cfg).decision,
+            Decision::Ask
+        );
+        // Turning it back on is a change like any other; a later `true`
+        // elsewhere in the line does not excuse a `false`.
+        for c in [
+            "shellfirm config set audit_enabled false # audit_enabled: true",
+            "shellfirm config set audit_enabled false; echo self_protection=on",
+            "yq -i '.agent.self_protection = false | .audit_enabled = true' ~/.config/shellfirm/settings.yaml",
+        ] {
+            assert_eq!(assess(c, &cfg).decision, Decision::Deny, "{c}");
+        }
+        assert_eq!(
+            assess(
+                "sed -i 's/audit_enabled: false/audit_enabled: true/' ~/.config/shellfirm/settings.yaml",
+                &cfg
+            )
+            .decision,
+            Decision::Ask
+        );
+        for c in [
+            "grep audit_enabled ~/.config/shellfirm/settings.yaml",
+            "git commit -m 'docs: audit_enabled: false turns the log off'",
+        ] {
+            assert_eq!(assess(c, &cfg).decision, Decision::Allow, "{c}");
+        }
+        // Only the text a change writes counts: not a comment, not another
+        // statement, not the search side of a substitution.
+        for c in [
+            "echo '# audit_enabled: false was the old default' >> ~/.config/shellfirm/settings.yaml",
+            "shellfirm config severity high && echo 'audit_enabled: false is now denied'",
+            "shellfirm config set audit_enabled true # was audit_enabled: false",
+            "sed -i -e 's/self_protection: off/self_protection: on/' ~/.config/shellfirm/settings.yaml",
+            "perl -pi -e 's/audit_enabled: false/audit_enabled: true/' ~/.config/shellfirm/settings.yaml",
+            "cat <<'EOF' >> ~/.config/shellfirm/settings.yaml\n# audit_enabled: false turns the log off\nseverity: high\nEOF",
+            // Turning it back on, with the old text only searched for.
+            "sed -i '/audit_enabled: false/d' ~/.config/shellfirm/settings.yaml",
+            "sed -i '/audit_enabled: false/s/false/true/' ~/.config/shellfirm/settings.yaml",
+            "sed -i '/audit_enabled/c audit_enabled: true' ~/.config/shellfirm/settings.yaml",
+            "grep -v 'audit_enabled: false' ~/.config/shellfirm/settings.yaml > /tmp/s && mv /tmp/s ~/.config/shellfirm/settings.yaml",
+            "awk '{sub(/audit_enabled: false/, \"audit_enabled: true\")} 1' ~/.config/shellfirm/settings.yaml > /tmp/s && mv /tmp/s ~/.config/shellfirm/settings.yaml",
+            "python3 -c \"p='/home/dev/.config/shellfirm/settings.yaml'; t=open(p).read(); open(p,'w').write(t.replace('audit_enabled: false', 'audit_enabled: true'))\"",
+            "yq -i '(select(.audit_enabled == false) | .audit_enabled) = true' ~/.config/shellfirm/settings.yaml",
+            "perl -pi -e 's/false/true/ if /audit_enabled/' ~/.config/shellfirm/settings.yaml",
+            // A heredoc printed by another statement, a value printed to
+            // /dev/null.
+            "shellfirm config challenge Yes && cat <<'EOF'\naudit_enabled: false is denied now\nEOF",
+            "echo 'self_protection: false' > /dev/null; shellfirm config severity high 2>/dev/null",
+            // A false value written to a file that is not the settings.
+            "shellfirm config severity high; cat <<'EOF' > /tmp/notes.md\naudit_enabled: false is now denied\nEOF",
+            "echo 'audit_enabled: false' | tee /tmp/doc.txt; shellfirm config severity high",
+            "printf 'severity: high\\n' > /tmp/s && echo 'audit_enabled: false' > /tmp/log && cp /tmp/s ~/.config/shellfirm/settings.yaml 2>/tmp/log",
+            "echo 'audit_enabled: false' > /tmp/old.yaml && diff /tmp/old.yaml ~/.config/shellfirm/settings.yaml > /tmp/d.txt || shellfirm config severity high",
+            "shellfirm config severity high -- 'audit_enabled: false'",
+        ] {
+            let a = assess(c, &cfg);
+            assert_eq!(a.decision, Decision::Ask, "{c}");
+            assert!(a.matched_rules.iter().all(|r| r.id != PROTECTION_OFF_RULE), "{c}");
+        }
+        // The value written through a pipe, a heredoc, a shell or a file
+        // copied in later still turns it off.
+        for c in [
+            "echo 'audit_enabled: false' | tee -a ~/.config/shellfirm/settings.yaml",
+            "cat <<EOF >> ~/.config/shellfirm/settings.yaml\naudit_enabled: false\nEOF",
+            "bash -c 'shellfirm config set audit_enabled false'",
+            "printf 'audit_enabled: false\\n' > /tmp/s.yaml && cp /tmp/s.yaml ~/.config/shellfirm/settings.yaml",
+            "sed -i 's/x/y/; s/audit_enabled: true/audit_enabled: false/' ~/.config/shellfirm/settings.yaml",
+            // A comment before an escaped newline, the file named by a
+            // `cd`, a variable, a group or a descriptor.
+            "printf '#\\naudit_enabled: false\\n' >> ~/.config/shellfirm/settings.yaml",
+            "printf 'x: 1 #\\nagent:\\n  self_protection: false\\n' | tee -a ~/.config/shellfirm/settings.yaml",
+            "cd ~/.config/shellfirm && echo 'audit_enabled: false' >> settings.yaml",
+            "F=~/.config/shellfirm/settings.yaml; echo 'audit_enabled: false' >> \"$F\"",
+            "{ echo 'audit_enabled: false'; } >> ~/.config/shellfirm/settings.yaml",
+            "exec 3>>~/.config/shellfirm/settings.yaml; echo 'audit_enabled: false' >&3",
+            "yq -i '.audit_enabled |= false' ~/.config/shellfirm/settings.yaml",
+            "yq -i '.agent[\"self_protection\"] = false' ~/.config/shellfirm/settings.yaml",
+            // A herestring, printf arguments, YAML tags, `\x` escapes.
+            "tee -a ~/.config/shellfirm/settings.yaml <<< 'audit_enabled: false'",
+            "printf '%s\\n' '# note' 'audit_enabled: false' >> ~/.config/shellfirm/settings.yaml",
+            "printf 'audit_enabled: %s\\n' false >> ~/.config/shellfirm/settings.yaml",
+            "echo 'audit_enabled: !!bool false' >> ~/.config/shellfirm/settings.yaml",
+            "printf 'audit_enabled: f\\x61lse\\n' >> ~/.config/shellfirm/settings.yaml",
+            "printf 'audit_enabled: false' > /tmp/s && cd /tmp && cp s ~/.config/shellfirm/settings.yaml",
+            "printf 'audit_enabled: false' > /tmp/s && cat < /tmp/./s > ~/.config/shellfirm/settings.yaml",
+        ] {
+            assert_eq!(assess(c, &cfg).decision, Decision::Deny, "{c}");
         }
     }
 

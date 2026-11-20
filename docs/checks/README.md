@@ -3,7 +3,7 @@
 
 # Built-in checks
 
-530 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
+532 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
 
 | Group | Checks | Enabled by default |
 |---|---:|---|
@@ -14,7 +14,7 @@
 | [docker](#docker) | 18 | yes |
 | [exfil](#exfil) | 16 | yes |
 | [flyio](#flyio) | 4 | yes |
-| [fs](#fs) | 72 | yes |
+| [fs](#fs) | 73 | yes |
 | [gcp](#gcp) | 17 | yes |
 | [git](#git) | 38 | yes |
 | [github](#github) | 16 | yes |
@@ -28,7 +28,7 @@
 | [psql](#psql) | 13 | yes |
 | [redis](#redis) | 19 | yes |
 | [shell](#shell) | 15 | yes |
-| [terraform](#terraform) | 27 | yes |
+| [terraform](#terraform) | 28 | yes |
 | [vercel](#vercel) | 9 | yes |
 
 ## aws
@@ -328,6 +328,7 @@
 | `fs:chmod_critical_location` | HIGH | Changing permissions of the root, home or a system directory can lock you out and break SSH and system services. |  |
 | `fs:watch_repeated_delete` | MEDIUM | watch runs this deletion again and again, every interval. |  |
 | `fs:interpreter_inline_delete` | MEDIUM | This inline script deletes files or directories. |  |
+| `fs:interpreter_delete_home` | CRITICAL | This inline script deletes your whole home directory. |  |
 | `fs:wipefs` | CRITICAL | This erases the filesystem / partition-table signatures of a device, making its data unreachable. |  |
 | `fs:umount_lazy` | MEDIUM | A lazy unmount detaches the filesystem while programs still use it; writes in flight can be lost. |  |
 | `fs:zfs_destroy` | HIGH | This destroys a ZFS dataset / pool and all of its data and snapshots. |  |
@@ -636,6 +637,7 @@
 |---|---|---|---|
 | `terraform:apply_with_auto_approve` | CRITICAL | This applies infrastructure changes without asking for confirmation. | `terraform plan -out=plan.tfplan` |
 | `terraform:destroy_auto_approve` | CRITICAL | This destroys all managed infrastructure without asking for confirmation. | `terraform plan -destroy` |
+| `terraform:piped_yes_approve` | CRITICAL | The piped `yes` answers Terraform's confirmation prompt: the changes are applied (or destroyed) without review, like -auto-approve. | `terraform plan -out=plan.tfplan` |
 | `terraform:destroy` | HIGH | This destroys managed infrastructure. | `terraform plan -destroy` |
 | `terraform:apply_plan_file` | HIGH | This applies a saved plan file without asking for confirmation; whatever the plan does (including destroying resources) happens at once. | `terraform show <planfile>` |
 | `terraform:apply_destroy_plan` | CRITICAL | This writes a destroy plan and applies it on the same line: the managed infrastructure is destroyed without any confirmation. | `terraform plan -destroy -out=destroy.tfplan && terraform show destroy.tfplan` |

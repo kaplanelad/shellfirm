@@ -682,7 +682,7 @@ pub struct Settings {
     /// Type of the challenge.
     #[serde(default)]
     pub challenge: Challenge,
-    /// Whitelist of check groups to enable (default: all 12 groups).
+    /// Whitelist of check groups to enable (default: [`DEFAULT_ENABLED_GROUPS`]).
     #[serde(default = "default_enabled_groups")]
     pub enabled_groups: Vec<String>,
     /// Blacklist of check groups to disable (applied after whitelist).
@@ -2497,6 +2497,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "shellfirm-self:persistence_install",
     "shellfirm-self:protected_file_edit",
     "shellfirm-self:protected_file_write",
+    "shellfirm-self:protection_off",
     "shellfirm-self:rc_file_edit",
     "shellfirm-self:rc_hook_edit",
     "shellfirm-self:remove_zsh_hook",

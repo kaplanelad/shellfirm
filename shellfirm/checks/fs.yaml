@@ -1,7 +1,8 @@
 - from: fs
   # Operands are normalized by the parser first (`//` → `/`, `/home/..` → `/`,
   # `~/` → `~`, `${HOME}` → `$HOME`, `./*` → `*`, trailing `/` dropped).
-  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+(?:\S+\s+)*?(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.\.?(?:/\.\.)*(?:/\*)?|\*|\.git(?:/(?:\*|objects|refs|logs|index|HEAD)(?:/\S*)?)?|/(?:home|Users)/[^/\s*]+(?:/\*)?|/System/Volumes/Data(?:/[^\s]*)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?)(?:\s|$)'
+  # Whitespace quoted around the target (`rm -rf "$HOME "`) is ignored.
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rRf][a-zA-Z]*|--recursive|--force)\s+(?:\S+\s+)*?\x{1}*(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|\.\.?(?:/\.\.)*(?:/\*)?|\*|\.git(?:/(?:\*|objects|refs|logs|index|HEAD)(?:/\S*)?)?|/(?:home|Users)/[^/\s*]+(?:/\*)?|/System/Volumes/Data(?:/[^\s]*)?|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|sys|proc|dev|System|Users|Library|Applications)(?:/\*)?)\x{1}*(?:\s|$)'
   description: "This deletes a critical location: the filesystem root, your home directory, a system directory, the repository, or everything in the current directory."
   id: fs:recursively_delete
   severity: Critical
@@ -689,6 +690,14 @@
   description: "This inline script deletes files or directories."
   id: fs:interpreter_inline_delete
   severity: Medium
+- from: fs
+  # The same, when what is deleted is the home directory itself
+  # (`shutil.rmtree(os.path.expanduser("~"))`, `rmSync(os.homedir())`,
+  # `FileUtils.rm_rf(Dir.home)`), not a folder inside it.
+  test: '^(?:python[0-9.]*|perl|ruby|node|nodejs|bun|deno|php|tsx|ts-node)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[ceE]|-[pr]|--eval|--print|eval)(?:\s+|=)\S*?(?:rmtree|rm_rf|rm_r|remove_tree|rmSync|rmdirSync|rimraf(?:\.sync)?|\brm)(?:\(|[\s\x{1}]+)[\s\x{1}]*(?:os\.path\.expanduser\([\s\x{1}]*["'']~/?["'']\)|(?:pathlib\.)?Path\.home\(\)|(?:\w+|require\([^)]*\))\.homedir\(\)|process\.env(?:\.HOME|\[["'']HOME["'']\])|os\.(?:environ\[["'']HOME["'']\]|environ\.get\(["'']HOME["'']\)|getenv\(["'']HOME["'']\))|ENV\[["'']HOME["'']\]|Dir\.home|File\.expand_path\(["'']~/?["'']\)|\$ENV\{HOME\}|["''](?:\$HOME|~|/root|/(?:home|Users)/[^/"''\s\x{1}]+)/?["''])[\s\x{1}]*[,)]'
+  description: "This inline script deletes your whole home directory."
+  id: fs:interpreter_delete_home
+  severity: Critical
 - from: fs
   test: (?:^|\s)wipefs\s+(?:\S+\s+)*?(?:-[a-zA-Z]*a[a-zA-Z]*|--all|-o|--offset)(?:\s|$|=)
   description: "This erases the filesystem / partition-table signatures of a device, making its data unreachable."

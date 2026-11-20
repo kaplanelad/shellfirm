@@ -40,7 +40,7 @@ blocked outright. Prefer no math? See [Accessibility](#accessibility).
 
 ## Features
 
-- **512 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
+- **532 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
 - **Shell hooks for 8 shells** — Bash, Zsh, Fish, Elvish and Xonsh are tested end to end; Nushell is tested with a limitation (see [Shell support](#shell-support)); the PowerShell and Oils hooks are shipped but **not yet tested** end to end. `shellfirm status` shows which shells have the hook installed.
 - **Context-aware escalation** — harder challenges when connected via SSH, running as root, on protected git branches, or in production Kubernetes clusters
 - **Safer alternatives** — many checks suggest a safer command (e.g. `--force-with-lease`)

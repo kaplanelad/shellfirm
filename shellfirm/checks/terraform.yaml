@@ -15,6 +15,17 @@
   alternative: "terraform plan -destroy"
   alternative_info: "Preview what would be destroyed first, then run 'terraform destroy' with manual approval."
 - from: terraform
+  # `yes` / `echo yes` piped in answers Terraform's own "Enter a value:"
+  # confirmation: the same as -auto-approve.
+  # (also through an env prefix, `timeout`, `nice`, ..., or a `<<< yes`
+  # here-string).
+  test: '(?:^|\s)(?:yes(?:\s+yes)?|(?:echo|printf)(?:\s+-\S+)*\s+yes(?:\\n)?)(?:\s+\d*>&?\s*\S+)*\s+\|\s+(?:(?:sudo|command|time|nice|nohup|[A-Za-z_][A-Za-z0-9_]*=\S*|timeout\s+\S+)\s+)*(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*(?:run-all\s+)?(?:apply|destroy)(?:\s|$)|(?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:-\S+\s+)*(?:run-all\s+)?(?:apply|destroy)(?:\s+\S+)*?\s+<<<\s*yes(?:\\n)?(?:\s|$)'
+  description: "The piped `yes` answers Terraform's confirmation prompt: the changes are applied (or destroyed) without review, like -auto-approve."
+  id: terraform:piped_yes_approve
+  severity: Critical
+  alternative: "terraform plan -out=plan.tfplan"
+  alternative_info: "Save the plan and review it (`terraform show plan.tfplan`), then apply exactly that plan."
+- from: terraform
   test: (?:^|\s)(?:terraform|tofu|terragrunt)\s+(?:run-all\s+)?(?:destroy\b|apply\b.*\s-destroy(?:\s|$))
   description: "This destroys managed infrastructure."
   id: terraform:destroy
