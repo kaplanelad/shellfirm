@@ -3088,6 +3088,8 @@ mod tests {
         assert!(!p.deny_write.iter().any(|x| x.starts_with("/opt/cc")));
     }
 
+    // The entries are Unix path spellings (`//`, `~/..`, `$HOME`).
+    #[cfg(unix)]
     #[test]
     fn home_its_parents_and_unexpanded_or_empty_entries_are_refused() {
         let t = tmp();
@@ -3174,7 +3176,10 @@ mod tests {
             let line = row.line();
             assert!(line.contains("sandbox off"), "{line}");
             assert!(
-                line.contains(&format!("sandbox.enabled is false in {}", file.display())),
+                line.replace('\\', "/").contains(&format!(
+                    "sandbox.enabled is false in {}",
+                    file.display().to_string().replace('\\', "/")
+                )),
                 "{line}"
             );
             assert!(!line.contains("re-run"), "{line}");
@@ -3272,9 +3277,9 @@ mod tests {
             .unwrap();
         assert!(!row.complete(), "{row:?}");
         assert!(
-            row.weakened
-                .iter()
-                .any(|w| w.contains("re-opens `~/.ssh`") && w.contains(project.to_str().unwrap())),
+            row.weakened.iter().any(|w| w.contains("re-opens `~/.ssh`")
+                && w.replace('\\', "/")
+                    .contains(&project.to_str().unwrap().replace('\\', "/"))),
             "{row:?}"
         );
         // Re-running `sandbox` warns about it too.

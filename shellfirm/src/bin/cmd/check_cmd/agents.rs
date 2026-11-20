@@ -866,7 +866,10 @@ mod tests {
         );
         assert_eq!(
             (p.action, p.cwd.as_deref()),
-            (cmd("bash -lc 'rm -rf ~/x'"), Some("/w/sub"))
+            (
+                cmd("bash -lc 'rm -rf ~/x'"),
+                Some(std::path::Path::new("/w").join("sub").to_str().unwrap())
+            )
         );
         let p = parsed(
             HookKind::Codex,
