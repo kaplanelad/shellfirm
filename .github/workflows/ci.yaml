@@ -37,6 +37,36 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # The fish hook is tested against both kinds of fish: x64 gets a
+      # pinned fish 4 release (functions embedded in the binary, read
+      # --tokenize-raw), arm gets Ubuntu's fish 3 (functions in files, the
+      # hook's fallback tokenizer). The fish tests fail instead of skipping
+      # when fish is missing on Linux CI.
+      - name: Install fish 4 (pinned)
+        if: runner.os == 'Linux' && runner.arch == 'X64'
+        shell: bash
+        env:
+          FISH_VERSION: "4.7.1"
+          FISH_SHA256: "345388add316b94a847b08cef01f1b46e85b98215328271ee22a21555a3204df"
+        run: |
+          fish_dir="$RUNNER_TEMP/shellfirm-fish"
+          mkdir -p "$fish_dir"
+          curl --fail --location --retry 3 \
+            "https://github.com/fish-shell/fish-shell/releases/download/$FISH_VERSION/fish-$FISH_VERSION-linux-x86_64.tar.xz" \
+            --output "$fish_dir/fish.tar.xz"
+          printf '%s  %s\n' "$FISH_SHA256" "$fish_dir/fish.tar.xz" | sha256sum --check
+          tar -xJf "$fish_dir/fish.tar.xz" -C "$fish_dir" fish
+          echo "$fish_dir" >> "$GITHUB_PATH"
+          "$fish_dir/fish" --version
+
+      - name: Install fish 3 (distribution package)
+        if: runner.os == 'Linux' && runner.arch == 'ARM64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fish
+          fish --version
+          fish --no-config -c 'string match -q "3.*" $version'
+
       - name: Build
         run: cargo build --locked
 

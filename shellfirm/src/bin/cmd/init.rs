@@ -4963,6 +4963,9 @@ fi
 const FISH_HOOK: &str = r#"# shellfirm hook for fish
 if status is-interactive
     set -g __shellfirm_hook_version 14
+    # The functions fish runs by itself, by name: redefining one runs its body
+    # without passing through Enter.
+    set -g __shellfirm_self_run fish_prompt fish_right_prompt fish_mode_prompt fish_title fish_greeting fish_command_not_found fish_job_summary
     # Lets `shellfirm doctor` tell whether the shell it runs in loaded the hook
     # (SHELLFIRM_HOOK_LOAD changes at every load, also after `exec fish`).
     set -gx SHELLFIRM_HOOK_PID $fish_pid
@@ -5029,7 +5032,8 @@ if status is-interactive
 
     # The source of the function $argv[1] when its body is worth checking
     # with a call: a small function that is not one of fish's own (those in
-    # $__fish_data_dir/functions, unless redefined) and not shellfirm's.
+    # $__fish_data_dir/functions or embedded in fish binary, unless redefined),
+    # and not shellfirm's.
     # Which functions are fish's own is remembered for the session (until a
     # line could define functions, or a file for one shows up in a function
     # directory that comes before fish's own).
@@ -5054,6 +5058,15 @@ if status is-interactive
         end
         functions -q -- $w; or return 1
         set -l file (functions --details -- $w 2>/dev/null)
+        # fish compiles its own functions into the binary: `cd` is
+        # reported as `embedded:functions/cd.fish`, not as a path in
+        # $__fish_data_dir. Reading its body would expand fish's whole
+        # directory handling (nextd, prevd, __fish_data_with_directory) into
+        # the check, where its `command rm -r $temp` looks like a deletion.
+        if string match -q -- "embedded:functions/$w.fish" $file; and not test -e "$file"
+            set -a __shellfirm_fn_shipped $w
+            return 1
+        end
         if set -q __fish_data_dir[1]; and string match -q -- "$__fish_data_dir/functions/*" $file
             set -a __shellfirm_fn_shipped $w
             return 1
@@ -5072,21 +5085,166 @@ if status is-interactive
         printf '%s' $body
     end
 
+    # Extract command substitutions from one raw token, without evaluating it.
+    # Each substitution is NUL-terminated so embedded newlines stay intact.
+    #
+    # Start with the command template `echo ARG`, for example:
+    #   echo prefix(pwd)(whoami)
+    # For the call inspecting ARG, each case below shows the raw token and
+    # this helper's output, not the output of echo or the inner commands.
+    # \n and \0 denote newline and NUL bytes.
+    #   Plain text:             hello              -> no output
+    #   Multiple substitutions: prefix(pwd)(whoami) -> pwd\0whoami\0
+    #   Nested substitution:    (echo (pwd))        -> echo (pwd)\0
+    #   Quoted literal:         "(pwd)"             -> no output
+    #   Quoted substitution:    "$(pwd)"            -> pwd\0
+    #   Multiline substitution: (echo a\necho b)    -> echo a\necho b\0
+    # Nested substitutions stay in the extracted text for the caller to scan.
+    function __shellfirm_extract_command_substitutions
+        string match -q '*(*' -- $argv[1]; or return
+        # Without quotes, escapes, comments or newlines, and with balanced
+        # parentheses, every parenthesis counts: a recursive pattern finds the
+        # outermost pairs in one call.
+        if not string match -qr -- '[\'"\\\\#\n]' $argv[1]
+            and test (string replace -ar -- '[^(]' '' $argv[1] | string length) = (string replace -ar -- '[^)]' '' $argv[1] | string length)
+            for m in (string match -ra -- '\((?:[^()]++|(?R))*\)' $argv[1])
+                printf '%s\0' (string sub -s 2 -e -1 -- $m | string collect)
+            end
+            return
+        end
+        set -l mode unquoted
+        # Stack of modes to restore when nested substitutions close.
+        set -l outer_modes
+        set -l escaped 0
+        set -l previous_character ''
+        # The text of the outermost open substitution, built character by
+        # character (no positions: no `math` or `seq` per character).
+        set -l body
+        for character in (string split '' -- $argv[1])
+            # `before`: the text without this character (the closing
+            # parenthesis, when the substitution ends here).
+            set -l before $body
+            set -q outer_modes[1]; and set body "$body$character"
+
+            # Handle escapes before interpreting quotes or parentheses.
+            # Inside comments, even backslashes are ordinary text.
+            if test "$mode" != comment
+                if test $escaped = 1
+                    set escaped 0
+                    # An escaped dollar sign cannot introduce $(...).
+                    set previous_character ''
+                    continue
+                end
+                if test "$character" = '\\'
+                    set escaped 1
+                    set previous_character "$character"
+                    continue
+                end
+            end
+
+            # Classify the character in its current context. Only unquoted
+            # parentheses and a double-quoted $(...) affect nesting.
+            set -l boundary none
+            switch $mode
+                case comment
+                    test "$character" = \n; and set mode unquoted
+                case single_quoted
+                    test "$character" = "'"; and set mode unquoted
+                case double_quoted
+                    if test "$character" = '"'
+                        set mode unquoted
+                    else if test "$character" = '('; and test "$previous_character" = '$'
+                        set boundary open
+                    end
+                case unquoted
+                    switch "$character"
+                        case "'"
+                            set mode single_quoted
+                        case '"'
+                            set mode double_quoted
+                        case '#'
+                            # As in fish: a comment starts where a token
+                            # could start, also right after ; | & or (.
+                            string match -qr -- '^[\s;|&(]?$' "$previous_character"; and set mode comment
+                        case '('
+                            set boundary open
+                        case ')'
+                            set boundary close
+                    end
+            end
+
+            # Enter a substitution in unquoted mode, then restore its outer
+            # context on exit. Emit only when the outermost pair closes.
+            switch $boundary
+                case open
+                    set -q outer_modes[1]; or set body ''
+                    set -a outer_modes $mode
+                    set mode unquoted
+                case close
+                    if set -q outer_modes[1]
+                        set mode $outer_modes[-1]
+                        set -e outer_modes[-1]
+                        if not set -q outer_modes[1]
+                            # Without the closing parenthesis, and with any
+                            # trailing newline, so `\` before it cannot join
+                            # the next substitution.
+                            printf '%s\0' "$before"
+                        end
+                    end
+            end
+            set previous_character "$character"
+        end
+        # An unclosed substitution is still checked (fails closed).
+        set -q outer_modes[1]; and printf '%s\0' "$body"
+    end
+
     # Bodies of small functions (fish aliases) called anywhere in $argv[1],
     # with `$argv` replaced by the arguments of the call. The text is split
     # into commands with fish's own tokenizer, so redirections (`>&2`,
     # `2>&1`) stay what they are, and an argument is put in quoted when it
     # has characters that would change the body's meaning. Functions already
-    # in __shellfirm_fn_seen are not repeated. $argv[2] = probe: print only
-    # the names of the functions that would be expanded.
+    # in __shellfirm_fn_seen are not repeated unless an explicit probe
+    # candidate list is provided.
+    #
+    # Parameters:
+    #   $argv[1]: Command text to scan.
+    #   $argv[2] (optional): `probe` prints function names instead of expanded
+    #     bodies. Omit to print expanded bodies.
+    #   $argv[3..-1] (optional, probe only): Candidate function names to match.
+    #     When provided, only these names are reported; session definitions
+    #     and __shellfirm_fn_seen are not consulted. This supports definitions
+    #     parsed from input that has not yet executed.
     function __shellfirm_function_bodies
         set -l toks
-        printf '%s' $argv[1] | read -lzat toks
+        set -l raw 1
+        # --tokenize-raw was added in fish 4.1. Older fish keeps its previous
+        # tokenizer path; do not require a newer fish just to load the hook.
+        # No `-l` on these reads: inside the `if` it would make a new `toks`
+        # local to the block, and the loop below would see the empty outer one.
+        if not printf '%s\0' $argv[1] | read -za --tokenize-raw toks 2>/dev/null
+            set raw 0
+            printf '%s' $argv[1] | read -zat toks
+        end
         set -l seg
         set -l subs
-        set -l n 0
         set -l skip 0
         for t in $toks ';'
+            # Substitutions in redirection targets also run commands.
+            if string match -q -- '*(*' $t
+                if test $raw = 1
+                    set -a subs (__shellfirm_extract_command_substitutions "$t" | string split0)
+                else
+                    # Newlines are protected while matching: the output of a
+                    # command substitution is split on them, which would cut
+                    # a multi-line substitution into pieces.
+                    set -a subs (string replace -a \n \x1e -- $t | string match -ra -- '\(([^()]*)\)' | string match -rv -- '^\(' | string replace -a \x1e \n)
+                end
+            end
+            # A `{ ...; }` block (fish 4.1+) is one word to the tokenizer: its
+            # commands run, so they are read like a substitution's.
+            if string match -qr -- '^\{\s[\s\S]*\}$' $t
+                set -a subs (string sub -s 2 -e -1 -- $t | string collect -N)
+            end
             if test $skip = 1
                 set skip 0
                 continue
@@ -5098,24 +5256,40 @@ if status is-interactive
                     continue
                 end
                 string match -qr -- '^[0-9]*[<>]|^&>' $t; and continue
-                # Command substitutions run commands of their own.
-                if string match -q -- '*(*' $t
-                    set -a subs (string match -ra -- '\(([^()]*)\)' $t | string match -rv -- '^\(')
+                # Decode words only after recognizing operators and extracting
+                # substitutions: quoted ";" and "(name)" are just arguments.
+                # Only quotes and backslashes change when a word is decoded;
+                # other words are used as they are, without a pipe per word.
+                if test $raw = 1; and string match -qr -- '[\'"\\\\]' $t
+                    printf '%s\0' "$t" | read -lzat word
+                    set -a seg $word
+                else
+                    set -a seg $t
                 end
-                set -a seg $t
                 continue
             end
             set -l words $seg
             set seg
-            while set -q words[1]; and contains -- $words[1] and or not '!' begin time if while else eval
+            while set -q words[1]; and contains -- $words[1] and or not '!' begin time if while else eval '{' '}'
                 set -e words[1]
             end
             set -q words[1]; or continue
             # `command x` / `builtin x` / `exec x` do not call a function.
             contains -- $words[1] command builtin exec; and continue
+            if test "$argv[2]" = probe; and set -q argv[3]
+                contains -- $words[1] $argv[3..-1]; and echo $words[1]
+                continue
+            end
             contains -- $words[1] $__shellfirm_fn_seen; and continue
-            functions -q -- $words[1]; or continue
-            set -l body (__shellfirm_function_source $words[1]); or continue
+            set -l body
+            if set -l slot (contains -i -- $words[1] $__shellfirm_sl_names)
+                # Defined earlier on this line (__shellfirm_strip_defs): not a
+                # session function yet, but this call runs it.
+                set body $__shellfirm_sl_bodies[$slot]
+            else
+                functions -q -- $words[1]; or continue
+                set body (__shellfirm_function_source $words[1]); or continue
+            end
             set -ga __shellfirm_fn_seen $words[1]
             if test "$argv[2]" = probe
                 echo $words[1]
@@ -5125,7 +5299,7 @@ if status is-interactive
             set -l q
             for a in $words
                 if string match -qr -- '[^A-Za-z0-9_./~:=@%+,-]' $a
-                    set -a q "'"(string replace -a -- "'" "\\'" (string replace -a -- '\\' '\\\\' $a))"'"
+                    set -a q "'"(string replace -a -- "'" "\\'" (string replace -a -- '\\' '\\\\' $a | string collect) | string collect)"'"
                 else
                     set -a q $a
                 end
@@ -5144,8 +5318,24 @@ if status is-interactive
             set body (string replace -a -- '$argv' "$q" $body | string collect)
             string replace -a -- \x1f '$argv[' $body
         end
-        for s in $subs[1..4]
-            __shellfirm_function_bodies $s $argv[2]
+        if test $raw = 1
+            # Each substitution is a complete command list (its quotes and
+            # parentheses balance), so all of them are read in one call,
+            # one per line, instead of one call each.
+            set -q subs[1]; and __shellfirm_function_bodies (string join \n -- $subs | string collect) $argv[2..-1]
+        else
+            # The fallback pattern can cut a substitution inside a quote: one
+            # with a quote, backslash or newline is read on its own, so it
+            # cannot hide the next; the rest are read together, one per line.
+            set -l plain
+            for s in $subs
+                if string match -qr -- '[\'"\\\\\n]' $s
+                    __shellfirm_function_bodies $s $argv[2..-1]
+                else
+                    set -a plain $s
+                end
+            end
+            set -q plain[1]; and __shellfirm_function_bodies (string join \n -- $plain | string collect) $argv[2..-1]
         end
     end
 
@@ -5243,6 +5433,12 @@ if status is-interactive
     # a command substitution in a header) is printed unchanged.
     function __shellfirm_strip_defs
         set -l s $argv[1]
+        if test "$argv[2]" != --nested
+            # Same-line definitions a later statement calls, for
+            # __shellfirm_function_bodies to expand with the call's arguments.
+            set -g __shellfirm_sl_names
+            set -g __shellfirm_sl_bodies
+        end
         if test (string length -- "$s") -gt 4000; or not string match -qr '(^|[;\n&|({]|\s)(function|abbr|alias)\s' -- $s
             printf '%s' $s
             return
@@ -5306,15 +5502,30 @@ if status is-interactive
         set -a stmts $stmt
         set -a specs $spec
         # Functions that run by themselves (event handlers, the prompt, key
-        # bindings) and those they call: redefining one is checked.
-        set -l reach (__shellfirm_hook_reach)
+        # bindings) and those they call: redefining one is checked. Found
+        # only when a definition needs it (a recursive call passes it on).
+        set -l reach
+        set -l reach_ready 0
+        # A nested call (a body of a same-line definition) gets
+        # `--nested <ready> <reach...>` and keeps the same-line map.
+        if test "$argv[2]" = --nested
+            set reach_ready $argv[3]
+            set reach $argv[4..-1]
+        end
         set -l depth 0
         set -l fnlevel -1
+        set -l fnstart 0
+        set -l fnname
+        set -l names
+        set -l bodies
         set -l kept
         set -l i 0
         for st in $stmts
             set i (math $i + 1)
-            set -l words (string trim -- $st | string split -n ' ')
+            set -l words
+            # Use fish's quoting and escaping rules so a quoted command name
+            # such as "name" can match a saved function name.
+            printf '%s' $st | read -lzat words
             while set -q words[1]; and contains -- $words[1] and or not time
                 set -e words[1]
             end
@@ -5329,7 +5540,19 @@ if status is-interactive
                             return
                         end
                         set depth (math $depth - 1)
-                        test $depth -eq $fnlevel; and set fnlevel -1
+                        # This end closes the function once its enclosing depth is restored.
+                        if test $depth -eq $fnlevel
+                            set fnlevel -1
+                            # Save the definition for calls later in this input; add it to
+                            # `kept` only if a later call is found.
+                            set -l slot (contains -i -- $fnname $names)
+                            if not set -q slot[1]
+                                set -a names $fnname
+                                set slot (count $names)
+                            end
+                            # Reassemble the complete definition and restore newline placeholders.
+                            set bodies[$slot] (string join \n -- $stmts[$fnstart..$i] | string replace -a \x1e \n | string collect)
+                        end
                 end
                 continue
             end
@@ -5343,21 +5566,113 @@ if status is-interactive
                     # the functions fish calls by name (the prompt, the
                     # title, command-not-found) run by themselves: they are
                     # checked when they are defined.
+                    if not string match -qr -- '^(--on-(event|variable|signal|process-exit|job-exit)(=.*)?|-[a-zA-Z]*[evspj])$' $words[3..-1]
+                        and test $reach_ready = 0
+                        set reach (__shellfirm_hook_reach)
+                        set reach_ready 1
+                    end
                     if string match -qr -- '^(--on-(event|variable|signal|process-exit|job-exit)(=.*)?|-[a-zA-Z]*[evspj])$' $words[3..-1]; \
-                        or contains -- "$words[2]" fish_prompt fish_right_prompt fish_mode_prompt fish_title fish_greeting fish_command_not_found $reach
+                        or contains -- "$words[2]" $__shellfirm_self_run $reach
                         set depth (math $depth + 1)
                         set -a kept (string replace -a \x1e \n -- $st)
                         continue
                     end
                     set fnlevel $depth
+                    set fnstart $i
+                    set fnname $words[2]
                     set depth (math $depth + 1)
                     continue
-                case abbr alias
+                case alias
+                    if test $specs[$i] = 0
+                        # `alias name 'body'` / `alias name=body` defines a
+                        # function: a later call on this line runs the body,
+                        # and one fish runs by itself (the prompt and what it
+                        # calls) runs it at the next prompt.
+                        set -l aw $words[2..-1]
+                        while set -q aw[1]; and string match -q -- '-*' $aw[1]
+                            set -e aw[1]
+                        end
+                        set -l parts $aw
+                        set -q aw[2]; or set parts (string split -m 1 = -- "$aw[1]")
+                        if set -q parts[2]
+                            set -l abody (string join ' ' -- $parts[2..-1] | string replace -a \x1e \n | string collect)
+                            set -l def "function $parts[1]"\n"$abody"' $argv'\n"end"
+                            if test $reach_ready = 0
+                                set reach (__shellfirm_hook_reach)
+                                set reach_ready 1
+                            end
+                            if contains -- "$parts[1]" $__shellfirm_self_run $reach
+                                set -a kept $def
+                                continue
+                            end
+                            set -l slot (contains -i -- $parts[1] $names)
+                            if not set -q slot[1]
+                                set -a names $parts[1]
+                                set slot (count $names)
+                            end
+                            set bodies[$slot] $def
+                        end
+                        continue
+                    end
+                case abbr
                     test $specs[$i] = 0; and continue
                 case if while for begin switch
                     set depth (math $depth + 1)
                 case end
                     set depth (math $depth - 1)
+            end
+            if set -q names[1]
+                # Resolve calls against the definitions available here, including
+                # calls made by their bodies. A per-statement seen set breaks cycles
+                # without hiding a definition changed before a later statement.
+                set -l call (string replace -a \x1e \n -- $st | string collect)
+                set -l todo (__shellfirm_function_bodies "$call" probe $names)
+                set -l seen
+                set -l bytes 0
+                while set -q todo[1]
+                    set -l name $todo[1]
+                    set -e todo[1]
+                    contains -- $name $seen; and continue
+                    if test (count $seen) -ge 64; or test $bytes -ge 64000
+                        set -a kept "shellfirm-function-depth-limit $name # same-line function expansion limit"
+                        break
+                    end
+                    set -a seen $name
+                    if set -l slot (contains -i -- $name $names)
+                        set -l lines (string split \n -- $bodies[$slot])
+                        # Apply the same definition rules inside a called body, so
+                        # merely defining a nested function does not execute it.
+                        set -l body (__shellfirm_strip_defs (string join \n -- $lines[2..-2] | string collect) --nested $reach_ready $reach | string collect)
+                        set -l def "$lines[1]"\n"$body"\n"end"
+                        if set -l m (contains -i -- $name $__shellfirm_sl_names)
+                            set __shellfirm_sl_bodies[$m] $def
+                        else
+                            set -ga __shellfirm_sl_names $name
+                            set -ga __shellfirm_sl_bodies $def
+                        end
+                        set bytes (math $bytes + (string length -- "$body"))
+                        set -a todo (__shellfirm_function_bodies "$body" probe $names)
+                    end
+                end
+                # What the calls run, with their arguments in place of $argv
+                # (`alias s sudo; s rm -rf ~`), followed through the bodies
+                # like __shellfirm_check follows session functions.
+                if set -q seen[1]
+                    set -l saved $__shellfirm_fn_seen
+                    set -g __shellfirm_fn_seen
+                    set -l more (__shellfirm_function_bodies "$call" | string collect)
+                    set -l total 0
+                    while test -n "$more"
+                        set -a kept $more
+                        set total (math $total + (string length -- "$more"))
+                        if test (count $__shellfirm_fn_seen) -gt 64; or test $total -gt 64000
+                            set -a kept "shellfirm-function-depth-limit $seen[1] # same-line function expansion limit"
+                            break
+                        end
+                        set more (__shellfirm_function_bodies "$more" | string collect)
+                    end
+                    set -g __shellfirm_fn_seen $saved
+                end
             end
             set -a kept (string replace -a \x1e \n -- $st)
         end
@@ -5371,27 +5686,35 @@ if status is-interactive
     # The functions that run by themselves (event handlers, the prompt and
     # title, key bindings) and the functions they name, however deep.
     function __shellfirm_hook_reach
-        set -l fns (functions -n)
+        # -a: also the names starting with `_` (fish's __fish_* helpers).
+        set -l fns (functions -a -n)
         set -l todo (functions --handlers 2>/dev/null | string match -rv '^Event ' | string match -ra '[A-Za-z0-9_:.@+-]+') \
-            fish_prompt fish_right_prompt fish_mode_prompt fish_title fish_greeting fish_command_not_found \
+            $__shellfirm_self_run \
             (builtin bind 2>/dev/null | string replace -r -- '^bind( -M \S+| -m \S+| --preset| --user)* \S+ ' '' | string match -ra '[A-Za-z0-9_:.@+-]+')
         set -l seen
+        # Bodies such as fish_git_prompt hold thousands of words: keep only
+        # the names of functions with one pattern, before looping over them.
+        set -l fnre '^(?:'(string escape --style=regex -- $fns | string join '|')')$'
         while set -q todo[1]; and test (count $seen) -lt 128
             set -l next
-            for w in $todo
-                contains -- $w $fns; or continue
+            for w in (string match -r -- $fnre $todo | string match -rv -- '^__shellfirm')
                 contains -- $w $seen $next; and continue
-                string match -q -- '__fish*' $w; and continue
-                string match -q -- '__shellfirm*' $w; and continue
                 set -a next $w
             end
             set todo
             for w in $next
                 set -a seen $w
-                # fish's own functions (from its data directory) are not read.
-                set -l file (functions --details -- $w 2>/dev/null)
-                string match -q -- "$__fish_data_dir/*" $file; and continue
-                set -a todo (functions --no-details -- $w 2>/dev/null | string match -ra '[A-Za-z0-9_:.@+-]+')
+                # fish's private helpers (__fish_print_pipestatus, ...) are
+                # many and long: they are in reach, their bodies are not read.
+                string match -q -- '__fish*' $w; and continue
+                # Read fish's own functions too: they only add names here.
+                # Skipping them would let redefined prompt helpers run
+                # unchecked. The word after `command`, `builtin` or `exec`
+                # is not a function call (`command rm` never runs an `rm`
+                # function), so it does not count.
+                set -a todo (functions --no-details -- $w 2>/dev/null \
+                    | string replace -ra -- '(^|[\s;|&(])(?:command|builtin|exec)(?:\s+-\S+)*\s+\S+' '$1' \
+                    | string match -ra '[A-Za-z0-9_:.@+-]+')
             end
         end
         printf '%s\n' $seen
@@ -7489,6 +7812,27 @@ mod tests {
         }
     }
 
+    // The Linux test jobs install fish; other platforms and local runs may
+    // omit it. Keep a missing CI dependency from silently passing the tests.
+    fn fish_required_in_ci() -> bool {
+        cfg!(target_os = "linux") && std::env::var_os("CI").is_some()
+    }
+
+    fn fish_test_output(
+        result: std::io::Result<std::process::Output>,
+    ) -> Option<std::process::Output> {
+        match result {
+            Ok(output) => Some(output),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound && !fish_required_in_ci() =>
+            {
+                eprintln!("fish not installed; skipping");
+                None
+            }
+            Err(error) => panic!("failed to start fish (required in Linux CI): {error}"),
+        }
+    }
+
     /// Run `shell -n` style syntax checks when the shell is installed.
     /// The hook is read from stdin: a Windows path (`C:\Users\…`) is
     /// not a file name every `bash` there understands (WSL's `bash.exe`).
@@ -7496,12 +7840,23 @@ mod tests {
         use std::io::Write as _;
         // A shell that cannot run a trivial command (Windows' WSL launcher
         // without a distribution) cannot judge the hook either.
-        let usable = std::process::Command::new(bin)
+        let result = std::process::Command::new(bin)
             .args(["-c", "echo ok"])
             .stdin(std::process::Stdio::null())
-            .output()
-            .is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok");
+            .output();
+        let output = if bin == "fish" {
+            fish_test_output(result)
+        } else {
+            result.ok()
+        };
+        let usable = output.is_some_and(|o| {
+            o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "ok"
+        });
         if !usable {
+            assert!(
+                bin != "fish" || !fish_required_in_ci(),
+                "fish is required in Linux CI but could not run the syntax-check probe"
+            );
             eprintln!("{bin} not installed or not usable; skipping syntax check");
             return;
         }
@@ -8530,12 +8885,22 @@ done
     fn fish_hook_function_expansion() {
         let hook = Shell::Fish.hook();
         assert!(hook.contains("\"$__fish_data_dir/functions/*\""));
+        // fish reports `cd` as `embedded:functions/cd.fish`;
+        // reading one expands fish's `command rm -r $temp` into the check.
+        assert!(hook.contains("\"embedded:functions/$w.fish\""));
         let script = format!(
             r#"{hook}
 function nuke; kubectl delete ns $argv; end
 function redir; echo hi >&2; echo $argv[1] 2>&1; end
 function a1; kubectl delete ns $argv; end; function a2; a1 $argv; end; function a3; a2 $argv; end; function a4; a3 $argv; end
-for c in 'cd /tmp' 'prevd' 'ls' 'nuke q1' 'redir "a;b"' 'echo (nuke q2)' 'command nuke q3'
+for c in 'cd /tmp' 'prevd' 'nextd' 'ls' 'nuke q1' 'redir "a;b"' 'redir "one
+two"' 'echo (nuke q2)' 'command nuke q3' 'echo (nuke q5
+)' 'echo (true
+) (nuke q6)' 'set out (nuke q7
+echo done)' "set x (#don't
+nuke q8)" 'echo (true;#(
+nuke q9)' 'echo (echo a \
+) (nuke q10)' '{{ nuke q11; }}'
     set -g __shellfirm_fn_seen
     set -l r (__shellfirm_function_bodies $c | string join ' | ')
     echo "FB:$c=>$r"
@@ -8545,16 +8910,54 @@ set r (__shellfirm_bind_commands "bind \ct 'kubectl delete ns bd'; bind \ce end-
 set r (__shellfirm_strip_defs 'function hk --on-event fish_prompt; kubectl delete ns ev; end' | string join ' | '); echo "DEFS:$r"
 set r (__shellfirm_strip_defs 'function hk; kubectl delete ns ev; end' | string join ' | '); echo "PLAIN:$r"
 set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' | string join ' | '); echo "PROMPTFN:$r"
+set r (__shellfirm_strip_defs 'function prompt_pwd; rm -rf ~/x; end' | string join ' | '); echo "REACH:$r"
+for c in \
+    'function zz; rm -rf ~/x; end; zz' \
+    'function zz; if true; rm -rf ~/x; end; end; true && zz' \
+    'function zz; rm -rf ~/x; end; echo hi | zz' \
+    'function zz; rm -rf ~/x; end; not zz' \
+    'function zz; rm -rf ~/x; end; "zz"' \
+    'function zz; rm -rf ~/x; end; echo (zz)' \
+    'function zz; rm -rf ~/x; end; eval zz'
+    set r (__shellfirm_strip_defs $c | string join ' | ')
+    if not string match -q -- '*rm -rf ~/x*' "$r"
+        echo "UNCHECKED:$c"
+        exit 1
+    end
+end
+# Without `read --tokenize-raw` (fish < 4.1) a quoted "(zz)" cannot be
+# told apart from a call: flagging it there errs on the safe side.
+set -l rawtok 0
+printf 'x\0' | read -za --tokenize-raw _sf_tok 2>/dev/null; and set rawtok 1
+for c in \
+    'function zz; rm -rf ~/x; end; echo zz' \
+    'function zz; zz; rm -rf ~/x; end' \
+    'zz; function zz; rm -rf ~/x; end' \
+    'function zz; rm -rf ~/x; end; command zz' \
+    'function zz; rm -rf ~/x; end; function unused; zz; end' \
+    'function zz; rm -rf ~/x; end; echo "(zz)"' \
+    'function zz; rm -rf ~/x; end; function harmless; echo ok; end; harmless' \
+    'function zz; rm -rf ~/x; end; function zz; echo ok; end; zz'
+    test $rawtok = 0; and string match -q -- '*"(zz)"*' $c; and continue
+    set r (__shellfirm_strip_defs $c | string join ' | ')
+    if string match -q -- '*rm -rf ~/x*' "$r"
+        echo "FALSE-POSITIVE:$c"
+        exit 1
+    end
+end
+functions -q zz; and exit 1
+echo SAME-LINE:ok
 "#
         );
-        let Ok(out) = std::process::Command::new("fish")
-            .args(["--no-config", "-i", "-c", &script])
-            .stdin(std::process::Stdio::null())
-            .output()
-        else {
-            eprintln!("fish not installed; skipping");
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
             return;
         };
+        assert!(out.status.success(), "fish failed: {out:?}");
         let out = (
             String::from_utf8_lossy(&out.stdout).into_owned(),
             String::from_utf8_lossy(&out.stderr).into_owned(),
@@ -8564,9 +8967,21 @@ set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' 
             &[
                 "FB:cd /tmp=>\n",
                 "FB:prevd=>\n",
+                "FB:nextd=>\n",
                 "FB:ls=>\n",
                 "kubectl delete ns q1",
                 "echo hi >&2; echo 'a;b' 2>&1;",
+                "echo hi >&2; echo 'one | two' 2>&1;",
+                // A multi-line substitution, a comment right after `(` or
+                // `;`, a substitution ending in `\` + newline, a `{ }` block:
+                // the call is still read, on the old and the raw tokenizer.
+                "kubectl delete ns q5",
+                "kubectl delete ns q6",
+                "kubectl delete ns q7",
+                "kubectl delete ns q8",
+                "kubectl delete ns q9",
+                "kubectl delete ns q10",
+                "kubectl delete ns q11",
                 "kubectl delete ns q2",
                 "FB:command nuke q3=>\n",
                 "PROBE:a1",
@@ -8574,8 +8989,327 @@ set r (__shellfirm_strip_defs 'function fish_prompt; kubectl delete ns fp; end' 
                 "DEFS:function hk --on-event fish_prompt",
                 "PLAIN:\n",
                 "PROMPTFN:function fish_prompt",
+                "REACH:function prompt_pwd |  rm -rf ~/x |  end",
+                "SAME-LINE:ok",
             ],
         );
+    }
+
+    /// Extract raw command text while preserving quote contexts and NUL boundaries.
+    #[test]
+    fn fish_hook_extracts_command_substitutions() {
+        let cases: &[(&str, &[&str])] = &[
+            ("hello", &[]),
+            ("(pwd)", &["pwd"]),
+            ("prefix(pwd)(whoami)", &["pwd", "whoami"]),
+            ("(echo (pwd))", &["echo (pwd)"]),
+            (r#""(pwd)""#, &[]),
+            (r#""$(pwd)""#, &["pwd"]),
+            ("'$(pwd)'", &[]),
+            (r"\(pwd\)", &[]),
+            (r#""\$(pwd)""#, &[]),
+            (r#""$(pwd)(literal)$(whoami)""#, &["pwd", "whoami"]),
+            (r#""$(echo "$(pwd)")""#, &[r#"echo "$(pwd)""#]),
+            (r#""escaped \"(literal) $(pwd)""#, &["pwd"]),
+            (
+                "(echo 'unmatched ) (')(pwd)",
+                &["echo 'unmatched ) ('", "pwd"],
+            ),
+            ("# (ignored)", &[]),
+            ("(echo '# literal')", &["echo '# literal'"]),
+            ("(echo first\necho second)", &["echo first\necho second"]),
+            (
+                "(echo first # unmatched ) (\necho second)",
+                &["echo first # unmatched ) (\necho second"],
+            ),
+            (
+                "(echo first # comment \\\necho second)(pwd)",
+                &["echo first # comment \\\necho second", "pwd"],
+            ),
+            ("(echo 目录)(pwd)", &["echo 目录", "pwd"]),
+            // An unclosed substitution is still returned (checked, not dropped).
+            ("(unfinished", &["unfinished"]),
+            ("(pwd)(unfinished", &["pwd", "unfinished"]),
+            // A comment can start right after `(` or `;`, as in fish.
+            ("(true;#(\nnuke)", &["true;#(\nnuke"]),
+            ("(#don't\nnuke)", &["#don't\nnuke"]),
+            // A trailing backslash + newline stays in the substitution.
+            ("(echo a \\\n)(pwd)", &["echo a \\\n", "pwd"]),
+        ];
+        let script = format!(
+            r#"{hook}
+for token in $argv
+    printf 'TOKEN\0'
+    __shellfirm_extract_command_substitutions "$token"
+end
+# A token with no substitutions may return nonzero without an error.
+true
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script, "--"])
+                .args(cases.iter().map(|(token, _)| token))
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let actual: Vec<_> = stdout.split_terminator('\0').collect();
+        let expected: Vec<_> = cases
+            .iter()
+            .flat_map(|(_, bodies)| std::iter::once("TOKEN").chain(bodies.iter().copied()))
+            .collect();
+        assert_eq!(
+            actual,
+            expected,
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Feed the hook's output to the real matcher without executing any input.
+    #[test]
+    fn fish_hook_same_line_calls_preserve_syntax_and_follow_chains() {
+        let cases = [
+            ("function zz; rm -rf ~; end; zz", true),
+            (r#"function zz; rm -rf ~; end; echo "$(zz)""#, true),
+            (r#"function zz; rm -rf ~; end; echo "$(echo (zz))""#, true),
+            ("function zz; rm -rf ~; end; function yy; zz; end; yy", true),
+            ("function yy; zz; end; function zz; rm -rf ~; end; yy", true),
+            ("function zz; zz; rm -rf ~; end; zz", true),
+            ("function zz; yy; end; function yy; zz; rm -rf ~; end; zz", true),
+            ("function zz; rm -rf ~; end; echo hi > (zz)", true),
+            ("function zz; rm -rf ~; end; echo (true) (true) (true) (true) (zz)", true),
+            (r#"function zz; rm -rf ~; end; echo "(zz)" | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo "(zz)" > /dev/null"#, false),
+            (r#"function zz; rm -rf ~; end; echo ";" zz | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo \(zz\) | cat"#, false),
+            (r#"function zz; rm -rf ~; end; echo "\$(zz)" | cat"#, false),
+            ("function zz; rm -rf ~; end; echo '$(zz)' | cat", false),
+            (r#"function zz; rm -rf ~; end; echo (echo "(zz)")"#, false),
+            ("function zz; rm -rf ~; end; echo zz", false),
+            ("function zz; zz; rm -rf ~; end", false),
+            ("zz; function zz; rm -rf ~; end", false),
+            ("function zz; rm -rf ~; end; command zz", false),
+            ("function zz; rm -rf ~; end; function zz; echo ok; end; zz", false),
+            ("function zz; function unused; rm -rf ~; end; echo ok; end; zz", false),
+            ("function zz; rm -rf ~; end; function yy; function unused; zz; end; echo ok; end; yy", false),
+            ("alias zz 'rm -rf ~'; zz", true),
+            ("alias zz='rm -rf ~'; zz", true),
+            ("alias -s zz 'rm -rf ~'; zz", true),
+            ("alias zz 'rm -rf ~'; function yy; zz; end; yy", true),
+            ("alias prompt_pwd 'rm -rf ~'", true),
+            ("alias zz 'rm -rf ~'", false),
+            ("alias zz 'rm -rf ~'; echo zz", false),
+            ("alias zz 'echo ok'; zz", false),
+            // A newline in the call or in the alias body.
+            ("function zz; rm -rf ~; end; zz 'a\nb'", true),
+            ("function zz; rm -rf ~; end; echo (true\nzz)", true),
+            ("alias zz 'echo hi\nrm -rf ~'; zz", true),
+            // The call's arguments are put in place of $argv.
+            ("alias s sudo; s rm -rf ~", true),
+            ("alias zz 'command'; zz rm -rf ~", true),
+            ("function zz; $argv; end; zz rm -rf ~", true),
+            ("function zz; rm -rf $argv[1]; end; zz ~", true),
+            ("function zz; rm -rf $argv[1]; end; zz /tmp/x", false),
+            ("alias s sudo; s ls ~", false),
+        ];
+        let script = format!(
+            r#"{hook}
+# Which tokenizer this fish has: `read --tokenize-raw` arrived in fish 4.1.
+printf 'x\0' | read -za --tokenize-raw _sf_tok 2>/dev/null; and printf 'raw\0'; or printf 'old\0'
+printf '%s\0' $version
+for input in $argv
+    set check (__shellfirm_strip_defs "$input" | string collect)
+    printf '%s\0' "$check"
+end
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script, "--"])
+                .args(cases.iter().map(|(input, _)| input))
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        let mut outputs: Vec<_> = stdout.split_terminator('\0').collect();
+        // Without the raw tokenizer (fish < 4.1) quoted or escaped text that
+        // looks like a call cannot be told apart from one: it is checked,
+        // which errs on the safe side.
+        let raw_tokenizer = outputs.remove(0) == "raw";
+        let version = outputs.remove(0);
+        let mut parts = version.split('.').map(|n| n.parse::<u32>().unwrap_or(0));
+        let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        // fish 4.1 added `read --tokenize-raw`: a newer fish must use it, or
+        // the hook silently fell back to the old tokenizer.
+        assert!(
+            raw_tokenizer || (major, minor) < (4, 1),
+            "fish {version} should have read --tokenize-raw"
+        );
+        let literal_only = |input: &str| {
+            ["\"(zz)\"", "\\(zz\\)", "\"\\$(zz)\"", "'$(zz)'", "\";\""]
+                .iter()
+                .any(|literal| input.contains(literal))
+        };
+        assert_eq!(outputs.len(), cases.len(), "{stdout:?}");
+        let checks = shellfirm::checks::get_all().unwrap();
+        let home = PathBuf::from("/home/test");
+        let env = shellfirm::env::MockEnvironment {
+            cwd: PathBuf::from("/work"),
+            home: Some(home.clone()),
+            existing_paths: [home].into_iter().collect(),
+            ..Default::default()
+        };
+        let mut wrong = Vec::new();
+        for ((input, risky), output) in cases.iter().zip(outputs) {
+            let expected = *risky || (!raw_tokenizer && literal_only(input));
+            let matches = shellfirm::checks::run_check_on_command_with_env(&checks, output, &env);
+            let flagged = matches
+                .iter()
+                .any(|check| check.id == "fs:recursively_delete");
+            if flagged != expected {
+                wrong.push(format!(
+                    "input: {input}\nexpected risky: {expected}\ncheck text: {output}"
+                ));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n\n"));
+    }
+
+    /// A file can have an `embedded:` prefix on Unix; its functions still
+    /// need checking, even when its path matches fish's embedded layout.
+    #[cfg(unix)]
+    #[test]
+    fn fish_hook_checks_file_functions_and_prompt_helpers() {
+        let dir = tree_fs::TreeBuilder::default().create().unwrap();
+        fs::create_dir(dir.root.join("embedded:functions")).unwrap();
+        fs::write(
+            dir.root.join("embedded:evil.fish"),
+            "function evil; kubectl delete ns prefix; end\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.root.join("embedded:functions/spoof.fish"),
+            "function spoof; kubectl delete ns exact; end\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.root.join("prompt.fish"),
+            "function fish_prompt; my_helper; end\nfunction my_helper; echo ok; end\n",
+        )
+        .unwrap();
+        let script = format!(
+            r#"{hook}
+source embedded:evil.fish
+source embedded:functions/spoof.fish
+for c in 'evil' 'spoof'
+    set -g __shellfirm_fn_seen
+    set r (__shellfirm_function_bodies $c | string join ' | ')
+    echo "FILE:$c=>$r"
+end
+source "$PWD/prompt.fish"
+# fish 4.9 makes this variable read-only; older official builds leave it unset.
+set -e __fish_data_dir 2>/dev/null
+set r (__shellfirm_strip_defs 'function my_helper; rm -rf ~/x; end' | string join ' | '); echo "FILE-REACH:$r"
+# `command rm` in fish's own functions (edit_command_buffer) is not a call
+# of an `rm` function: redefining a session rm wrapper is not challenged.
+function rm; command rm -i $argv; end
+set r (__shellfirm_strip_defs "alias rm 'rm -i'" | string join ' | '); echo "RMWRAP-ALIAS:[$r]"
+set r (__shellfirm_strip_defs 'function rm; command rm -i $argv; end' | string join ' | '); echo "RMWRAP-FN:[$r]"
+# A private helper of the prompt is in reach even though its body is not read.
+function fish_prompt; __fish_sf_helper; end
+function __fish_sf_helper; echo ok; end
+set r (__shellfirm_strip_defs 'function __fish_sf_helper; rm -rf ~/x; end' | string join ' | '); echo "FISH-HELPER:$r"
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .current_dir(&dir.root)
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let out = (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        );
+        assert_has(
+            &out,
+            &[
+                "FILE:evil=>function evil",
+                "kubectl delete ns prefix",
+                "FILE:spoof=>function spoof",
+                "kubectl delete ns exact",
+                "FILE-REACH:function my_helper |  rm -rf ~/x |  end",
+                "RMWRAP-ALIAS:[]",
+                "RMWRAP-FN:[]",
+                "FISH-HELPER:function __fish_sf_helper |  rm -rf ~/x |  end",
+            ],
+        );
+    }
+
+    /// A relative file source must remain distinguishable from an embedded
+    /// function after changing the working directory.
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "KFAIL: changing directories makes a relative embedded: source look built-in"]
+    fn fish_hook_checks_file_functions_after_changing_directory() {
+        let dir = tree_fs::TreeBuilder::default().create().unwrap();
+        fs::create_dir(dir.root.join("embedded:functions")).unwrap();
+        fs::create_dir(dir.root.join("other")).unwrap();
+        fs::write(
+            dir.root.join("embedded:functions/spoof.fish"),
+            "function spoof; echo CWD_MARKER; end\n",
+        )
+        .unwrap();
+        let script = format!(
+            r#"{hook}
+source embedded:functions/spoof.fish; or exit 1
+set -g __shellfirm_fn_seen
+set r (__shellfirm_function_bodies spoof | string join ' | ')
+echo "BEFORE-CD:$r"
+builtin cd other; or exit 1
+# Scan the same loaded function again, without the seen-function shortcut.
+set -g __shellfirm_fn_seen
+set r (__shellfirm_function_bodies spoof | string join ' | ')
+echo "AFTER-CD:$r"
+"#,
+            hook = Shell::Fish.hook(),
+        );
+        let Some(out) = fish_test_output(
+            std::process::Command::new("fish")
+                .args(["--no-config", "-i", "-c", &script])
+                .current_dir(&dir.root)
+                .stdin(std::process::Stdio::null())
+                .output(),
+        ) else {
+            return;
+        };
+        assert!(out.status.success(), "fish failed: {out:?}");
+        let out = (
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        );
+        for prefix in ["BEFORE-CD:", "AFTER-CD:"] {
+            let expanded = lines_with(&out, prefix).join("\n");
+            assert!(
+                expanded.contains("function spoof") && expanded.contains("echo CWD_MARKER"),
+                "file function was not expanded at {prefix}: {out:?}"
+            );
+        }
     }
 
     #[test]

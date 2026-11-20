@@ -2407,7 +2407,7 @@ fn parse_into(
             .first()
             .is_some_and(|t| matches!(program_name(t), "cd" | "pushd"));
         if is_cd && op == "||" && state.cwd != cwd_before {
-            pending_cd_failure = Some(cwd_before.clone());
+            pending_cd_failure = Some(cwd_before);
         }
         if state.tf_workspace != tf_before {
             let mut alts = vec![tf_before.map_or(CtxAlt::Current, CtxAlt::Named)];
