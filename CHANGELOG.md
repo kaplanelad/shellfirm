@@ -2,11 +2,16 @@
 
 ### Fixed
 
-- **fish:** on fish 4.2+, commands such as `cd`, `prevd`, `nextd`
+- **fish:** on fish 4.1+, commands such as `cd`, `prevd`, `nextd`
   and `ls` no longer trigger false challenges: fish's built-in
   (embedded) functions are no longer expanded into the check.
-- **fish:** redefinitions of prompt helpers, and functions defined and
-  called on the same line, are now checked.
+- **fish:** a function or alias defined and called on the same line
+  (`function zz; rm -rf ~; end; zz`, `alias s sudo; s rm -rf ~`) is now
+  checked, with the call's arguments. So is redefining a function the
+  prompt runs (`function prompt_pwd; …; end`), also when the prompt is
+  fish's own or your own file, and also through `alias`.
+- **fish:** commands inside a `{ …; }` block and every command
+  substitution on a line are checked, not only the first four.
 
 ## 0.4.1
 
