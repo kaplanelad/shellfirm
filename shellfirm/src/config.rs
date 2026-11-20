@@ -1518,7 +1518,7 @@ pub fn value_set(
                 .as_mapping_mut()
                 .ok_or_else(|| Error::Config(format!("expected a mapping at '{segment}'")))?;
             map.insert(
-                key.clone(),
+                key,
                 serde_yaml::Value::Mapping(serde_yaml::Mapping::default()),
             );
         }
