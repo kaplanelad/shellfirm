@@ -622,12 +622,9 @@ fn cline_script_relays_and_fails_closed() {
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(payload.as_bytes())
-            .unwrap();
+        // The script may answer and exit before reading its input (when
+        // shellfirm cannot run), so a broken pipe here is not a failure.
+        let _ = child.stdin.take().unwrap().write_all(payload.as_bytes());
         let o = child.wait_with_output().unwrap();
         assert!(o.status.success());
         serde_json::from_slice(&o.stdout).unwrap()
