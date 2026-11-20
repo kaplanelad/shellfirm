@@ -83,7 +83,7 @@ pub fn max_files_for(audit_path: &Path) -> usize {
     let configured = audit_path
         .parent()
         .map(|d| d.join("settings.yaml"))
-        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|p| crate::config::read_regular_string(&p).ok())
         .and_then(|c| serde_yaml::from_str::<serde_yaml::Value>(&c).ok())
         .and_then(|v| v.get("audit_max_files").and_then(serde_yaml::Value::as_u64))
         .and_then(|n| usize::try_from(n).ok())
@@ -732,6 +732,7 @@ fn rotate_files(audit_path: &Path, keep: usize) -> std::io::Result<()> {
 }
 
 /// Regexes for [`redact_secrets`]: `(regex, replacement)`.
+#[allow(clippy::too_many_lines)]
 fn redaction_rules() -> &'static [(regex::Regex, &'static str)] {
     static RULES: std::sync::OnceLock<Vec<(regex::Regex, &'static str)>> =
         std::sync::OnceLock::new();
@@ -785,6 +786,31 @@ fn redaction_rules() -> &'static [(regex::Regex, &'static str)] {
                 format!(r"(\bcqlsh\b[^;&|\n]*?\s(?:-p|--password)\s+){v_arg}"),
                 "${1}***",
             ),
+            // docker login -p PASSWORD / --password PASSWORD (and podman,
+            // nerdctl, buildah, skopeo, `helm registry login`).
+            (
+                format!(
+                    r"(\b(?:docker|podman|nerdctl|buildah|skopeo|helm)\b[^;&|\n]*?\blogin\b[^;&|\n]*?\s(?:-p|--password)\s+){v_arg}"
+                ),
+                "${1}***",
+            ),
+            // aws configure set aws_secret_access_key VALUE (and
+            // aws_session_token, with or without a `profile.` prefix).
+            (
+                format!(
+                    r"(\baws\b[^;&|\n]*?\bconfigure\s+set\b[^;&|\n]*?\b(?:aws_secret_access_key|aws_session_token)\s+){v_arg}"
+                ),
+                "${1}***",
+            ),
+            // npm config set //registry/:_authToken VALUE (and `_auth`,
+            // `_password`; pnpm, yarn `npmAuthToken`). The `=` spellings
+            // are covered by the NAME=value rules.
+            (
+                format!(
+                    r"(\b(?:npm|pnpm|yarn)\b[^;&|\n]*?\bconfig\s+set\s+[^\s=;&|]*?(?:_authToken|_auth|_password|npmAuthToken|npmAuthIdent|npmPassword)\s+){v_arg}"
+                ),
+                "${1}***",
+            ),
             // --password=… / --token=… / --secret=… / --api-key=…
             (
                 format!(
@@ -828,7 +854,7 @@ fn redaction_rules() -> &'static [(regex::Regex, &'static str)] {
             ),
             // Authorization / token headers.
             (
-                r#"(?i)((?:authorization|proxy-authorization|x-api-key|x-auth-token|private-token)\s*:\s*(?:(?:bearer|basic|token|digest)\s+)?)[^\s'"]+"#
+                r#"(?i)((?:authorization|proxy-authorization|x-api-key|apikey|api-key|x-auth-token|x-access-token|private-token)\s*:\s*(?:(?:bearer|basic|token|digest)\s+)?)[^\s'"]+"#
                     .to_string(),
                 "${1}***",
             ),
@@ -844,6 +870,20 @@ fn redaction_rules() -> &'static [(regex::Regex, &'static str)] {
             (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b".to_string(), "***"),
             (r"\bxox[abprs]-[A-Za-z0-9-]{10,}".to_string(), "***"),
             (r"\bsk-[A-Za-z0-9_\-]{20,}".to_string(), "***"),
+            // Stripe secret and restricted keys.
+            (
+                r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,}".to_string(),
+                "***",
+            ),
+            (r"\bglpat-[A-Za-z0-9_\-]{20,}".to_string(), "***"),
+            // npm access tokens (`npm_` and 36 letters or digits).
+            (r"\bnpm_[A-Za-z0-9]{36}\b".to_string(), "***"),
+            // A JSON Web Token (header and payload are base64url JSON, so
+            // both start with `eyJ`), wherever it appears.
+            (
+                r"\beyJ[A-Za-z0-9_\-]{5,}\.eyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]*".to_string(),
+                "***",
+            ),
         ];
         rules
             .into_iter()
@@ -896,8 +936,12 @@ pub fn unescape_invisible(s: &str) -> String {
 /// `--api-key`), `NAME=value` assignments whose name contains `PASSWORD`,
 /// `PASS`, `TOKEN`, `SECRET`, `KEY`, `CREDENTIAL` (`PGPASSWORD`,
 /// `MYSQL_PWD`, `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, …), `user:pass@`
-/// in URLs, `Authorization:`-style headers, `curl -u user:pass`, and AWS
-/// (`AKIA…`), GitHub (`ghp_…`), Slack (`xoxb-…`) and `sk-…` keys.
+/// in URLs, `Authorization:` / `apikey:`-style headers, `curl -u
+/// user:pass`, `docker login -p …`, `aws configure set
+/// aws_secret_access_key …`, `npm config set …:_authToken …`, JSON Web
+/// Tokens (`eyJ….eyJ….…`), and AWS (`AKIA…`), GitHub (`ghp_…`), GitLab
+/// (`glpat-…`), npm (`npm_…`), Slack (`xoxb-…`), Stripe (`sk_live_…`,
+/// `rk_live_…`) and `sk-…` keys.
 ///
 /// Returns the redacted text and whether anything was replaced. This is a
 /// best-effort safety net, not a guarantee: a secret passed positionally
@@ -1332,7 +1376,10 @@ pub fn filter_entries(entries: Vec<AuditEntry>, f: &AuditFilter) -> Vec<AuditEnt
 /// Parse a `--since` value into a comparable UTC timestamp.
 ///
 /// Accepts a relative duration (`30m`, `12h`, `7d`, `2w`), a date
-/// (`2026-01-31`) or a full timestamp (`2026-01-31T10:00:00Z`).
+/// (`2026-01-31`) or an RFC 3339 timestamp (`2026-01-31T10:00:00Z`, with
+/// fractional seconds or an offset: `2026-01-31T12:00:00.5+02:00`, also
+/// written `+0200`). A
+/// timestamp without an offset (`2026-01-31T10:00:00`) is taken as UTC.
 ///
 /// # Errors
 /// Returns an error describing the accepted formats.
@@ -1341,7 +1388,8 @@ pub fn parse_since(value: &str) -> Result<String> {
     let err = || {
         Error::Config(format!(
             "invalid --since value '{value}'. Use a duration like 30m, 12h, 7d, 2w, \
-             a date like 2026-01-31, or a timestamp like 2026-01-31T10:00:00Z"
+             a date like 2026-01-31, or a timestamp like 2026-01-31T10:00:00Z \
+             or 2026-01-31T10:00:00+02:00 (no offset means UTC)"
         ))
     };
     let is_duration =
@@ -1380,22 +1428,89 @@ pub fn parse_since(value: &str) -> Result<String> {
             Err(err())
         };
     }
-    let is_timestamp = v.len() == 20
-        && v.is_ascii()
-        && v.ends_with('Z')
-        && bytes[10] == b'T'
-        && bytes[13] == b':'
-        && bytes[16] == b':'
-        && valid_date(&v[..10])
-        && [(11, 23), (14, 59), (17, 60)].iter().all(|&(i, max)| {
-            v[i..i + 2]
-                .parse::<u32>()
-                .is_ok_and(|n| n <= max && v[i..i + 2].bytes().all(|b| b.is_ascii_digit()))
-        });
-    if is_timestamp {
-        return Ok(v.to_string());
+    // A timestamp without an offset is taken as UTC.
+    parse_datetime(v)
+        .map(|(secs, _)| timestamp_from_epoch(secs))
+        .ok_or_else(err)
+}
+
+/// An RFC 3339 timestamp (`2026-01-31T10:00:00Z`, `…T10:00:00.123Z`,
+/// `…T12:00:00+02:00`) as `YYYY-MM-DDTHH:MM:SSZ` in UTC (fractions of a
+/// second dropped). A timestamp without an offset gives `None`.
+#[must_use]
+pub fn parse_timestamp(s: &str) -> Option<String> {
+    parse_datetime(s)
+        .filter(|&(_, offset)| offset)
+        .map(|(secs, _)| timestamp_from_epoch(secs))
+}
+
+/// `YYYY-MM-DD[T ]HH:MM:SS[.fraction][Z|±HH:MM|±HHMM]` as seconds since the Unix
+/// epoch, and whether it had an offset (`Z` included).
+fn parse_datetime(value: &str) -> Option<(u64, bool)> {
+    let text = value.trim();
+    if !text.is_ascii() || text.len() < 19 {
+        return None;
     }
-    Err(err())
+    let bytes = text.as_bytes();
+    let num = |r: std::ops::Range<usize>| -> Option<i64> {
+        bytes[r.clone()]
+            .iter()
+            .all(u8::is_ascii_digit)
+            .then(|| text[r].parse().ok())
+            .flatten()
+    };
+    if !valid_date(&text[..10])
+        || !matches!(bytes[10], b'T' | b't' | b' ')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let (hour, min, sec) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    if hour > 23 || min > 59 || sec > 60 {
+        return None;
+    }
+    let mut rest = &text[19..];
+    if let Some(frac) = rest.strip_prefix('.') {
+        let digits = frac.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        rest = &frac[digits..];
+    }
+    let (offset, has_offset) = match rest.as_bytes() {
+        [] => (0, false),
+        [b'Z' | b'z'] => (0, true),
+        [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] | [sign @ (b'+' | b'-'), h1, h2, m1, m2] => {
+            let digits = [*h1, *h2, *m1, *m2];
+            if !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            let d = |i: usize| i64::from(digits[i] - b'0');
+            let (oh, om) = (d(0) * 10 + d(1), d(2) * 10 + d(3));
+            if oh > 23 || om > 59 {
+                return None;
+            }
+            let o = oh * 3600 + om * 60;
+            (if *sign == b'-' { -o } else { o }, true)
+        }
+        _ => return None,
+    };
+    let days = days_from_civil(num(0..4)?, num(5..7)?, num(8..10)?);
+    let secs = days * 86_400 + hour * 3600 + min * 60 + sec - offset;
+    u64::try_from(secs).ok().map(|secs| (secs, has_offset))
+}
+
+/// Days since 1970-01-01 of a (valid) date (Howard Hinnant's
+/// `days_from_civil`).
+const fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 /// `YYYY-MM-DD` with a real month and day.
@@ -1520,7 +1635,9 @@ pub fn now_timestamp() -> String {
     timestamp_from_epoch(secs)
 }
 
-fn timestamp_from_epoch(secs: u64) -> String {
+/// Format seconds since the Unix epoch as `YYYY-MM-DDTHH:MM:SSZ` (UTC).
+#[must_use]
+pub fn timestamp_from_epoch(secs: u64) -> String {
     let days = secs / 86400;
     let remaining = secs % 86400;
     let hours = remaining / 3600;
@@ -1857,6 +1974,45 @@ mod tests {
         assert_eq!(parse_since("7d").unwrap().len(), 20);
         assert!(parse_since("yesterday").is_err());
         assert!(parse_since("7y").is_err());
+        let msg = parse_since("yesterday").unwrap_err().to_string();
+        assert!(msg.contains("2026-01-31T10:00:00+02:00"), "{msg}");
+    }
+
+    #[test]
+    fn parse_since_takes_offsets_fractions_and_naive_times() {
+        for (input, want) in [
+            ("2026-11-19T00:00:00+05:00", "2026-11-18T19:00:00Z"),
+            ("2026-11-19T22:30:00-02:30", "2026-11-20T01:00:00Z"),
+            ("2026-11-19T10:00:00.123Z", "2026-11-19T10:00:00Z"),
+            ("2026-11-19T10:00:00.5+00:00", "2026-11-19T10:00:00Z"),
+            ("2026-11-19T10:00:00", "2026-11-19T10:00:00Z"),
+            ("2026-11-19 10:00:00", "2026-11-19T10:00:00Z"),
+            ("2024-03-01T00:30:00+01:00", "2024-02-29T23:30:00Z"),
+            ("2026-11-19T10:00:00+0200", "2026-11-19T08:00:00Z"),
+            ("2026-11-19T00:00:00-0500", "2026-11-19T05:00:00Z"),
+            ("1970-01-01T00:00:00Z", "1970-01-01T00:00:00Z"),
+        ] {
+            assert_eq!(parse_since(input).unwrap(), want, "{input}");
+        }
+        for bad in [
+            "2026-11-19T10:00:00.Z",
+            "2026-11-19T10:00:00+5",
+            "2026-11-19T10:00:00+24:00",
+            "2026-11-19T10:00:00+020",
+            "2026-11-19T10:00:00+2400",
+            "2026-11-19T24:00:00Z",
+            "2026-02-30T10:00:00Z",
+            "2026-11-19T10:00Z",
+            "2026-11-19T10:00:00ZZ",
+            "1970-01-01T00:00:00+01:00",
+        ] {
+            assert!(parse_since(bad).is_err(), "{bad}");
+        }
+        assert_eq!(parse_timestamp("2026-11-19T10:00:00"), None);
+        assert_eq!(
+            parse_timestamp("2026-11-19T12:00:00.999+02:00").as_deref(),
+            Some("2026-11-19T10:00:00Z")
+        );
     }
 
     #[test]
@@ -2346,6 +2502,131 @@ mod tests {
             let (got, changed) = redact_secrets(safe);
             assert!(!changed, "{safe} -> {got}");
             assert_eq!(got, safe);
+        }
+    }
+
+    #[test]
+    fn registry_logins_api_key_headers_jwts_and_stripe_keys_are_redacted() {
+        let jwt =
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.SIGSIGSIGSIG";
+        // Built from parts so the source holds no key-shaped literal.
+        let sk = ["sk", "live", "51HstripeKEYabcdefghijklmnop"].join("_");
+        let rk = ["rk", "live", "51HabcdefghijKLMN"].join("_");
+        let cases = [
+            (
+                "docker login -p DockerPw321 registry.example.com && rm -rf ~/projects",
+                "docker login -p *** registry.example.com && rm -rf ~/projects",
+            ),
+            (
+                "docker login -u bot --password DockerPw321 ghcr.io",
+                "docker login -u bot --password *** ghcr.io",
+            ),
+            (
+                "podman login --password=PodPw1 quay.io",
+                "podman login --password=*** quay.io",
+            ),
+            (
+                "helm registry login reg.io -u u -p HelmPw1",
+                "helm registry login reg.io -u u -p ***",
+            ),
+            (
+                &format!("curl -X DELETE https://api.x/v1/p -H 'apikey: {jwt}'"),
+                "curl -X DELETE https://api.x/v1/p -H 'apikey: ***'",
+            ),
+            (
+                &format!("curl -H \"api-key: abc123\" -d '{{\"t\":\"{jwt}\"}}' https://x"),
+                "curl -H \"api-key: ***\" -d '{\"t\":\"***\"}' https://x",
+            ),
+            (
+                &format!("echo {sk} | vercel env add STRIPE production"),
+                "echo *** | vercel env add STRIPE production",
+            ),
+            (
+                &format!("stripe charges list --api-key {rk}"),
+                "stripe charges list --api-key ***",
+            ),
+            (&format!("echo {rk}"), "echo ***"),
+            (
+                "git clone https://x/r.git && echo glpat-abcdefghijklmnopqrstu",
+                "git clone https://x/r.git && echo ***",
+            ),
+        ];
+        for (input, want) in &cases {
+            let (got, changed) = redact_secrets(input);
+            assert!(changed, "{input}");
+            assert_eq!(&got, want, "{input}");
+        }
+        for safe in [
+            "docker run -p 8080:80 img",
+            "docker login ghcr.io",
+            "echo $T | docker login --password-stdin -u bot ghcr.io",
+            "docker login registry && docker run -p 8080:80 img",
+            "grep -r 'apikey' src/",
+            "echo eyJ is how a JWT starts",
+            "ls sk_live_docs/ && cat task_list_test",
+            "kubectl -n monkey: get pods",
+        ] {
+            let (got, changed) = redact_secrets(safe);
+            assert!(!changed, "{safe} -> {got}");
+        }
+    }
+
+    #[test]
+    fn aws_configure_npm_config_and_npm_tokens_are_redacted() {
+        let npm_token = "npm_abcdefghijklmnopqrstuvwxyz0123456789";
+        let cases = [
+            (
+                "aws configure set aws_secret_access_key wJalrXUtnFEMIK7MDENGbPxRfiCYKEY && aws s3 rb s3://p --force".to_string(),
+                "aws configure set aws_secret_access_key *** && aws s3 rb s3://p --force".to_string(),
+            ),
+            (
+                "aws configure set aws_session_token FwoGZXIvYXdzEXAMPLE --profile prod".to_string(),
+                "aws configure set aws_session_token *** --profile prod".to_string(),
+            ),
+            (
+                "aws --profile p configure set default.aws_secret_access_key 'wJalr XUtn'".to_string(),
+                "aws --profile p configure set default.aws_secret_access_key ***".to_string(),
+            ),
+            (
+                "npm config set //registry.npmjs.org/:_authToken npm_ABCDEFsecretNPMtoken1234 && rm -rf ~/projects".to_string(),
+                "npm config set //registry.npmjs.org/:_authToken *** && rm -rf ~/projects".to_string(),
+            ),
+            (
+                "pnpm config set //npm.pkg.github.com/:_password c2VjcmV0".to_string(),
+                "pnpm config set //npm.pkg.github.com/:_password ***".to_string(),
+            ),
+            (
+                "npm config set //r.example.com/:_auth dXNlcjpwYXNz".to_string(),
+                "npm config set //r.example.com/:_auth ***".to_string(),
+            ),
+            (
+                "yarn config set npmAuthToken abc123secret".to_string(),
+                "yarn config set npmAuthToken ***".to_string(),
+            ),
+            (
+                "npm config set //registry.npmjs.org/:_authToken=abc123secret".to_string(),
+                "npm config set //registry.npmjs.org/:_authToken=***".to_string(),
+            ),
+            (format!("echo {npm_token} | gh secret set NPM"), "echo *** | gh secret set NPM".to_string()),
+        ];
+        for (input, want) in &cases {
+            let (got, changed) = redact_secrets(input);
+            assert!(changed, "{input}");
+            assert_eq!(&got, want, "{input}");
+        }
+        for safe in [
+            "aws configure set region us-east-1",
+            "aws configure get aws_secret_access_key",
+            "aws configure list",
+            "npm config set registry https://registry.npmjs.org/",
+            "npm config get //registry.npmjs.org/:_authToken",
+            "npm config delete //registry.npmjs.org/:_authToken",
+            "echo $npm_config_cache && echo $npm_package_name",
+            "npm_lifecycle_event=test npm run build",
+            "npm install && npm test",
+        ] {
+            let (got, changed) = redact_secrets(safe);
+            assert!(!changed, "{safe} -> {got}");
         }
     }
 

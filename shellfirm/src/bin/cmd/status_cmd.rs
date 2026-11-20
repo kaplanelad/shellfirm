@@ -82,7 +82,9 @@ pub fn detect_hooks(env: &dyn Environment) -> Vec<HookStatus> {
     rc_files(env)
         .into_iter()
         .map(|(shell, rc)| {
-            let content = rc.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+            let content = rc
+                .as_ref()
+                .and_then(|p| super::connect_cmd::read_regular_string(p).ok());
             let in_rc = content.as_deref().is_some_and(has_hook);
             // fish also loads every `conf.d/*.fish` next to config.fish.
             let loaded_from = if shell == "fish" && !in_rc {
@@ -95,7 +97,8 @@ pub fn detect_hooks(env: &dyn Environment) -> Vec<HookStatus> {
                             .map(|e| e.path())
                             .filter(|p| {
                                 p.extension().is_some_and(|x| x == "fish")
-                                    && std::fs::read_to_string(p).is_ok_and(|c| has_hook(&c))
+                                    && super::connect_cmd::read_regular_string(p)
+                                        .is_ok_and(|c| has_hook(&c))
                             })
                             .collect();
                         found.sort();
@@ -197,19 +200,38 @@ fn integration_line(row: &serde_json::Value) -> String {
             "no"
         }
     };
+    let off: Vec<&str> = row["hook_off"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
     let mut line = format!(
         "{} ({}): hook {}, file tools {}, fail-closed {}, MCP {}",
         row["tool"].as_str().unwrap_or("?"),
         row["scope"].as_str().unwrap_or("?"),
-        flag("hook_installed"),
+        if off.is_empty() {
+            flag("hook_installed")
+        } else {
+            "OFF"
+        },
         flag("file_tools_covered"),
         flag("fail_closed"),
-        flag("mcp_registered"),
+        // No MCP registration for this agent.
+        if row["mcp_file"].is_null() {
+            "n/a"
+        } else {
+            flag("mcp_registered")
+        },
     );
     if row["hook_present"].as_bool().unwrap_or(false)
         && !row["hook_installed"].as_bool().unwrap_or(false)
     {
-        line.push_str(" (hook present but Bash not covered)");
+        line.push_str(if row["tool"] == "claude-code" {
+            " (hook present but Bash not covered)"
+        } else {
+            " (hook present but shell commands not covered)"
+        });
     }
     if let Some(missing) = row["shell_tools_missing"]
         .as_array()
@@ -223,6 +245,14 @@ fn integration_line(row: &serde_json::Value) -> String {
     }
     if row["legacy_hook"].as_bool().unwrap_or(false) {
         line.push_str(" (legacy hook: re-run `shellfirm connect` to upgrade)");
+    }
+    for o in off {
+        let _ = write!(line, " ({o})");
+    }
+    for note in row["notes"].as_array().into_iter().flatten() {
+        if let Some(n) = note.as_str() {
+            let _ = write!(line, " ({n})");
+        }
     }
     if let Some(err) = row["error"].as_str() {
         let _ = write!(line, " (error: {err})");
@@ -245,7 +275,13 @@ fn agent_integrations() -> Vec<serde_json::Value> {
     let cwd = std::env::current_dir().unwrap_or_default();
     super::connect_cmd::integration_status(&home, &cwd)
         .into_iter()
-        .filter(|s| s.hook_installed || s.hook_present || s.mcp_registered || s.error.is_some())
+        .filter(|s| {
+            s.hook_installed
+                || s.hook_present
+                || s.mcp_registered
+                || s.error.is_some()
+                || !s.notes.is_empty()
+        })
         .filter_map(|s| serde_json::to_value(s).ok())
         .collect()
 }
@@ -289,6 +325,12 @@ pub fn run(
     let (settings_state, settings_message, unknown_keys) = settings_file_state(config, report);
     let prefixes = id_prefix_groups(checks);
     let integrations = Some(agent_integrations());
+    let sandboxes = super::sandbox_cmd::sandbox_status(
+        &dirs::home_dir().unwrap_or_default(),
+        &std::env::current_dir().unwrap_or_default(),
+        &config.root_folder,
+        &settings.sandbox,
+    );
     let agent_summary = shellfirm::agent::agent_settings_summary(settings, &env);
     let resolved = settings.resolved_for(Mode::Shell);
     let hooks = detect_hooks(&env);
@@ -391,6 +433,7 @@ pub fn run(
                 "auto_deny_severity": settings.agent.auto_deny_severity,
                 "settings": agent_summary,
                 "integrations": integrations,
+                "sandbox": sandboxes,
             },
             "mcp_available": cfg!(feature = "mcp"),
             "llm": {
@@ -683,6 +726,14 @@ pub fn run(
                 .into(),
         ),
     }
+    if sandboxes.is_empty() {
+        lines.push("  Agent sandbox:       not configured (see `shellfirm sandbox --list`)".into());
+    } else {
+        lines.push("  Agent sandbox:".into());
+        for row in &sandboxes {
+            lines.push(format!("    {}", row.line()));
+        }
+    }
     lines.push(format!(
         "  MCP server:          {}",
         if cfg!(feature = "mcp") {
@@ -743,5 +794,56 @@ mod tests {
             fish.loaded_from,
             Some(tree.root.join("home/.config/fish/conf.d/shellfirm.fish"))
         );
+    }
+
+    #[test]
+    fn a_hook_turned_off_in_the_agent_settings_shows_as_off() {
+        let row = serde_json::json!({
+            "tool": "claude-code", "scope": "user", "hook_installed": true,
+            "hook_present": true, "file_tools_covered": true, "fail_closed": true,
+            "mcp_file": null,
+            "hook_off": ["disableAllHooks is true in /p/.claude/settings.local.json: Claude Code runs no hook (remove it or set it to false)"],
+        });
+        let line = integration_line(&row);
+        assert!(line.contains("hook OFF"), "{line}");
+        assert!(
+            line.contains("disableAllHooks is true in /p/.claude/settings.local.json"),
+            "{line}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_rc_file_does_not_hang_hook_detection() {
+        let tree = tree_fs::TreeBuilder::default().create().unwrap();
+        let home = tree.root.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        assert!(std::process::Command::new("mkfifo")
+            .arg(home.join(".bashrc"))
+            .status()
+            .unwrap()
+            .success());
+        let env = shellfirm::env::MockEnvironment {
+            home: Some(home),
+            ..Default::default()
+        };
+        let bash = detect_hooks(&env)
+            .into_iter()
+            .find(|h| h.shell == "bash")
+            .unwrap();
+        assert!(!bash.installed);
+    }
+
+    #[test]
+    fn allow_managed_hooks_only_shows_the_hook_as_off() {
+        let row = serde_json::json!({
+            "tool": "claude-code", "scope": "user", "hook_installed": true,
+            "hook_present": true, "file_tools_covered": true, "fail_closed": true,
+            "mcp_file": null,
+            "hook_off": ["allowManagedHooksOnly is true in /etc/claude-code/managed-settings.json: Claude Code runs only hooks from managed settings (put the shellfirm hook in that file, or remove the setting)"],
+        });
+        let line = integration_line(&row);
+        assert!(line.contains("hook OFF"), "{line}");
+        assert!(line.contains("allowManagedHooksOnly is true"), "{line}");
     }
 }

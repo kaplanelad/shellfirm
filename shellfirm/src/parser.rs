@@ -244,8 +244,65 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
+thread_local! {
+    /// For each line being parsed (innermost last): the variable names it
+    /// expands, `$NAME` / `${NAME…}` outside single quotes (see
+    /// [`printed_secret`]: `echo '$TOKEN must be set'` prints no secret).
+    static EXPANDED_NAMES: std::cell::RefCell<Vec<Vec<String>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The variable names `text` expands: `$NAME` and `${NAME…}` outside single
+/// quotes and not escaped.
+fn expanded_names(text: &str) -> Vec<String> {
+    let b = text.as_bytes();
+    let mut names = Vec::new();
+    let (mut single, mut double) = (false, false);
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'\\' if !single => i += 1,
+            b'\'' if !double => single = !single,
+            b'"' if !single => double = !double,
+            b'$' if !single => {
+                let start = i + 1 + usize::from(b.get(i + 1) == Some(&b'{'));
+                let mut end = start;
+                while end < b.len() && (b[end].is_ascii_alphanumeric() || b[end] == b'_') {
+                    end += 1;
+                }
+                if end > start && names.len() < 64 {
+                    names.push(text[start..end].to_string());
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    names
+}
+
+/// Whether the line being parsed expands the variable `name` (true when
+/// unknown).
+fn line_expands(name: &str) -> bool {
+    EXPANDED_NAMES.with(|n| {
+        n.borrow()
+            .last()
+            .is_none_or(|names| names.iter().any(|v| v == name))
+    })
+}
+
 /// [`parse`] without the cache.
 fn parse_top(command: &str) -> Parsed {
+    EXPANDED_NAMES.with(|n| n.borrow_mut().push(expanded_names(command)));
+    let parsed = parse_line(command);
+    EXPANDED_NAMES.with(|n| {
+        n.borrow_mut().pop();
+    });
+    parsed
+}
+
+/// [`parse_top`] for one line, with its expanded names recorded.
+fn parse_line(command: &str) -> Parsed {
     let depth = DEPTH.with(std::cell::Cell::get);
     if depth == 0 {
         WORK.with(|w| w.set(0));
@@ -308,6 +365,16 @@ fn parse_top(command: &str) -> Parsed {
         );
     }
     if depth == 0 {
+        let graphql: Vec<String> = parsed
+            .segments
+            .iter()
+            .flat_map(|s| graphql_field_markers(s))
+            .collect();
+        for marker in graphql {
+            if !parsed.segments.contains(&marker) {
+                parsed.segments.push(marker);
+            }
+        }
         parsed.remote_segments = REMOTE.with(|r| std::mem::take(&mut *r.borrow_mut()));
         parsed.remote_segments.sort();
         parsed.remote_segments.dedup();
@@ -468,9 +535,268 @@ pub const UNKNOWN_PAYLOAD_MARKER: &str = "shellfirm-unknown-shell-payload";
 /// matched by `fs:startup_alias_replaces_command`.
 pub const STARTUP_ALIAS_MARKER: &str = "shellfirm-startup-alias";
 
+/// Marker segment for a command that shows a secret variable's value.
+///
+/// Emitted for `echo $GITHUB_TOKEN`, `printenv AWS_SECRET_ACCESS_KEY` and
+/// `env | grep -i token`; matched by `exfil:print_secret_env`.
+pub const PRINT_SECRET_MARKER: &str = "shellfirm-print-secret";
+
+/// Marker segment for a secret variable sent as a request body.
+///
+/// Emitted for `echo $GITHUB_TOKEN | curl -d @- https://…` and `printf %s
+/// "$TOKEN" | nc host 80`; matched by `exfil:secret_env_to_network`.
+pub const SECRET_TO_NETWORK_MARKER: &str = "shellfirm-secret-to-network";
+
+/// Marker segment for an assignment that turns shell history off
+/// (`HISTFILE=/dev/null`, `export HISTSIZE=0`); matched by
+/// `base:disable_history`.
+pub const HISTORY_OFF_MARKER: &str = "shellfirm-history-off";
+
 /// Marker segment emitted when the nesting limit is hit; matched by the
 /// `shell:nesting_too_deep` check.
 pub const NESTING_LIMIT_MARKER: &str = "shellfirm-nesting-limit";
+
+/// Marker segment for each top-level field of a GraphQL mutation.
+///
+/// Emitted for a mutation that an HTTP client or `gh api graphql` sends:
+/// `shellfirm-graphql-field <field> <host words>`; matched by
+/// `network:graphql_destructive_mutation`.
+pub const GRAPHQL_FIELD_MARKER: &str = "shellfirm-graphql-field";
+
+/// [`GRAPHQL_FIELD_MARKER`] segments for `seg` (see
+/// [`graphql_mutation_fields`]). The segment's words that can name the
+/// server (not options, not the query) follow the field, so the check can
+/// leave a local development server alone.
+fn graphql_field_markers(seg: &str) -> Vec<String> {
+    let words: Vec<&str> = seg.split(' ').collect();
+    let client = match words.first().copied() {
+        Some("curl" | "wget" | "http" | "https" | "xh" | "xhs" | "curlie") => true,
+        Some("gh") => words.get(1) == Some(&"api") && words[2..].contains(&"graphql"),
+        _ => false,
+    };
+    if !client || !seg.contains("mutation") {
+        return Vec::new();
+    }
+    let hosts: Vec<&str> = words[1..]
+        .iter()
+        .copied()
+        .filter(|w| !w.starts_with('-') && !w.contains([WS_SENTINEL, '{', '"']))
+        .collect();
+    graphql_mutation_fields(&seg.replace(WS_SENTINEL, " "))
+        .into_iter()
+        .map(|f| {
+            std::iter::once(GRAPHQL_FIELD_MARKER)
+                .chain(std::iter::once(f.as_str()))
+                .chain(hosts.iter().copied())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
+/// The top-level fields of every GraphQL `mutation` operation in `text`.
+///
+/// Arguments, selection sets and string literals (also JSON-escaped ones,
+/// `{"query":"mutation { … \"x)\" … }"}`) are stepped over, so neither a
+/// `)` in an issue title nor the text of a comment body is read as a
+/// field. When the operation cannot be followed (an unclosed string or
+/// bracket), every name after `mutation` counts as a field.
+fn graphql_mutation_fields(text: &str) -> Vec<String> {
+    let c: Vec<char> = text.chars().collect();
+    let is_name = |ch: char| ch.is_ascii_alphanumeric() || ch == '_';
+    let mut fields = Vec::new();
+    let mut i = 0;
+    while i + 8 <= c.len() {
+        let at = i;
+        i += 1;
+        if c[at..at + 8].iter().copied().ne("mutation".chars())
+            || (at > 0 && is_name(c[at - 1]))
+            || c.get(at + 8).is_some_and(|&ch| is_name(ch))
+        {
+            continue;
+        }
+        let start = at + 8;
+        // Inside a JSON string (`"query":"mutation …`): decode its escapes
+        // up to the closing quote.
+        let mut k = at;
+        while k > 0 && (c[k - 1].is_whitespace() || (k > 1 && c[k - 2] == '\\' && c[k - 1] == 'n'))
+        {
+            k -= if c[k - 1].is_whitespace() { 1 } else { 2 };
+        }
+        let json = k > 0 && c[k - 1] == '"';
+        let (body, json_end) = if json {
+            let mut body = Vec::new();
+            let mut p = start;
+            while p < c.len() && c[p] != '"' {
+                if c[p] == '\\' && p + 1 < c.len() {
+                    body.push(match c[p + 1] {
+                        'n' | 'r' | 't' => ' ',
+                        other => other,
+                    });
+                    p += 2;
+                } else {
+                    body.push(c[p]);
+                    p += 1;
+                }
+            }
+            (body, p)
+        } else {
+            (c[start..].to_vec(), 0)
+        };
+        match graphql_operation(&body) {
+            GraphqlOp::Fields(found, used) => {
+                fields.extend(found);
+                i = if json { json_end } else { start + used };
+            }
+            GraphqlOp::NotOperation => {}
+            GraphqlOp::Lost => {
+                let rest: String = body.iter().collect();
+                fields.extend(
+                    rest.split(|ch: char| !is_name(ch))
+                        .filter(|w| w.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_'))
+                        .map(str::to_string),
+                );
+                break;
+            }
+        }
+    }
+    fields
+}
+
+/// What [`graphql_operation`] read.
+enum GraphqlOp {
+    /// The top-level fields and the characters the operation took.
+    Fields(Vec<String>, usize),
+    /// No selection set follows (`mutation` is just a word).
+    NotOperation,
+    /// An unclosed string or bracket, or syntax not followed.
+    Lost,
+}
+
+/// Steps over the `(…)` / `{…}` group at `b[*p]`, string literals inside
+/// it included; `false` when it is not closed.
+fn graphql_group(b: &[char], p: &mut usize, open: char, close: char) -> bool {
+    let mut depth = 0usize;
+    while let Some(&ch) = b.get(*p) {
+        if ch == '"' {
+            let block = b.get(*p + 1) == Some(&'"') && b.get(*p + 2) == Some(&'"');
+            *p += if block { 3 } else { 1 };
+            loop {
+                match b.get(*p) {
+                    None => return false,
+                    Some('\\') if !block => *p += 2,
+                    Some('"') if !block => break,
+                    Some('"') if b.get(*p + 1) == Some(&'"') && b.get(*p + 2) == Some(&'"') => {
+                        *p += 2;
+                        break;
+                    }
+                    Some(_) => *p += 1,
+                }
+            }
+        } else if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth -= 1;
+            if depth == 0 {
+                *p += 1;
+                return true;
+            }
+        }
+        *p += 1;
+    }
+    false
+}
+
+/// The operation after the `mutation` keyword: `Name? (vars)? @dir* { … }`.
+fn graphql_operation(b: &[char]) -> GraphqlOp {
+    let ws = |p: &mut usize| loop {
+        match b.get(*p) {
+            Some(ch) if ch.is_whitespace() || *ch == ',' => *p += 1,
+            Some('\\') if matches!(b.get(*p + 1), Some('n' | 'r' | 't')) => *p += 2,
+            _ => break,
+        }
+    };
+    let name = |p: &mut usize| -> Option<String> {
+        let s = *p;
+        if !b
+            .get(s)
+            .is_some_and(|ch| ch.is_ascii_alphabetic() || *ch == '_')
+        {
+            return None;
+        }
+        while b
+            .get(*p)
+            .is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+        {
+            *p += 1;
+        }
+        Some(b[s..*p].iter().collect())
+    };
+    let group = |p: &mut usize, open: char, close: char| graphql_group(b, p, open, close);
+    let directives = |p: &mut usize| -> bool {
+        while b.get(*p) == Some(&'@') {
+            *p += 1;
+            if name(p).is_none() {
+                return false;
+            }
+            ws(p);
+            if b.get(*p) == Some(&'(') && !group(p, '(', ')') {
+                return false;
+            }
+            ws(p);
+        }
+        true
+    };
+    let mut p = 0;
+    ws(&mut p);
+    let _ = name(&mut p);
+    ws(&mut p);
+    if b.get(p) == Some(&'(') && !group(&mut p, '(', ')') {
+        return GraphqlOp::Lost;
+    }
+    ws(&mut p);
+    if !directives(&mut p) {
+        return GraphqlOp::Lost;
+    }
+    if b.get(p) != Some(&'{') {
+        return GraphqlOp::NotOperation;
+    }
+    p += 1;
+    let mut fields = Vec::new();
+    loop {
+        ws(&mut p);
+        match b.get(p) {
+            Some('}') => return GraphqlOp::Fields(fields, p + 1),
+            Some(_) => {
+                let Some(mut field) = name(&mut p) else {
+                    return GraphqlOp::Lost;
+                };
+                ws(&mut p);
+                if b.get(p) == Some(&':') {
+                    p += 1;
+                    ws(&mut p);
+                    let Some(real) = name(&mut p) else {
+                        return GraphqlOp::Lost;
+                    };
+                    field = real;
+                    ws(&mut p);
+                }
+                fields.push(field);
+                if b.get(p) == Some(&'(') && !group(&mut p, '(', ')') {
+                    return GraphqlOp::Lost;
+                }
+                ws(&mut p);
+                if !directives(&mut p) {
+                    return GraphqlOp::Lost;
+                }
+                if b.get(p) == Some(&'{') && !group(&mut p, '{', '}') {
+                    return GraphqlOp::Lost;
+                }
+            }
+            None => return GraphqlOp::Lost,
+        }
+    }
+}
 
 /// The stand-in segment for SQL that a wrapped psql reads from stdin.
 ///
@@ -3082,7 +3408,10 @@ fn process_commands(
     out: &mut Vec<String>,
 ) {
     let mut prev: Option<Vec<Word>> = None;
-    for cmd in cmds {
+    // The previous command printed the whole environment (`env`,
+    // `printenv`, `set`, `export -p`).
+    let mut prev_env_dump = false;
+    for (at, cmd) in cmds.iter().enumerate() {
         let words = &cmd.words;
         // A function body is a definition: remember it for later calls.
         if let Some(ref name) = cmd.func {
@@ -3095,6 +3424,11 @@ fn process_commands(
             prev = None;
             continue;
         }
+        // `echo $GITHUB_TOKEN`, `printenv NPM_TOKEN`, `env | grep -i token`:
+        // a secret value shown on the terminal.
+        let env_dump_before = std::mem::replace(&mut prev_env_dump, dumps_environment(words));
+        out.extend(printed_secret(words, cmd, env_dump_before));
+        out.extend(secret_piped_to_network(words, cmd, cmds.get(at + 1)));
         // A command word built at run time: `{rm,-rf,/}` (bash brace
         // expansion), `$(echo rm) -rf /`, `` `echo rm` -rf ~ ``: analyze the
         // command it expands to.
@@ -3378,6 +3712,7 @@ fn process_commands(
                 .iter()
                 .all(|w| is_var_assignment(&w.raw) || w.raw.starts_with('-'));
         if declares || words.iter().all(|w| is_var_assignment(&w.raw)) {
+            out.extend(words.iter().filter_map(|w| history_off(&w.raw)));
             for w in words {
                 if let Some((name, value)) =
                     w.raw.split_once('=').filter(|_| is_var_assignment(&w.raw))
@@ -3952,6 +4287,373 @@ fn process_commands(
         }
         prev = Some(stripped);
     }
+}
+
+/// Whether an environment variable name says it holds a secret:
+/// `GITHUB_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `OPENAI_API_KEY`, `DB_PASSWORD`.
+/// Only upper-case names (environment variables, not loop variables), and
+/// not names that hold where a secret is rather than the secret itself
+/// (`GOOGLE_APPLICATION_CREDENTIALS_FILE`, `TOKEN_URL`, `AWS_ACCESS_KEY_ID`),
+/// a count or limit (`MAX_TOKENS`, `PROMPT_TOKENS`, `GH_TOKEN_SCOPES`) or a
+/// value that is public by design (`JWT_PUBLIC_KEY`, `NEXT_PUBLIC_*`,
+/// `VITE_*`) unless it also says secret, password or private
+/// (`NEXT_PUBLIC_SECRET`).
+fn is_secret_var_name(name: &str) -> bool {
+    const NOT_THE_VALUE: &[&str] = &[
+        "FILE",
+        "PATH",
+        "DIR",
+        "URL",
+        "URI",
+        "ENDPOINT",
+        "HOST",
+        "PORT",
+        "NAME",
+        "ID",
+        "ARN",
+        "REGION",
+        "TYPE",
+        "TTL",
+        "EXPIRY",
+        "EXPIRES",
+        "EXPIRATION",
+        "LENGTH",
+        "SIZE",
+        "SOCK",
+        "HEADER",
+        "PREFIX",
+        "ENABLED",
+        "MODE",
+        "VERSION",
+        "LOCATION",
+        "KIND",
+        "FORMAT",
+        "COMMAND",
+        "CMD",
+        "PROGRAM",
+        "HELPER",
+        "COUNT",
+        "LIMIT",
+        "SCOPE",
+        "SCOPES",
+        "DAYS",
+        "HOURS",
+        "SECONDS",
+        "TIMEOUT",
+        "INTERVAL",
+    ];
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+        || !name.starts_with(|c: char| c.is_ascii_uppercase() || c == '_')
+    {
+        return false;
+    }
+    if matches!(name, "PGPASSWORD" | "MYSQL_PWD" | "REDISCLI_AUTH") {
+        return true;
+    }
+    // A path to a credentials file.
+    if name == "GOOGLE_APPLICATION_CREDENTIALS" {
+        return false;
+    }
+    let parts: Vec<&str> = name.split('_').filter(|p| !p.is_empty()).collect();
+    if parts.last().is_some_and(|l| NOT_THE_VALUE.contains(l)) {
+        return false;
+    }
+    let secret = parts.iter().enumerate().any(|(i, p)| {
+        matches!(
+            *p,
+            "TOKEN"
+                | "SECRET"
+                | "SECRETS"
+                | "PASSWORD"
+                | "PASSWD"
+                | "PASS"
+                | "PASSPHRASE"
+                | "APIKEY"
+                | "CREDENTIAL"
+                | "CREDENTIALS"
+                | "PAT"
+        ) || (*p == "KEY" && i > 0)
+    });
+    if !secret {
+        return false;
+    }
+    // A public marker does not clear a name that also says secret, password
+    // or private (`NEXT_PUBLIC_SECRET`, `DB_PASSWORD_PUBLIC`).
+    if parts.iter().any(|p| {
+        matches!(
+            *p,
+            "SECRET" | "SECRETS" | "PASSWORD" | "PASSWD" | "PASSPHRASE" | "PRIVATE"
+        )
+    }) {
+        return true;
+    }
+    // Public by design (`JWT_PUBLIC_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+    // `SUPABASE_ANON_KEY`), or bundled into the browser build
+    // (`NEXT_PUBLIC_*`, `EXPO_PUBLIC_*`, `VITE_*`, `REACT_APP_*`).
+    !(parts
+        .iter()
+        .any(|p| matches!(*p, "PUBLIC" | "PUBLISHABLE" | "ANON"))
+        || parts.first() == Some(&"VITE")
+        || parts.starts_with(&["REACT", "APP"]))
+}
+
+/// The first secret variable (see [`is_secret_var_name`]) whose value a
+/// word expands to: `$NPM_TOKEN`, `${NPM_TOKEN}`, `${NPM_TOKEN:-}`, or part
+/// of it (`${NPM_TOKEN:0:8}`). Forms that do not show the value (`${#T}`,
+/// `${T:+set}`) are skipped.
+fn secret_var_in(word: &str) -> Option<String> {
+    let b = word.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'$' {
+            i += 1;
+            continue;
+        }
+        i += 1;
+        let braced = b.get(i) == Some(&b'{');
+        if braced {
+            i += 1;
+        }
+        let start = i;
+        while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+            i += 1;
+        }
+        let name = &word[start..i];
+        let shows_value = !braced
+            || matches!(b.get(i), Some(b'}'))
+            || word[i..].starts_with(":-")
+            || word[i..].starts_with(":=")
+            || matches!(b.get(i), Some(b'-' | b'='))
+            // A substring: `${T:0:8}`, `${T: -4}`, `${T:$n}`.
+            || (b.get(i) == Some(&b':')
+                && matches!(b.get(i + 1), Some(b'0'..=b'9' | b' ' | b'$' | b'(')));
+        if shows_value && is_secret_var_name(name) && line_expands(name) {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+/// Whether a command prints every environment variable: `env`, `printenv`,
+/// `set`, `export` / `export -p`, `declare -x` (without other operands).
+fn dumps_environment(words: &[Word]) -> bool {
+    // `sudo env -0`, `declare -p -x`: never a long command.
+    if words.len() > 4 {
+        return false;
+    }
+    let words: Vec<&str> = words
+        .iter()
+        .map(|w| w.raw.as_str())
+        .skip_while(|w| matches!(*w, "sudo" | "doas" | "command" | "builtin"))
+        .collect();
+    let Some((first, rest)) = words.split_first() else {
+        return false;
+    };
+    match program_name(first).as_str() {
+        "env" | "printenv" => rest.iter().all(|w| w.starts_with('-')),
+        "set" => rest.is_empty(),
+        "export" => rest.is_empty() || rest == ["-p"],
+        "declare" | "typeset" => {
+            !rest.is_empty()
+                && rest
+                    .iter()
+                    .all(|w| matches!(*w, "-x" | "-p" | "-px" | "-xp"))
+        }
+        _ => false,
+    }
+}
+
+/// [`PRINT_SECRET_MARKER`] for a command that shows a secret variable on
+/// the terminal: `echo` / `printf` of one, `printenv NAME`, or a `grep`
+/// for secret-looking names in an environment listing piped into it
+/// (`env_before`). Output piped on to another command or written to a file
+/// does not reach the screen and is not matched.
+fn printed_secret(words: &[Word], cmd: &SimpleCmd, env_before: bool) -> Option<String> {
+    if matches!(cmd.next_op.as_str(), "|" | "|&") {
+        return None;
+    }
+    // Cheap test before stripping the prefixes (`sudo -u x`, `env A=1`).
+    let printer = |w: &Word| {
+        let r = w.raw.rsplit('/').next().unwrap_or_default();
+        matches!(
+            r.trim_start_matches('\\'),
+            "echo" | "printf" | "print" | "printenv" | "grep" | "egrep" | "fgrep" | "rg"
+        )
+    };
+    if !words.iter().take(8).any(printer) {
+        return None;
+    }
+    let stripped = strip_prefixes(words);
+    let prog = program_name(&stripped.first()?.raw);
+    // Arguments without redirections; whether stdout goes to a file.
+    let mut args: Vec<&str> = Vec::new();
+    let mut to_file = false;
+    let mut it = stripped[1..].iter();
+    while let Some(w) = it.next() {
+        if w.redirect && is_redirect_op(&w.raw) {
+            let op = w.raw.as_str();
+            let bare = op.trim_start_matches(|c: char| c.is_ascii_digit());
+            let fd = &op[..op.len() - bare.len()];
+            let target = it.next().map_or("", |t| t.raw.as_str());
+            let stdout =
+                (fd.is_empty() || fd == "1") && (bare.starts_with('>') || bare.starts_with("&>"));
+            let screen = matches!(target, "/dev/stdout" | "/dev/stderr" | "/dev/tty")
+                || target.chars().all(|c| c.is_ascii_digit() || c == '-');
+            to_file |= stdout && !screen && !op.contains('<');
+            continue;
+        }
+        args.push(w.raw.as_str());
+    }
+    if to_file {
+        return None;
+    }
+    let name = match prog.as_str() {
+        "echo" | "printf" | "print" => {
+            if prog == "printf" && args.iter().any(|a| a.starts_with("-v")) {
+                return None;
+            }
+            args.iter().find_map(|a| secret_var_in(a))
+        }
+        "printenv" => args
+            .iter()
+            .find(|a| !a.starts_with('-') && is_secret_var_name(a))
+            .map(|a| (*a).to_string()),
+        "grep" | "egrep" | "fgrep" | "rg" if cmd.piped && env_before => grep_secret_pattern(&args),
+        _ => None,
+    }?;
+    Some(format!("{PRINT_SECRET_MARKER} {name}"))
+}
+
+/// [`SECRET_TO_NETWORK_MARKER`] for `echo` / `printf` of a secret variable
+/// piped into a network client that sends its input as the request body:
+/// `curl -d @-` / `--data-binary @-` / `-T -`, `wget --post-file=-`, `nc`,
+/// `socat`, `telnet`. Passing a token to a login command
+/// (`| docker login --password-stdin`) or as a header (`curl -H @-`) is
+/// not matched.
+fn secret_piped_to_network(
+    words: &[Word],
+    cmd: &SimpleCmd,
+    next: Option<&SimpleCmd>,
+) -> Option<String> {
+    if cmd.next_op != "|" {
+        return None;
+    }
+    let stripped = strip_prefixes(words);
+    if !matches!(
+        program_name(&stripped.first()?.raw).as_str(),
+        "echo" | "printf" | "print"
+    ) {
+        return None;
+    }
+    let name = stripped[1..].iter().find_map(|a| secret_var_in(&a.raw))?;
+    let next = strip_prefixes(&next?.words);
+    let args: Vec<&str> = next.iter().skip(1).map(|w| w.raw.as_str()).collect();
+    // `@-`, `-` or a form field read from stdin (`-F f=@-`).
+    let stdin_value = |v: &str| matches!(v, "-" | "@-") || v.ends_with("=@-") || v.ends_with("=<-");
+    let body_from_stdin = |flags: &[&str]| {
+        args.iter().enumerate().any(|(k, a)| {
+            flags.iter().any(|f| {
+                a.strip_prefix(f).is_some_and(|rest| {
+                    rest.strip_prefix('=').map_or_else(
+                        || {
+                            if rest.is_empty() {
+                                args.get(k + 1).is_some_and(|v| stdin_value(v))
+                            } else {
+                                !f.starts_with("--") && stdin_value(rest)
+                            }
+                        },
+                        stdin_value,
+                    )
+                })
+            })
+        })
+    };
+    let sends = match program_name(&next.first()?.raw).as_str() {
+        "curl" | "curlie" => body_from_stdin(&[
+            "--data-binary",
+            "--data-raw",
+            "--data-urlencode",
+            "--data-ascii",
+            "--data",
+            "--form",
+            "--upload-file",
+            "-d",
+            "-F",
+            "-T",
+        ]),
+        "wget" => body_from_stdin(&["--post-file", "--body-file"]),
+        // httpie / xh send piped input as the body; sockets send it as is.
+        "http" | "https" | "xh" | "xhs" | "nc" | "ncat" | "netcat" | "socat" | "telnet" => true,
+        _ => false,
+    };
+    sends.then(|| format!("{SECRET_TO_NETWORK_MARKER} {name}"))
+}
+
+/// The pattern of a `grep` that shows secret-looking variables of an
+/// environment listing (`grep -i token`); not an inverted, quiet, count or
+/// list-only grep.
+fn grep_secret_pattern(args: &[&str]) -> Option<String> {
+    const TAKES_VALUE: &[&str] = &["-m", "-A", "-B", "-C", "--max-count", "--context"];
+    let mut pattern: Option<&str> = None;
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        if matches!(
+            *a,
+            "--invert-match" | "--quiet" | "--silent" | "--count" | "--files-with-matches"
+        ) || (a.starts_with('-')
+            && !a.starts_with("--")
+            && a[1..].chars().all(|c| c.is_ascii_alphabetic())
+            && a[1..]
+                .chars()
+                .any(|c| matches!(c, 'v' | 'q' | 'c' | 'l' | 'L')))
+        {
+            return None;
+        }
+        if matches!(*a, "-e" | "--regexp") {
+            pattern = pattern.or_else(|| args.get(i + 1).copied());
+            i += 2;
+            continue;
+        }
+        if TAKES_VALUE.contains(a) {
+            i += 2;
+            continue;
+        }
+        if let Some(p) = a.strip_prefix("--regexp=") {
+            pattern = pattern.or(Some(p));
+        } else if !a.starts_with('-') {
+            pattern = pattern.or(Some(a));
+        }
+        i += 1;
+    }
+    let p = pattern?.to_ascii_lowercase();
+    [
+        "token",
+        "secret",
+        "pass",
+        "key",
+        "credential",
+        "auth",
+        "_pat",
+    ]
+    .iter()
+    .any(|k| p.contains(k))
+    .then(|| p.clone())
+}
+
+/// [`HISTORY_OFF_MARKER`] for an assignment that turns shell history off:
+/// `HISTFILE=/dev/null` (or empty), `HISTSIZE=0`, `HISTFILESIZE=0`,
+/// `SAVEHIST=0`.
+fn history_off(word: &str) -> Option<String> {
+    let (name, value) = word.split_once('=')?;
+    let off = match name {
+        "HISTFILE" => value.is_empty() || value == "/dev/null",
+        "HISTSIZE" | "HISTFILESIZE" | "SAVEHIST" => value == "0",
+        _ => false,
+    };
+    off.then(|| format!("{HISTORY_OFF_MARKER} {word}"))
 }
 
 /// The command text a run-time-built command word expands to:
@@ -7657,7 +8359,8 @@ fn strip_prefixes(words: &[Word]) -> Vec<Word> {
             _ => break,
         }
     }
-    words[idx..].to_vec()
+    // An option that takes a value can be the last word (`wsl -d`).
+    words[idx.min(n)..].to_vec()
 }
 
 /// The index of `wrap` in `shellfirm [global options] wrap …` (`--log
@@ -11458,6 +12161,32 @@ mod tests {
     }
 
     #[test]
+    fn graphql_fields_step_over_strings_and_arguments() {
+        let f = |q: &str| graphql_mutation_fields(q);
+        assert_eq!(
+            f(
+                r#"mutation { a: addComment(input:{body:"done :)"}) { id } deleteRepository(input:{}) { id } }"#
+            ),
+            ["addComment", "deleteRepository"]
+        );
+        assert_eq!(
+            f(
+                r#"{"query":"mutation { updateUser(name: \"x)\") { id } delete_users(where: {}) { n } }"}"#
+            ),
+            ["updateUser", "delete_users"]
+        );
+        assert_eq!(
+            f(r#"mutation { createIssue(input:{body:"mutation { deleteRepository }"}) { url } }"#),
+            ["createIssue"]
+        );
+        assert_eq!(f("query { viewer { login } }"), Vec::<String>::new());
+        assert_eq!(f("mutation=removeFoo()"), Vec::<String>::new());
+        // Lost track (unclosed string): every name counts.
+        assert!(f(r#"mutation { a(t:"x) { id } deleteRepository { id } }"#)
+            .contains(&"deleteRepository".to_string()));
+    }
+
+    #[test]
     fn unquotes_simple_target() {
         assert!(joined(r#"rm -rf "/""#).contains("rm -rf /"));
         assert!(joined("rm -rf '/home'").contains("rm -rf /home"));
@@ -13407,6 +14136,16 @@ mod tests {
         assert!(segs("wsl -u root rm -rf /").contains(&"rm -rf /".to_string()));
         assert!(segs("wsl --cd / rm -rf /").contains(&"rm -rf /".to_string()));
         assert!(segs("wsl -d Ubuntu -e bash -c 'rm -rf /'").contains(&"rm -rf /".to_string()));
+        // An option missing its value at the end does not crash the parser.
+        for cmd in [
+            "wsl -d",
+            "wsl -u",
+            "wsl --cd",
+            "sudo wsl -d",
+            "machinectl shell --uid",
+        ] {
+            let _ = segs(cmd);
+        }
     }
 
     #[test]

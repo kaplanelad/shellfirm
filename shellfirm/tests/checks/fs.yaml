@@ -1809,22 +1809,37 @@
 # -- fs:delete_credentials --
 - test: "rm -rf ~/.ssh"
   description: "deleting SSH keys is Critical"
-  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "rm ~/.ssh/id_ed25519"
   description: "deleting one key is Critical too"
   expect_ids: ["fs:delete_credentials", "fs-strict:any_deletion"]
 - test: "rm -rf /home/dev/.gnupg"
   description: "absolute home spelling"
-  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "rm -rf $HOME/.kube"
   description: "kube credentials"
-  expect_ids: ["fs:delete_credentials", "fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "rm -rf ~/.config/gcloud"
   description: "gcloud credentials"
-  expect_ids: ["fs:delete_credentials", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder"]
 - test: "rm -rf ~/.sshfoo"
   description: "negative: not the .ssh directory"
   expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+- test: "rm ~/.SSH/id_rsa"
+  description: "the folder name in another case (case-insensitive file systems)"
+  expect_ids: ["fs:delete_credentials", "fs-strict:any_deletion"]
+- test: "rm ~/.Aws/credentials"
+  description: "aws credentials in another case"
+  expect_ids: ["fs:delete_credentials", "fs-strict:any_deletion"]
+- test: "rm ~/.Git-Credentials"
+  description: "saved git credentials in another case"
+  expect_ids: ["fs:delete_credentials", "fs-strict:any_deletion"]
+- test: "rm ~/.git-credentials.bak2"
+  description: "negative: a differently named file"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "rm ~/projects/app/.SSH-notes.md"
+  description: "negative: a project file"
+  expect_ids: ["fs-strict:any_deletion"]
 # -- fs:recursively_delete_outside --
 - test: "rm -rf ../webapp"
   description: "a directory outside the current one is High"
@@ -1834,10 +1849,10 @@
   expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
 - test: "rm -rf ~/projects"
   description: "direct child of home is High"
-  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "rm -rf /Users/me/Documents"
   description: "macOS home child"
-  expect_ids: ["fs:recursively_delete_outside", "fs-strict:recursive_deletion"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "rm -rf ~/projects/webapp/build"
   description: "deeper below home stays the strict catch-all"
   expect_ids: ["fs-strict:recursive_deletion"]
@@ -1994,7 +2009,68 @@
 - test: "cat x | tee ~/.zshrc"
   description: "tee without -a replaces the file"
   expect_ids: ["fs:overwrite_system_file"]
+- test: "echo 'export A=1' >> ~/.BashRC"
+  description: "a startup file in another case"
+  expect_ids: ["fs:append_shell_startup_file"]
+- test: "cat x | tee ~/.ZSHRC"
+  description: "replacing a startup file in another case"
+  expect_ids: ["fs:overwrite_system_file"]
+- test: "echo x >> ~/.bashrc.d.txt"
+  description: "negative: a differently named file"
+  expect_ids: []
+# -- fs:hard_link_protected_file --
+- test: "ln ~/.bashrc hb"
+  description: "a hard link to a startup file"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln -f ~/.ssh/id_rsa hk"
+  description: "a forced hard link to a private key"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "cp -l ~/.zshrc z"
+  description: "cp -l makes a hard link"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln .git/hooks/pre-commit hook"
+  description: "a hard link to a git hook"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln -s ../shared shared"
+  description: "negative: a symbolic link in the project"
+  expect_ids: []
+- test: "ln -sf ~/dotfiles/vimrc ~/.vimrc"
+  description: "negative: a dotfiles symbolic link"
+  expect_ids: []
+- test: "ln a.txt b.txt"
+  description: "negative: a hard link between project files"
+  expect_ids: []
+- test: "ln ~/.ssh/id_ed25519.pub pub"
+  description: "negative: a hard link to a public key"
+  expect_ids: []
 # -- moving system files --
+- test: "ln -- ~/.bashrc hb"
+  description: "hard link after --"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln -t /tmp -- ~/.ssh/id_rsa"
+  description: "hard link with -t and --"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln --target-directory=. ~/.ssh/id_rsa"
+  description: "hard link with --target-directory="
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln --suffix=.x ~/.bashrc x"
+  description: "hard link with --suffix="
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "link ~/.ssh/id_rsa k"
+  description: "the link command"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "cp -al ~/.ssh keys"
+  description: "recursive hard-link copy of a credential folder"
+  expect_ids: ["fs:hard_link_protected_file"]
+- test: "ln --symbolic ~/.ssh/id_rsa k"
+  description: "negative: a symbolic link (long option)"
+  expect_ids: []
+- test: "link a.txt b.txt"
+  description: "negative: link of an ordinary file"
+  expect_ids: []
+- test: "cp -al src/ snapshot/"
+  description: "negative: hard-link copy of a project folder"
+  expect_ids: []
 - test: "sudo mv /etc/passwd /tmp/"
   description: "moving /etc/passwd away"
   expect_ids: ["fs:move_system_file"]
@@ -2016,6 +2092,63 @@
   expect_ids: ["fs:zip_move"]
 - test: "zip -r /tmp/x.zip ~/projects"
   description: "zip without -m keeps the inputs"
+  expect_ids: []
+- test: "tar --remove-files -cf x.tar ~/Documents"
+  description: "tar --remove-files deletes the inputs"
+  expect_ids: ["fs:zip_move"]
+- test: "tar --remove-files -czf keys.tgz ~/.ssh"
+  description: "credentials archived and deleted"
+  expect_ids: ["exfil:archive_secret_dir", "fs:move_credentials", "fs:zip_move"]
+- test: "tar -cf x.tar ~/Documents"
+  description: "negative: tar keeps the inputs"
+  expect_ids: []
+- test: "tar --remove -czf /tmp/d.tgz ~/Documents"
+  description: "abbreviated --remove-files"
+  expect_ids: ["fs:zip_move"]
+- test: "tar --remove-f -czf /tmp/d.tgz ~/Documents"
+  description: "abbreviated --remove-files (--remove-f)"
+  expect_ids: ["fs:zip_move"]
+- test: "gtar --remove-files -czf /tmp/d.tgz ~/Documents"
+  description: "GNU tar as gtar"
+  expect_ids: ["fs:zip_move"]
+- test: "gtar --remove -czf k.tgz ~/.ssh"
+  description: "gtar --remove of a credential folder"
+  expect_ids: ["exfil:archive_secret_dir", "fs:move_credentials", "fs:zip_move"]
+- test: "7z a -sdel x.7z ~/Documents"
+  description: "7z deletes what it archives"
+  expect_ids: ["fs:zip_move"]
+- test: "7z a x.7z ~/Documents"
+  description: "negative: 7z keeps the inputs"
+  expect_ids: []
+- test: "tar --recursion -czf d.tgz src"
+  description: "negative: another tar long option starting with --re"
+  expect_ids: []
+- test: "gtar -czf d.tgz src"
+  description: "negative: gtar keeps the inputs"
+  expect_ids: []
+- test: "mv ~/.claude /tmp/old"
+  description: "moving the Claude Code settings folder away"
+  expect_ids: ["fs:move_agent_settings_dir"]
+- test: "mv ~/.codex /tmp/old"
+  description: "moving the Codex settings folder away"
+  expect_ids: ["fs:move_agent_settings_dir"]
+- test: "mv -t /tmp ~/.claude/"
+  description: "moving the Claude Code settings folder with -t"
+  expect_ids: ["fs:move_agent_settings_dir"]
+- test: "git rm -r .github/hooks"
+  description: "removing the repository's agent hook folder"
+  expect_ids: ["fs:move_agent_settings_dir"]
+- test: "mv ~/.claude/projects/old /tmp/"
+  description: "negative: moving one project's history"
+  expect_ids: []
+- test: "mv ~/.claude.bak ~/.claude"
+  description: "negative: restoring the settings folder"
+  expect_ids: []
+- test: "git rm -r --cached .github/hooks"
+  description: "negative: untracking the hook folder"
+  expect_ids: []
+- test: "git rm -r src/old"
+  description: "negative: removing a project folder"
   expect_ids: []
 # -- chown targets --
 - test: "chown -R dev ./src"
@@ -2547,7 +2680,7 @@
 # -- help requests are print-only --
 - test: "sh -c 'rm -rf ~/projects' --help"
   description: "the help word does not make this print-only"
-  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "kubectl exec api-0 -- rm -rf /data --help"
   description: "the help word does not make this print-only"
   expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_top_level_dir"]
@@ -2565,7 +2698,7 @@
   expect_ids: ["fs:recursively_chown"]
 - test: "rm -rf ~/projects -- --help"
   description: "the help word does not make this print-only"
-  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete_outside"]
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
 - test: "shred --help"
   description: "negative: a help request only prints usage"
   expect_ids: []
@@ -5685,3 +5818,191 @@
   description: "allow: parted print written to a file with tee"
   expect_ids: []
 
+
+# -- fs:delete_home_folder --
+- test: "rm -rf ~/Documents"
+  description: "deleting the Documents folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/.config"
+  description: "deleting the .config folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~//Documents"
+  description: "a doubled slash in the path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/Projects ~/Desktop"
+  description: "two home folders at once"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf $HOME/Documents"
+  description: "$HOME spelling"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf \"$HOME/Documents\""
+  description: "quoted $HOME spelling"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ${HOME}/Documents"
+  description: "${HOME} spelling"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/.ssh"
+  description: "SSH keys folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/.aws"
+  description: "AWS credentials folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_credentials", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf /Users/alice/Library"
+  description: "another user's Library folder on macOS"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf /home/bob/Documents"
+  description: "another user's Documents folder on Linux"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/Documents ~/Projects ~/.config"
+  description: "several home folders"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "\"rm\" -rf ~/Documents"
+  description: "quoted rm"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "\\rm -rf ~/Documents"
+  description: "escaped rm"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "/bin/rm -rf ~/Documents"
+  description: "absolute rm path"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "d=~/Documents; rm -rf $d"
+  description: "target from a variable"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -r -f ~/Documents"
+  description: "split flags"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm --recursive --force ~/Documents"
+  description: "long flags"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -fr ~/documents"
+  description: "lower-case spelling (case-insensitive file systems)"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "cd ~ && rm -rf Documents"
+  description: "relative path from the home directory"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "sudo rm -rf /Users/alice/Library"
+  description: "under sudo"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "bash -c 'rm -rf ~/Downloads'"
+  description: "inside bash -c"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/Library/Application\\ Support"
+  description: "Application Support with an escaped space"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder"]
+- test: "rm -rf ~/.local"
+  description: "the .local folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/Library/"
+  description: "the Library folder by trailing slash"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:delete_home_folder", "fs:recursively_delete_outside"]
+- test: "rm -rf ~/Documents/old-notes.txt"
+  description: "negative: a file inside Documents"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/Library/Caches/foo"
+  description: "negative: an app cache inside Library"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/.cache/pip"
+  description: "negative: the pip cache"
+  expect_ids: []
+- test: "rm -rf ~/Projects/app/node_modules"
+  description: "negative: a project's node_modules under Projects"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/Library/Developer/Xcode/DerivedData"
+  description: "negative: Xcode build data"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/.config/nvim/plugin"
+  description: "negative: a plugin folder inside .config"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/code/old-project"
+  description: "negative: an old project under code"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf dist"
+  description: "negative: a build directory"
+  expect_ids: []
+- test: "rm -rf /tmp/x"
+  description: "negative: a scratch directory"
+  expect_ids: []
+- test: "git rm -r --cached ."
+  description: "negative: git rm of the index only"
+  expect_ids: []
+
+# -- fs:move_home_folder --
+- test: "mv ~/Projects /tmp/x"
+  description: "moving Projects into /tmp"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv ~/Documents /private/tmp/"
+  description: "moving Documents into /private/tmp"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv -f ~/work $TMPDIR/old"
+  description: "moving work into $TMPDIR"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv ~/Downloads/report.pdf ~/Documents/"
+  description: "negative: moving one file into Documents"
+  expect_ids: []
+- test: "mv ~/Documents ~/Documents-old"
+  description: "negative: renaming Documents in place"
+  expect_ids: []
+- test: "mv ~/Projects/app /tmp/app-backup"
+  description: "negative: a project folder into /tmp"
+  expect_ids: []
+- test: "mv ~/Downloads/*.zip /tmp/"
+  description: "negative: downloads into /tmp"
+  expect_ids: []
+
+# -- fs:move_home_folder / fs:move_credentials (target directory first) --
+- test: "mv -t /tmp ~/Documents"
+  description: "mv -t into /tmp"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv -vt /tmp ~/Documents"
+  description: "bundled -vt"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv --target-directory=/tmp ~/Documents"
+  description: "--target-directory="
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv --target-directory /tmp ~/Projects"
+  description: "--target-directory with a separate value"
+  expect_ids: ["fs:move_home_folder"]
+- test: "rsync -a --remove-source-files ~/Documents/ /tmp/x/"
+  description: "rsync that deletes the sources"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv -t dist/ build/app.js"
+  description: "negative: a project file into dist"
+  expect_ids: []
+- test: "rsync -a src/ dst/"
+  description: "negative: a plain rsync"
+  expect_ids: []
+- test: "mv -t /tmp ~/.ssh"
+  description: "credentials moved with -t"
+  expect_ids: ["fs:move_credentials"]
+- test: "mv -t/tmp ~/.ssh"
+  description: "-t attached to its value"
+  expect_ids: ["fs:move_credentials"]
+- test: "mv --target-directory=/tmp ~/.aws"
+  description: "credentials moved with --target-directory"
+  expect_ids: ["fs:move_credentials"]
+- test: "mv --target=/tmp ~/Documents"
+  description: "a prefix of --target-directory"
+  expect_ids: ["fs:move_home_folder"]
+- test: "mv --targ /tmp ~/.ssh"
+  description: "a short prefix of --target-directory with a separate value"
+  expect_ids: ["fs:move_credentials"]
+- test: "mv --target=dist/ build/app.js"
+  description: "negative: a prefix form into a project folder"
+  expect_ids: []
+
+# -- fs:recursive_delete_home_glob (depth and caches) --
+- test: "rm -rf ~/Documents/*"
+  description: "everything in a home folder"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursive_delete_home_glob"]
+- test: "rm -rf ~/projects/webapp/dist/*"
+  description: "negative: a build folder inside a project"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/.cache/*"
+  description: "negative: emptying the cache"
+  expect_ids: []
+- test: "rm -rf ~/.Trash/*"
+  description: "negative: emptying the trash"
+  expect_ids: ["fs-strict:recursive_deletion"]
+- test: "rm -rf ~/Library/Caches/*"
+  description: "negative: emptying the macOS caches"
+  expect_ids: ["fs-strict:recursive_deletion"]

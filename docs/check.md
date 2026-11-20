@@ -116,24 +116,63 @@ are shell commands. Empty stdin exits 1.
 
 ## Hook modes
 
-`--hook claude-code` / `--hook cursor` (or `--format claude-hook` /
-`cursor-hook`) read the agent's hook payload from stdin and exit 0 with the
-agent's own JSON protocol; `--exit-code` / `--fail-on` cannot be combined with
-them. They fail closed: malformed input, an internal error or a crash yields a
-deny decision, and if the decision cannot be written shellfirm exits 2 (which
-blocks the tool call in Claude Code and Cursor). Safe commands produce no
-output, so the agent's own permission prompts still apply.
+`--hook claude-code | cursor | codex | gemini | qwen | copilot | cline |
+windsurf | opencode` (or `--format claude-hook` / `cursor-hook`) read the
+agent's hook payload from stdin and answer in the agent's own protocol (JSON
+on stdout and exit 0; Windsurf, which reads no JSON: the reason on stderr and
+exit 2 to block); `--exit-code` / `--fail-on` cannot be combined with them.
+They fail closed: malformed input, an internal error or a crash yields a deny
+decision, and if the decision cannot be written shellfirm exits 2 (which
+blocks the tool call in every agent but Cline, whose hook script answers for
+shellfirm). Safe commands produce no output (Cline and OpenCode get their
+explicit "go on"), so the agent's own permission prompts still apply. Agents
+whose hooks cannot ask (Codex, Windsurf, Cline, OpenCode) get a deny instead
+of an `ask`, with the reason saying so. The payload of each agent and the
+files `shellfirm connect` writes are described in [agents.md](agents.md).
 
 - Claude Code Bash, PowerShell and Monitor commands (and any tool with a
   string `tool_input.command`) are analysed as shell commands.
 - Write / Edit / MultiEdit / NotebookEdit calls on shellfirm, policy,
   agent-settings, hook or shell-startup files (symlinks followed) get an `ask`
-  decision; writes under `context.sensitive_paths` are decided like
-  `fs:sensitive_path`.
-- Cursor `preToolUse` file edits that would be `ask` are denied (Cursor does
-  not enforce ask there), except edits of agent instruction files (AGENTS.md,
-  CLAUDE.md, `.cursor/rules/…`), which stay `ask` (ignore that rule with
+  decision, and so do overwrites of private keys and credential files in the
+  home directory (`shellfirm-self:credential_file_edit`; deleting one is
+  Critical and denied, like `rm`); writes under `context.sensitive_paths` are
+  decided like `fs:sensitive_path`. A path starting with `~/` is in the home
+  directory.
+- File edits that would be `ask` are denied in agents that cannot ask for
+  them (Cursor `preToolUse`, Codex, Windsurf, Cline, OpenCode), except edits
+  of agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/…`), which
+  go ahead there when every file of the call is one (ignore that rule with
   `shellfirm config ignore shellfirm-self:agent_instructions_edit`).
+- Patches (`apply_patch` in Codex, Cline, OpenCode and Copilot, OpenCode
+  `patch`, and `apply_patch` / `applypatch` run through a shell command, also
+  inside `bash -lc "…"`) are checked file by
+  file, like a write of every file they add, update, delete or move to; the
+  strictest answer wins, and its file is the one the reason names. File reads
+  (Claude Code `Read`, Gemini and Qwen `read_file`, Gemini `read_many_files`,
+  Copilot `view`, Cline `read_file(s)`, Windsurf `pre_read_code`, OpenCode
+  `read`, Cursor `Read` and `beforeReadFile`) are checked like `cat <path>`, reported as a "file read" and
+  logged as `Read <path>`.
+- Cursor can only allow or deny reads: a read that would be `ask` is denied
+  there (`beforeReadFile` and `preToolUse` `Read`). A directory given to
+  `read_many_files` is read as everything in it, and a directory or glob
+  that holds or matches a key or credential file (`~`, `~/.kube`,
+  `~/.gnupg`, `~/.ss?`, `**/*` run from the home directory) is read as that
+  file.
+- A patch run through the shell whose content cannot be seen (`apply_patch <
+  p.diff`, `apply_patch "$(cat p.diff)"`) needs approval (denied where the
+  agent cannot ask).
+- Key and credential paths in the home directory match whatever their case,
+  and the settings, hook and login files of an agent home moved by
+  `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or `COPILOT_HOME` are protected like the
+  default ones.
+- Copilot `write_bash` / `write_powershell` input that presses an editing or
+  history key (`{backspace}`, `{left}`, `{up}`, `{down}`, `{tab}`, ...; in
+  any case), holds a raw control character other than a newline, or uses
+  bash history expansion (`!!`, `!$`) is denied; `{enter}`, `{ctrl+c}` and
+  `{ctrl+d}` are read as a new line, and a final `{esc}` is allowed.
+- A command or path that contains a NUL byte is denied (failing closed).
+- The reason lists the matched rules most severe first.
 - An invalid project policy turns every command into at least `ask`.
 
 The hook command line installed by shellfirm 0.3.10 and earlier

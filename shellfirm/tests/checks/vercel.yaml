@@ -178,3 +178,37 @@
 - test: "vercel remove --help"
   description: "negative: a help request only prints usage"
   expect_ids: []
+
+# -- vercel:alias_remove / dns_remove / blob_delete --
+- test: "vercel alias rm acme.com"
+  description: "an alias removed"
+  expect_ids: ["vercel:alias_remove"]
+- test: "vercel dns rm rec_1"
+  description: "a DNS record removed"
+  expect_ids: ["vercel:dns_remove"]
+- test: "vercel blob del https://x.public.blob.vercel-storage.com/a.png"
+  description: "a blob deleted"
+  expect_ids: ["vercel:blob_delete"]
+- test: "vercel alias ls"
+  description: "negative: listing aliases"
+  expect_ids: []
+- test: "vercel dns ls acme.com"
+  description: "negative: listing DNS records"
+  expect_ids: []
+- test: "vercel blob list"
+  description: "negative: listing blobs"
+  expect_ids: []
+
+# -- vercel:team_remove / vercel:integration_remove --
+- test: "vercel teams rm acme"
+  description: "a team removed"
+  expect_ids: ["vercel:team_remove"]
+- test: "vercel integration remove neon"
+  description: "an integration removed"
+  expect_ids: ["vercel:integration_remove"]
+- test: "vercel teams ls"
+  description: "negative: listing teams"
+  expect_ids: []
+- test: "vercel integration list"
+  description: "negative: listing integrations"
+  expect_ids: []

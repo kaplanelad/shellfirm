@@ -947,6 +947,23 @@
   description: "migrating to a named migration"
   expect_ids: []
 
+# -- database:supabase_db_push_remote --
+- test: "supabase db push --linked"
+  description: "migrations pushed to the linked project"
+  expect_ids: ["database:supabase_db_push_remote"]
+- test: "supabase db push --db-url \"$DATABASE_URL\" --include-all"
+  description: "migrations pushed to a database URL"
+  expect_ids: ["database:supabase_db_push_remote"]
+- test: "supabase db push --local"
+  description: "negative: the local database"
+  expect_ids: []
+- test: "supabase db push --linked --dry-run"
+  description: "negative: a dry run against the linked project"
+  expect_ids: []
+- test: "supabase db diff -f add_users"
+  description: "negative: a schema diff"
+  expect_ids: []
+
 # -- database:supabase_db_reset_remote / database:supabase_db_reset --
 - test: "supabase db reset --linked"
   description: "resetting the linked remote Supabase database"
@@ -1168,4 +1185,24 @@
   expect_ids: []
 - test: "psql -c 'SELECT lo_get(16400)'"
   description: "no match: reading a large object"
+  expect_ids: []
+
+# -- database:supabase_remote_delete --
+- test: "supabase functions delete hello --project-ref abc"
+  description: "an edge function deleted"
+  expect_ids: ["database:supabase_remote_delete"]
+- test: "supabase secrets unset KEY --project-ref abc"
+  description: "a secret removed"
+  expect_ids: ["database:supabase_remote_delete"]
+- test: "supabase storage rm -r ss:///bucket --linked --experimental"
+  description: "storage objects deleted"
+  expect_ids: ["database:supabase_remote_delete"]
+- test: "supabase storage rm ss:///bucket/a.png --local --experimental"
+  description: "negative: the local stack"
+  expect_ids: []
+- test: "supabase functions list"
+  description: "negative: listing functions"
+  expect_ids: []
+- test: "supabase secrets list"
+  description: "negative: listing secrets"
   expect_ids: []

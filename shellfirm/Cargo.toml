@@ -50,6 +50,8 @@ uuid = { version = "1", features = ["v4"] }
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
 tui-input = { version = "0.13", optional = true }
+# `shellfirm sandbox codex` edits ~/.codex/config.toml keeping comments and layout.
+toml_edit = { version = "0.25", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 nix = { version = "0.31", features = ["term", "fs", "hostname"] }
@@ -77,7 +79,7 @@ regex-syntax = "0.8"
 
 [features]
 default = ["all"]
-cli = ["clap", "clap_complete", "clap_complete_nushell"]
+cli = ["clap", "clap_complete", "clap_complete_nushell", "toml_edit"]
 llm = ["reqwest"]
 mcp = ["tokio"]
 ai = ["mcp", "llm"]
@@ -96,6 +98,10 @@ all = ["cli", "llm", "mcp", "ai", "wrap", "tui"]
 
 [[bin]]
 name = "shellfirm"
+required-features = ["cli"]
+
+[[test]]
+name = "agent_hooks"
 required-features = ["cli"]
 
 [package.metadata.binstall]

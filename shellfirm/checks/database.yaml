@@ -425,6 +425,20 @@
 # Supabase and Firebase: the backends of many agent-built apps (agents add
 # `--force` / `--yes` to skip the CLI's own question).
 - from: database
+  # `supabase db push` applies the pending migrations to the linked remote
+  # project (often production) unless `--local` or `--dry-run` is given.
+  test: (?:^|\s)supabase\s+(?:\S+\s+)*?db\s+push(?:\s|$)
+  description: "supabase db push applies pending migrations to the linked remote database (often production); a migration that drops or alters tables changes live data."
+  id: database:supabase_db_push_remote
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)--local(?:\s|$)'
+    - type: NotMatches
+      value: '(?:^|\s)(?:[^-\s]\S*|-[^\s=]*=\S*|--linked|--include-all|--include-roles|--include-seed|--debug|--yes|--no-dry-run)\s+--dry-run(?:\s+(?:[^\-\s]\S*|-(?:[^\-d\s]\S*|-(?:[^dn\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?|n(?:[^o\s]\S*|o(?:[^\-\s]\S*|-(?:[^d\s]\S*|d(?:[^r\s]\S*|r(?:[^y\s]\S*))?)?)?)?)?|d(?:[^r\s]\S*|r(?:[^y\s]\S*)?)?)?))*\s*$'
+  alternative: "supabase db push --dry-run"
+  alternative_info: "See which migrations would be applied first."
+- from: database
   test: (?:^|\s)supabase\s+(?:\S+\s+)*?db\s+reset\b(?:\s+\S+)*?\s--(?:linked|db-url)(?:[\s=]|$)
   description: "supabase db reset --linked resets the database of the linked remote project (often production): every table is dropped and the migrations and seed re-run."
   id: database:supabase_db_reset_remote
@@ -553,3 +567,15 @@
   severity: Critical
   alternative: "turso db shell <database> .dump > backup.sql"
   alternative_info: "Dump the database first; `turso db list` shows which database the name refers to."
+- from: database
+  # Deleting from the linked (remote) Supabase project: an edge function, a
+  # secret, or storage objects.
+  test: (?:^|\s)supabase\s+(?:\S+\s+)*?(?:functions\s+delete|secrets\s+unset|storage\s+rm)(?:\s|$)
+  description: "This deletes an edge function, a secret or storage objects of the Supabase project: whatever uses them breaks, and deleted files cannot be restored."
+  id: database:supabase_remote_delete
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)--local(?:\s|$)'
+  alternative: "supabase functions list"
+  alternative_info: "List what is there first (`supabase secrets list`, `supabase storage ls`)."

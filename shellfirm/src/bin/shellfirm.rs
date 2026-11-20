@@ -150,6 +150,7 @@ fn main() {
         .subcommand(cmd::config::command())
         .subcommand(cmd::init::command())
         .subcommand(cmd::connect_cmd::command())
+        .subcommand(cmd::sandbox_cmd::command())
         .subcommand(cmd::audit_cmd::command())
         .subcommand(cmd::policy_cmd::command())
         .subcommand(cmd::check_cmd::command())
@@ -209,7 +210,9 @@ fn main() {
     // `status`, `config` and `audit` take `--config-dir DIR` like `check`:
     // DIR must exist (a typo would silently show or change another setup).
     let explicit_dir = match matches.subcommand() {
-        Some(("status" | "config" | "audit", m)) => m.get_one::<String>("config-dir").cloned(),
+        Some(("status" | "config" | "audit" | "sandbox", m)) => {
+            m.get_one::<String>("config-dir").cloned()
+        }
         _ => None,
     };
     if let Some(dir) = explicit_dir.as_deref() {
@@ -266,6 +269,11 @@ fn main() {
             exit(if from_env { 2 } else { 1 })
         }
     };
+
+    // `sandbox` reads its path lists from the settings itself.
+    if let Some(("sandbox", sub_matches)) = matches.subcommand() {
+        shellfirm_exit(cmd::sandbox_cmd::run(sub_matches, &config));
+    }
 
     // Handle policy command early (doesn't need settings)
     if let Some(("policy", sub_matches)) = matches.subcommand() {

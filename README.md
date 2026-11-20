@@ -40,17 +40,18 @@ blocked outright. Prefer no math? See [Accessibility](#accessibility).
 
 ## Features
 
-- **496 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
+- **512 built-in checks across 23 groups** (filesystem, git, Kubernetes, Terraform, Docker, AWS, GCP, Azure, Heroku, Fly.io, Vercel, Netlify, GitHub, npm, databases, Redis, MongoDB, network, remote-script execution such as `curl … | bash` (`shell`), credential exfiltration (`exfil`), …), all on by default. List them with `shellfirm check --list --all`; the generated [check catalogue](docs/checks/README.md) has the exact, current count.
 - **Shell hooks for 8 shells** — Bash, Zsh, Fish, Elvish and Xonsh are tested end to end; Nushell is tested with a limitation (see [Shell support](#shell-support)); the PowerShell and Oils hooks are shipped but **not yet tested** end to end. `shellfirm status` shows which shells have the hook installed.
 - **Context-aware escalation** — harder challenges when connected via SSH, running as root, on protected git branches, or in production Kubernetes clusters
 - **Safer alternatives** — many checks suggest a safer command (e.g. `--force-with-lease`)
 - **Severity levels** with configurable thresholds (`Critical`, `High`, `Medium`, `Low`, `Info`)
 - **Team and org policies** — commit a `.shellfirm.yaml` with rules that everyone in the repo gets, or install an org-wide baseline at `/etc/shellfirm/policy.yaml`. Policies are additive and enforced: personal settings cannot weaken them. See [docs/team-policies.md](docs/team-policies.md).
 - **Audit trail** — every intercepted command and decision is logged as JSON lines (user, host, repo, branch, outcome, and which policy denied it), with secrets redacted and bounded rotation, plus filters and a table view: `shellfirm audit show --since 7d --outcome denied`. See [docs/audit.md](docs/audit.md).
+- **Replay past agent sessions** — `shellfirm audit replay` reads the session transcripts Claude Code and Codex CLI keep on disk and reports what shellfirm would have blocked or asked about, worst first, without running anything or writing anywhere. Before you connect the hook, it shows what the hook would catch; `--redact` makes a shareable summary and `--fail-on deny` fits CI. See [docs/audit.md](docs/audit.md#replaying-past-agent-sessions).
 - **Blast radius** — shows what a command would affect (files, branches, resources), within one total time budget per command (`blast_radius_budget_ms`, default 400 ms, at most 5000; `shellfirm config impact-budget <ms>`) so the prompt never waits long; a count that runs out of time says `more than 120,000 files (stopped counting)`, a step it could not start says `skipped, no time left`. When it takes longer than 200 ms a transient `shellfirm: checking impact… (Ctrl-C cancels)` line shows; Ctrl-C there cancels the command and records it in the audit log
 - **Uncommitted work counts** — a recursive delete of a folder that holds uncommitted or untracked files (git cannot bring them back) is High, so a relaxed `min_severity` still asks
 - **Feedback after you confirm** — a passed challenge prints `✓ approved — running: <command>` (dim, on the terminal only), so a slow command such as `helm uninstall` does not look hung. Turn it off with `shellfirm config approved-notice off`
-- **MCP server and agent hooks** — use shellfirm as a guardrail for Claude Code, Cursor and other agents
+- **MCP server and agent hooks** — blocking hooks for Claude Code, Cursor, Codex CLI, Gemini CLI, Qwen Code, Copilot CLI, Windsurf, Cline and OpenCode
 - **LLM analysis (experimental)** — configured with `shellfirm config llm`; used only to review AI-agent commands when `agent.llm_review` is enabled
 
 ---
@@ -69,10 +70,66 @@ This adds:
 - **Hooks** — every Bash command is checked before execution; risky commands are blocked
 - **MCP** — Claude can call shellfirm tools to explain risks and suggest alternatives
 
+To see what the hook would have caught in your earlier sessions, run
+`shellfirm audit replay` (read-only; nothing is executed).
+
 Safe commands get no answer from the hook, so Claude Code's own permission
 rules decide whether it asks you (the shellfirm 0.3.10 hook approved them
 outright). After upgrading from 0.3.10, re-run `shellfirm connect
 claude-code`; see [Upgrading from 0.3.10](CHANGELOG.md#upgrading-from-0310).
+
+To enforce the hook for every user of a machine, put it in Claude Code's
+managed settings (`connect` does not write that file):
+[docs/agents.md](docs/agents.md#managed-settings) has the entry, and
+`shellfirm status` lists it as `claude-code (managed)`.
+
+### Agent sandbox
+
+The hooks read the command text; a script or child process that opens
+`~/.ssh/id_rsa` at runtime never shows up in it. Turn on the agent's own OS
+sandbox and deny it the credential files shellfirm protects:
+
+```bash
+shellfirm sandbox claude-code      # settings.json `sandbox`: enabled + denyRead/denyWrite
+shellfirm sandbox codex            # ~/.codex/config.toml permission profile
+shellfirm sandbox --list           # supported agents and the denied paths
+```
+
+Existing settings are merged, `--dry-run` shows the change and `--remove`
+takes out only what shellfirm added. Settings of yours that re-open a denied
+path, or a project file that turns the sandbox off or re-opens one, are
+reported by the command and by `shellfirm status` / `doctor`. Other agents (Gemini CLI,
+Copilot CLI, Cursor, …) are not supported; `shellfirm sandbox <agent>` says
+why. See [Agent sandbox](docs/sandbox.md).
+
+### Other agents
+
+`shellfirm connect <agent>` installs a hook that runs before the agent's
+shell commands (and, where the agent has them, file edits and reads) and
+blocks what shellfirm denies. Where the agent can ask you, risky commands
+ask; where it cannot, they are blocked with the reason and a safer
+alternative, so you can run them yourself.
+
+| Agent | `connect` | Hook | Risky (`ask`) | Written to (user scope) |
+|-------|-----------|------|---------------|-------------------------|
+| Claude Code | `claude-code` | `PreToolUse` | asks | `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR`) |
+| Cursor | `cursor` | `beforeShellExecution`, `preToolUse`, `beforeReadFile` | asks (commands) | `~/.cursor/hooks.json` |
+| OpenAI Codex CLI ≥ 0.124 | `codex` | `PreToolUse` (Bash, apply_patch) | blocked | `~/.codex/hooks.json` |
+| Gemini CLI ≥ 0.36 | `gemini` | `BeforeTool` | asks | `~/.gemini/settings.json` |
+| Qwen Code | `qwen` | `PreToolUse` | asks | `~/.qwen/settings.json` |
+| GitHub Copilot CLI ≥ 1.0.4 | `copilot` | `preToolUse` | asks | `~/.copilot/hooks/shellfirm.json` |
+| Windsurf (Cascade) | `windsurf` | `pre_run_command`, `pre_write_code`, `pre_read_code` | blocked | `~/.codeium/windsurf/hooks.json` |
+| Cline ≥ 3.36 | `cline` | `PreToolUse` script | blocked (cancels the task) | `~/Documents/Cline/Hooks/PreToolUse` |
+| OpenCode | `opencode` | plugin (`tool.execute.before`) | blocked | `~/.config/opencode/plugins/shellfirm.js` |
+| Zed | `zed` | MCP tools only (advisory) | — | `~/.config/zed/settings.json` |
+
+Claude Code, Cursor, Windsurf and Cline also get shellfirm's MCP server.
+`--scope project` writes the hook into the repository for the whole team,
+`--dry-run` shows the change first, `--uninstall` removes only shellfirm's
+entries, and `shellfirm status` / `shellfirm doctor` show what is installed.
+Codex runs a new hook only after you trust it (it asks when it starts), and
+Cline's VS Code extension needs "Enable Hooks" turned on. Details per agent:
+[docs/agents.md](docs/agents.md).
 
 ### MCP Tools
 
@@ -283,8 +340,9 @@ commands instead.
 ## Known limitations
 
 shellfirm is a safety net for mistakes, not a sandbox: it reads the command
-line before it runs and cannot see what a program does once started. Some
-risky commands have no rule yet:
+line before it runs and cannot see what a program does once started
+(`shellfirm sandbox` turns on the AI agent's own OS sandbox for that, see
+[Agent sandbox](docs/sandbox.md)). Some risky commands have no rule yet:
 
 - Reverse shells: only the common spellings are recognised; other spellings
   are not.
@@ -293,16 +351,26 @@ risky commands have no rule yet:
 - Sending secrets (keys, tokens, credential files) to another host with
   `curl`, `aws` or `gh` is not detected in general.
 - Reading a private key or credentials file is flagged (Medium), also with
-  Claude Code's `Read` tool, but reading a `.env` file and listing `~/.ssh`
-  are not. Add a [custom check](docs/config.md#custom-checks) if you want to
+  Claude Code's `Read` tool, and so is listing a credential folder (`ls
+  ~/.ssh`), but reading a `.env` file is not. Add a [custom check](docs/config.md#custom-checks) if you want to
   be asked before an agent reads them, for example
   `test: '^(?:cat|less|head|tail|bat)\s+(?:\S+\s+)*?\S*\.env(?:\.(?:local|development|production|test))?(?:\s|$)'`.
 - A command that uses a token without printing it (`GH_TOKEN=$(gh auth token)
   gh api …`, `gh auth token | docker login --password-stdin`) is still asked
   like printing one; approve it. Checks cannot yet be limited to AI agents:
   `config ignore` turns a check off for the shell and the agents together.
-- A destructive call made through an API with `curl` (a GraphQL mutation that
-  deletes a volume, a `DELETE` request to a cloud API) is not recognised.
+- A destructive API call is recognised only when the line shows it: an HTTP
+  `DELETE` (`curl -X DELETE`, `http DELETE`, `wget --method=DELETE`) or a
+  GraphQL mutation with a top-level field that deletes or archives
+  something. A request body read from a file, a pipe or a heredoc (`curl -d
+  @mutation.json`, `echo … | curl -d @-`), a URL-encoded query, or a `POST`
+  to a delete endpoint is not. Calls to a local development server
+  (`localhost`, `127.0.0.1`, `*.localhost`, `host.docker.internal`) are not
+  checked, even when the port is forwarded to a remote service; a path that
+  starts with `_` or holds a `*` (`localhost:9200/_all`) still is.
+- Printing a secret environment variable is recognised by its name
+  (`echo $GITHUB_TOKEN`); a copy under another name made in an earlier
+  command (`T=$GITHUB_TOKEN`, then `echo $T` later) is not.
 - Lock-out commands beyond locking the root account (locking or removing
   other users, firewall rules that drop the SSH port) are not checked.
 - `git -c` with a program value (`core.pager`, `core.editor`) is Medium, and
@@ -327,6 +395,7 @@ lists what is covered.
 ```bash
 shellfirm init --uninstall                     # remove the hooks from your shell rc files
 shellfirm connect claude-code --uninstall      # if you connected an AI tool
+shellfirm sandbox claude-code --remove         # if you ran `shellfirm sandbox` (per agent and scope)
 shellfirm status                               # confirm: no shell shows "installed"
 ```
 
@@ -348,7 +417,8 @@ longer need them, delete your settings, custom checks and audit log:
 
 - [Configuration](docs/config.md) — settings file, CLI, custom checks
 - [Team policies](docs/team-policies.md) — `.shellfirm.yaml` project-level rules
-- [Audit trail](docs/audit.md) — record format, filters, rotation
+- [Audit trail](docs/audit.md) — record format, filters, rotation, replaying past agent sessions
+- [Agent sandbox](docs/sandbox.md) — deny AI agents' sandboxed commands your credential files
 - [Check catalogue](docs/checks/README.md) — every built-in check, by group
 - [Adding built-in patterns](docs/add-new-patterns.md) — contributing new checks
 

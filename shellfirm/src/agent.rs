@@ -77,11 +77,14 @@ pub const IGNORABLE_SELF_RULES: &[&str] = crate::config::IGNORABLE_BUILTIN_RULE_
 /// `.cursor/rules/*.mdc`, ...), by a file tool or a shell command.
 pub const AGENT_INSTRUCTIONS_RULE: &str = "shellfirm-self:agent_instructions_edit";
 
-/// Persistence-file rules (SSH keys, sudoers, cron, systemd, git hooks and
-/// git config). They stay on with `agent.self_protection: false`: they
-/// protect the machine, not shellfirm.
+/// Rules that protect the machine, not shellfirm.
+///
+/// Persistence files (SSH keys, sudoers, cron, systemd, git hooks and git
+/// config) and private key / credential file edits. They stay on with
+/// `agent.self_protection: false`.
 pub const PERSISTENCE_RULES: &[&str] = &[
     "shellfirm-self:persistence_file_edit",
+    CREDENTIAL_FILE_RULE,
     "shellfirm-self:persistence_file_write",
     PERSISTENCE_INSTALL_RULE,
 ];
@@ -425,7 +428,6 @@ struct SelfRegexes {
     env_override: Vec<SelfRe>,
     rc_env_line: SelfRe,
     hook_tamper: Vec<(SelfRe, &'static str, &'static str)>,
-    agent_bypass: SelfRe,
     other_version: SelfRe,
     bulk_rewrite: SelfRe,
     extract_elsewhere: SelfRe,
@@ -487,7 +489,6 @@ fn self_regexes() -> &'static SelfRegexes {
                 "Shadows the shellfirm command with an alias or function",
             ),
         ],
-        agent_bypass: SelfRe::new(p::AGENT_BYPASS),
         other_version: SelfRe::new(p::OTHER_VERSION),
         bulk_rewrite: SelfRe::new(p::BULK_REWRITE),
         extract_elsewhere: SelfRe::new(p::EXTRACT_ELSEWHERE),
@@ -746,7 +747,8 @@ fn strip_read_only_parts(command: &str) -> String {
 /// logging / the LLM key and are not treated as relocating the config.
 fn is_config_location_var(var: &str) -> bool {
     match var {
-        "XDG_CONFIG_HOME" | "HOME" | "CLAUDE_CONFIG_DIR" => true,
+        "XDG_CONFIG_HOME" | "HOME" | "CLAUDE_CONFIG_DIR" | "CODEX_HOME" | "COPILOT_HOME"
+        | "GEMINI_CLI_HOME" | "QWEN_HOME" => true,
         "SHELLFIRM_LOG" | "SHELLFIRM_LLM_API_KEY" => false,
         v => v.starts_with("SHELLFIRM_"),
     }
@@ -909,7 +911,11 @@ fn is_autoload_path(path: &str) -> bool {
     let rooted = format!("/{path}");
     RC_FILE_NAMES.contains(&base.as_str())
         || NAMES.contains(&base.as_str())
-        || base.starts_with(".env")
+        || (base.starts_with(".env")
+            // templates (`.env.example`) are not loaded
+            && ![".example", ".sample", ".template", ".dist"]
+                .iter()
+                .any(|t| base.ends_with(t)))
         || DOTFILE_PREFIXES.iter().any(|p| base.starts_with(p))
         || DIRS.iter().any(|d| rooted.contains(d))
 }
@@ -1978,6 +1984,10 @@ fn data_blanked(command: &str, opaque: bool) -> std::borrow::Cow<'_, str> {
     ];
     const PRINTERS: &[&str] = &["echo", "printf"];
     const SEARCHERS: &[&str] = &["grep", "egrep", "fgrep", "rg", "ag"];
+    // Programs that only read their operands.
+    const READERS: &[&str] = &[
+        "grep", "egrep", "fgrep", "rg", "ag", "cat", "head", "tail", "less", "more", "wc",
+    ];
     const SAFE_SINKS: &[&str] = &[
         "tee", "cat", "head", "tail", "less", "more", "grep", "egrep", "fgrep", "rg", "wc", "sort",
         "uniq", "cut", "column", "nl",
@@ -2066,8 +2076,16 @@ fn data_blanked(command: &str, opaque: bool) -> std::borrow::Cow<'_, str> {
     }
     written.extend(cmds.iter().flat_map(|c| c.writes.iter().cloned()));
     // Every word that is not data: a shell or `eval`, or an auto-loaded
-    // file anywhere (`cp a.md ~/.bashrc`).
+    // file anywhere (`cp a.md ~/.bashrc`). The operands of a program that
+    // only reads them (`grep "export HOME=" ~/.zshrc`, `rg x .`) are not.
     for cmd in &cmds {
+        let reader = cmd
+            .words
+            .first()
+            .is_some_and(|w| w.literal && !w.quoted && READERS.contains(&base(&w.text).as_str()));
+        if reader {
+            continue;
+        }
         for w in &cmd.words {
             if data_words.contains(&w.span) {
                 continue;
@@ -2557,6 +2575,307 @@ fn hook_text_only_searched(command: &str) -> bool {
     })
 }
 
+/// AI agents whose command-line flags can turn hooks or permission checks off.
+const AGENT_PROGRAMS: &[&str] = &[
+    "claude",
+    "codex",
+    "cursor-agent",
+    "gemini",
+    "qwen",
+    "copilot",
+    "opencode",
+];
+
+/// npm packages of the agent CLIs, started through a package runner
+/// (`npx @google/gemini-cli -y`).
+const AGENT_PACKAGES: &[(&str, &str)] = &[
+    ("@anthropic-ai/claude-code", "claude"),
+    ("@openai/codex", "codex"),
+    ("@google/gemini-cli", "gemini"),
+    ("@qwen-code/qwen-code", "qwen"),
+    ("@github/copilot", "copilot"),
+    ("opencode-ai", "opencode"),
+];
+
+/// Programs that download and run an npm package (`pnpm dlx`, `bun x`).
+const PACKAGE_RUNNERS: &[&str] = &["npx", "bunx", "pnpx", "dlx", "x"];
+
+/// Agent flags that run with hooks or permission checks off or replaced.
+const AGENT_BYPASS_FLAGS: &[&str] = &[
+    "--settings",
+    "--setting-sources",
+    "--bare",
+    "--dangerously-skip-permissions",
+    "--allow-dangerously-skip-permissions",
+    "--dangerously-bypass-hook-trust",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--safe-mode",
+    "--yolo",
+    "--allow-all",
+    "--allow-all-tools",
+    "-y",
+];
+
+/// Claude Code options that take a value (from `claude --help`); `-p`
+/// (`--print`) and `-c` (`--continue`) are switches.
+const CLAUDE_VALUED: &[&str] = &[
+    "--model",
+    "--fallback-model",
+    "--system-prompt",
+    "--system-prompt-file",
+    "--append-system-prompt",
+    "--append-system-prompt-file",
+    "--permission-mode",
+    "--permission-prompt-tool",
+    "--settings",
+    "--setting-sources",
+    "--add-dir",
+    "--allowedTools",
+    "--allowed-tools",
+    "--disallowedTools",
+    "--disallowed-tools",
+    "--tools",
+    "--output-format",
+    "--input-format",
+    "--json-schema",
+    "--mcp-config",
+    "--session-id",
+    "--agent",
+    "--agents",
+    "--max-turns",
+    "--plugin-dir",
+    "--betas",
+];
+
+/// Cursor Agent options that take a value; `-p` (`--print`) is a switch.
+const CURSOR_VALUED: &[&str] = &[
+    "--api-key",
+    "-m",
+    "--model",
+    "--output-format",
+    "-H",
+    "--header",
+    "--workspace",
+];
+
+/// Copilot CLI options that take a value.
+const COPILOT_VALUED: &[&str] = &[
+    "-p",
+    "--prompt",
+    "-i",
+    "--interactive",
+    "--model",
+    "--agent",
+    "--allow-tool",
+    "--deny-tool",
+    "--add-dir",
+    "--log-dir",
+    "--log-level",
+    "--additional-mcp-config",
+];
+
+/// Codex options that take a value (clap: `-p` is `--profile`).
+const CODEX_VALUED: &[&str] = &[
+    "-c",
+    "--config",
+    "-m",
+    "--model",
+    "-p",
+    "--profile",
+    "-s",
+    "--sandbox",
+    "-a",
+    "--ask-for-approval",
+    "-C",
+    "--cd",
+    "-i",
+    "--image",
+    "--enable",
+    "--disable",
+    "--add-dir",
+    "--local-provider",
+    "-o",
+    "--output-last-message",
+    "--output-schema",
+    "--color",
+];
+
+/// Gemini / Qwen Code options that take a value; `-s` (`--sandbox`) is a
+/// switch.
+const GEMINI_VALUED: &[&str] = &[
+    "-m",
+    "--model",
+    "-p",
+    "--prompt",
+    "-i",
+    "--prompt-interactive",
+    "--approval-mode",
+    "--sandbox-image",
+    "-e",
+    "--extensions",
+    "--allowed-mcp-server-names",
+    "--allowed-tools",
+    "--include-directories",
+    "-o",
+    "--output-format",
+    "--telemetry-target",
+    "--telemetry-otlp-endpoint",
+    "--proxy",
+    "-r",
+    "--resume",
+];
+
+/// `OpenCode` options that take a value.
+const OPENCODE_VALUED: &[&str] = &[
+    "-m",
+    "--model",
+    "--agent",
+    "-s",
+    "--session",
+    "--prompt",
+    "-f",
+    "--file",
+    "--format",
+    "--port",
+    "--hostname",
+];
+
+/// How an agent CLI reads its options: the ones that take a value, and
+/// whether a word starting with `-` is always an option (yargs and clap:
+/// `gemini -p -y` runs with `--yolo`; commander takes it as the value).
+fn agent_grammar(agent: &str) -> (&'static [&'static str], bool) {
+    match agent {
+        "claude" => (CLAUDE_VALUED, false),
+        "cursor-agent" => (CURSOR_VALUED, false),
+        "copilot" => (COPILOT_VALUED, false),
+        "codex" => (CODEX_VALUED, true),
+        "gemini" | "qwen" => (GEMINI_VALUED, true),
+        _ => (OPENCODE_VALUED, true),
+    }
+}
+
+/// The agent a word starts: its program name, or (first in the command or
+/// after a package runner) its npm package, with any `@version` dropped.
+fn agent_program(word: &str, after_runner: bool) -> Option<&'static str> {
+    let base = word.rsplit('/').next().unwrap_or(word);
+    if let Some(agent) = AGENT_PROGRAMS.iter().find(|a| **a == base) {
+        return Some(agent);
+    }
+    if !after_runner {
+        return None;
+    }
+    let package = word.strip_prefix('@').map_or_else(
+        || word.split('@').next().unwrap_or(word).to_string(),
+        |rest| format!("@{}", rest.split('@').next().unwrap_or(rest)),
+    );
+    let package = package.as_str();
+    AGENT_PACKAGES
+        .iter()
+        .find(|(name, _)| *name == package)
+        .map(|(_, agent)| *agent)
+        .or_else(|| {
+            let base = package.rsplit('/').next().unwrap_or(package);
+            AGENT_PROGRAMS.iter().find(|a| **a == base).copied()
+        })
+}
+
+/// Codex `-c key=value` overrides that turn hooks or the sandbox off,
+/// in any profile and as an inline table (`features={hooks=false}`).
+fn codex_config_bypass(value: &str) -> bool {
+    let c = value.replace([' ', '"', '\''], "");
+    (c.contains("sandbox_mode=") && c.contains("danger-full-access"))
+        || (c.contains("default_permissions=") && c.contains("danger-full-access"))
+        || (c.contains("features")
+            && (c.contains("hooks=false") || c.contains("codex_hooks=false")))
+}
+
+/// Agent subcommands whose own flags say nothing about approvals
+/// (`gemini extensions install x -y`).
+const AGENT_PLAIN_SUBCOMMANDS: &[&str] = &["extensions", "mcp"];
+
+/// `true` when a line of the self-protection view starts an AI agent with
+/// a flag that turns its hooks, permission checks or sandbox off: the top-level
+/// options of the agent command are read word by word with that agent's own
+/// option grammar, so a prompt value (`gemini -p "say -y"`) or a subcommand's
+/// option is not one, while a switch (`claude -p --dangerously-skip-permissions`)
+/// does not hide the flag after it.
+fn agent_flag_bypass(view: &str) -> bool {
+    let clean = |w: &str| {
+        crate::parser::desentinel(w)
+            .trim_matches(|c| c == '"' || c == '\'' || c == '`')
+            .to_string()
+    };
+    view.split(['\n', ';', '&', '|']).any(|line| {
+        let words: Vec<String> = line
+            .split([' ', '\t'])
+            .filter(|w| !w.is_empty())
+            .map(clean)
+            .collect();
+        let mut found = None;
+        // The parser already drops `npx` / `bunx`, leaving the package first.
+        let mut after_runner = true;
+        for (at, w) in words.iter().enumerate() {
+            if let Some(agent) = agent_program(w, after_runner) {
+                found = Some((at, agent));
+                break;
+            }
+            after_runner = PACKAGE_RUNNERS.contains(&w.rsplit('/').next().unwrap_or(w))
+                || (after_runner && w.starts_with('-'));
+        }
+        let Some((at, agent)) = found else {
+            return false;
+        };
+        let (valued, dash_is_option) = agent_grammar(agent);
+        let yargs_cluster = matches!(agent, "gemini" | "qwen");
+        let args = &words[at + 1..];
+        let mut positional = false;
+        let mut i = 0;
+        while i < args.len() {
+            let w = args[i].as_str();
+            // A clap short option with its value attached (`-cKEY=V`, `-s=V`).
+            let attached = (agent == "codex" && !w.starts_with("--"))
+                .then(|| w.get(..2).filter(|s| w.len() > 2 && valued.contains(s)))
+                .flatten();
+            let (name, inline) = attached.map_or_else(
+                || w.split_once('=').map_or((w, None), |(n, v)| (n, Some(v))),
+                |short| (short, Some(w[2..].trim_start_matches('='))),
+            );
+            let next = args
+                .get(i + 1)
+                .filter(|n| !(dash_is_option && n.starts_with('-')));
+            let value = inline
+                .or_else(|| next.map(String::as_str))
+                .unwrap_or_default();
+            // yargs reads `-yp x` as `-y -p x`.
+            let cluster_yolo = yargs_cluster
+                && w.len() > 2
+                && w.starts_with('-')
+                && w[1..].chars().all(|c| c.is_ascii_alphabetic())
+                && w.contains('y');
+            let bypass = AGENT_BYPASS_FLAGS.contains(&name)
+                || cluster_yolo
+                || (agent == "cursor-agent" && matches!(w, "-f" | "--force"))
+                || (name == "--permission-mode" && value == "bypassPermissions")
+                || (name == "--approval-mode" && value == "yolo")
+                || (matches!(name, "-s" | "--sandbox") && value == "danger-full-access")
+                || (name == "--disable" && matches!(value, "hooks" | "codex_hooks"))
+                || (matches!(name, "-c" | "--config") && codex_config_bypass(value));
+            if bypass {
+                return true;
+            }
+            if !w.starts_with('-') {
+                if !positional && AGENT_PLAIN_SUBCOMMANDS.contains(&w) {
+                    return false;
+                }
+                positional = true;
+            }
+            let takes_value = inline.is_none() && next.is_some() && valued.contains(&name);
+            i += if takes_value { 2 } else { 1 };
+        }
+        false
+    })
+}
+
 /// Detect commands that would disable or weaken shellfirm itself, with the
 /// process environment (current directory and home) used to resolve paths.
 ///
@@ -2629,6 +2948,21 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
                 "shellfirm-self:connect_uninstall",
                 "Removes shellfirm's AI-agent integration",
             ),
+            "connect" if rest.split_whitespace().any(|t| t == "--no-fail-closed") => push(
+                "shellfirm-self:connect_fail_open",
+                "Reinstalls shellfirm's AI-agent hook so that the agent goes ahead when the \
+                 hook fails (--no-fail-closed)",
+            ),
+            "sandbox"
+                if rest
+                    .split_whitespace()
+                    .any(|t| matches!(t, "--remove" | "--uninstall")) =>
+            {
+                push(
+                    "shellfirm-self:sandbox_remove",
+                    "Removes shellfirm's paths from the AI agent's OS sandbox settings",
+                );
+            }
             "init" if has_uninstall => push(
                 "shellfirm-self:init_uninstall",
                 "Removes shellfirm's shell hook",
@@ -2703,7 +3037,7 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
     // message) may name it.
     let hook_text = command.contains("disableAllHooks");
     let only_searched = hook_text && hook_text_only_searched(command);
-    if !only_searched && (r.agent_bypass.is_match(&view_hay) || hook_text) {
+    if !only_searched && (agent_flag_bypass(&view) || hook_text) {
         push(
             "shellfirm-self:agent_hooks_bypass",
             "Starts an AI agent with hooks or permission checks disabled or replaced",
@@ -2765,7 +3099,8 @@ pub fn self_protection_hits_in(command: &str, env: &dyn Environment) -> Vec<Self
         push(
             "shellfirm-self:config_env_override",
             "Changes HOME/XDG_CONFIG_HOME/SHELLFIRM_* (where shellfirm finds its settings, \
-             policy and audit log)",
+             policy and audit log) or an agent's config home (CODEX_HOME, COPILOT_HOME, ...: \
+             an agent started there has no shellfirm hook)",
         );
     }
 
@@ -3373,8 +3708,8 @@ fn segment_write_targets(words: &[String]) -> Vec<String> {
         _ if hides_changes => {
             targets.extend(operands.iter().skip(1).map(ToString::to_string));
         }
-        "rm" | "rmdir" | "mv" | "unlink" | "shred" | "truncate" | "tee" | "chmod" | "chown"
-        | "chattr" | "touch" | "trash" | "trash-put" | "rmtrash" | "trash-rm" => {
+        "rm" | "rmdir" | "mv" | "unlink" | "shred" | "truncate" | "tee" | "sponge" | "chmod"
+        | "chown" | "chattr" | "touch" | "trash" | "trash-put" | "rmtrash" | "trash-rm" => {
             let skip = usize::from(matches!(prog.as_str(), "chmod" | "chown"));
             targets.extend(operands.iter().skip(skip).map(ToString::to_string));
             if let Some(d) = target_dir {
@@ -4022,6 +4357,114 @@ pub const FILE_WRITE_TOOLS: &[&str] = &["Write", "Edit", "MultiEdit", "NotebookE
 /// reads it (`exfil:read_secret_file`).
 pub const FILE_READ_TOOLS: &[&str] = &["Read"];
 
+/// Private keys and credential files (`~/`-relative), as files or as the
+/// directory that holds them: the files whose reads `exfil:read_secret_file`
+/// asks about (a `Read` tool call or `cat <path>`).
+///
+/// `shellfirm sandbox` denies the agent's OS sandbox reads of these paths,
+/// so a script or child process that opens one at runtime (which never
+/// shows up in the command text) is stopped too. A test checks that a
+/// secret file under every entry is matched by `exfil:read_secret_file`.
+/// Project `.env` files are not listed: their reads are not flagged.
+pub const CREDENTIAL_PATHS: &[&str] = &[
+    "~/.ssh",
+    "~/.aws",
+    "~/.gnupg",
+    "~/.kube/config",
+    "~/.docker/config.json",
+    "~/.config/gh",
+    "~/.netrc",
+    "~/.git-credentials",
+    "~/.npmrc",
+    "~/.pypirc",
+    "~/.pgpass",
+    "~/.my.cnf",
+    "~/.vault-token",
+    "~/.cargo/credentials",
+    "~/.cargo/credentials.toml",
+    "~/.gem/credentials",
+    "~/.s3cfg",
+    "~/.databrickscfg",
+    "~/.terraformrc",
+    "~/.terraform.d/credentials.tfrc.json",
+    "~/.config/rclone/rclone.conf",
+    "~/.oci",
+    "~/.config/gcloud",
+    "~/.azure",
+    "~/.claude/.credentials.json",
+    "~/.codex/auth.json",
+    "~/.ethereum/keystore",
+    "~/.electrum/wallets",
+    "~/.bitcoin",
+    "~/.config/solana/id.json",
+];
+
+/// A secret file of a [`CREDENTIAL_PATHS`] entry (`~/.ssh` →
+/// `~/.ssh/id_ed25519`), the entry itself when it is a file. A directory
+/// read or glob that reaches the entry is checked as a read of this file.
+#[must_use]
+pub fn credential_sample_file(entry: &str) -> &str {
+    match entry {
+        "~/.ssh" => "~/.ssh/id_ed25519",
+        "~/.aws" => "~/.aws/credentials",
+        "~/.gnupg" => "~/.gnupg/private-keys-v1.d/A1B2.key",
+        "~/.config/gh" => "~/.config/gh/hosts.yml",
+        "~/.oci" => "~/.oci/config",
+        "~/.config/gcloud" => "~/.config/gcloud/application_default_credentials.json",
+        "~/.azure" => "~/.azure/accessTokens.json",
+        "~/.ethereum/keystore" => "~/.ethereum/keystore/UTC--2024",
+        "~/.electrum/wallets" => "~/.electrum/wallets/default_wallet",
+        "~/.bitcoin" => "~/.bitcoin/wallet.dat",
+        p => p,
+    }
+}
+
+/// Encrypted secret stores (password-store, macOS keychains).
+///
+/// A sandboxed command has no reason to open them. Not flagged by the read
+/// check (their contents are encrypted); denied in the sandbox next to
+/// [`CREDENTIAL_PATHS`].
+pub const SECRET_STORE_PATHS: &[&str] = &["~/.password-store", "~/Library/Keychains"];
+
+/// Home-directory files that run code later or hold AI-agent settings.
+///
+/// Shell startup files, SSH, git config, autostart entries and the agent
+/// settings files: the targets that self-protection
+/// (`shellfirm-self:rc_file_edit`, `persistence_file_edit`,
+/// `protected_file_edit`) asks about when an agent edits them.
+///
+/// `shellfirm sandbox` denies the agent's OS sandbox writes to these
+/// (`~/`-relative) paths, plus shellfirm's configuration directory. A test
+/// checks every entry against [`protected_path_hit`].
+#[must_use]
+pub fn sandbox_write_protected_paths() -> Vec<String> {
+    let mut out: Vec<String> = RC_FILE_NAMES
+        .iter()
+        .filter(|n| n.starts_with('.'))
+        .map(|n| format!("~/{n}"))
+        .collect();
+    out.extend(
+        [
+            "~/.config/fish",
+            "~/.ssh",
+            "~/.gitconfig",
+            "~/.config/git/config",
+            "~/.config/systemd",
+            "~/.config/autostart",
+            "~/Library/LaunchAgents",
+            "~/.claude/settings.json",
+            "~/.claude.json",
+            "~/.cursor/hooks.json",
+            "~/.cursor/mcp.json",
+            "~/.codex/config.toml",
+            "~/.codeium/windsurf/mcp_config.json",
+            "~/.config/zed/settings.json",
+        ]
+        .map(String::from),
+    );
+    out
+}
+
 /// Lexically normalise a path: `\` → `/`, `.`/`..` resolved, relative paths
 /// joined to `cwd`. The filesystem is never touched.
 #[must_use]
@@ -4077,6 +4520,12 @@ const PROTECTED_SUFFIXES: &[&str] = &[
     "/.codeium/windsurf/mcp_config.json",
     "/zed/settings.json",
     "/.codex/config.toml",
+    "/.codex/hooks.json",
+    "/.gemini/settings.json",
+    "/.qwen/settings.json",
+    "/.github/hooks/shellfirm.json",
+    "/.codeium/windsurf/hooks.json",
+    "/.windsurf/hooks.json",
 ];
 
 const PROTECTED_NAMES: &[&str] = &[
@@ -4095,6 +4544,15 @@ const PROTECTED_DIRS: &[&str] = &[
     "/appdata/roaming/shellfirm",
     "/.claude/hooks",
     "/.cursor/hooks",
+    // Copilot CLI user hooks, Cline hook scripts, OpenCode plugins
+    "/.copilot/hooks",
+    "/documents/cline/hooks",
+    "/.clinerules/hooks",
+    "/.cline/hooks",
+    "/opencode/plugins",
+    "/opencode/plugin",
+    "/.opencode/plugins",
+    "/.opencode/plugin",
     // the org policy (`/etc/shellfirm/policy.yaml`)
     "/etc/shellfirm",
 ];
@@ -4184,6 +4642,63 @@ fn under_dir(path: &str, dir: &str) -> bool {
         || path.contains(&format!("{dir}/"))
 }
 
+/// Agent homes an environment variable can move, the `~/` directory they
+/// replace, and the entries in them that hold shellfirm's hook or the
+/// agent's settings.
+const MOVED_AGENT_HOMES: &[(&str, &str, &[&str])] = &[
+    (
+        "CLAUDE_CONFIG_DIR",
+        "~/.claude",
+        &["settings.json", "settings.local.json", "hooks"],
+    ),
+    ("CODEX_HOME", "~/.codex", &["config.toml", "hooks.json"]),
+    ("COPILOT_HOME", "~/.copilot", &["hooks"]),
+];
+
+/// The directory `var` moves an agent home to (absolute, normalised and
+/// lower-cased like the paths it is compared with). A relative value is
+/// resolved against the current directory, as the agent and `shellfirm
+/// connect` resolve it.
+fn moved_agent_home(var: &str) -> Option<String> {
+    let v = std::env::var(var).ok()?;
+    let v = v.trim();
+    if v.is_empty() {
+        return None;
+    }
+    let cwd = std::env::current_dir().ok();
+    let d = normalize_tool_path(v, cwd.as_deref()).to_lowercase();
+    (d.starts_with('/') && d.len() > 1).then_some(d)
+}
+
+/// `true` when `norm` (normalised, lower-cased) is a settings or hook file
+/// of an agent home moved by an environment variable
+/// (`$CLAUDE_CONFIG_DIR/settings.json`, `$CODEX_HOME/hooks.json`, ...).
+fn in_moved_agent_home(norm: &str) -> bool {
+    MOVED_AGENT_HOMES.iter().any(|(var, _, entries)| {
+        moved_agent_home(var).is_some_and(|d| {
+            entries.iter().any(|e| {
+                let p = format!("{d}/{e}");
+                norm == p || norm.starts_with(&format!("{p}/"))
+            })
+        })
+    })
+}
+
+/// `path` under a moved agent home, written as under the default home.
+///
+/// `$CLAUDE_CONFIG_DIR/.credentials.json` → `~/.claude/.credentials.json`:
+/// the form the secret-file checks know. The home is matched
+/// case-insensitively; the rest of the path keeps its case.
+#[must_use]
+pub fn moved_agent_home_alias(path: &str) -> Option<String> {
+    let norm = normalize_tool_path(path, None);
+    MOVED_AGENT_HOMES.iter().find_map(|(var, default, _)| {
+        let d = moved_agent_home(var)?;
+        let (head, rest) = (norm.get(..d.len())?, norm.get(d.len()..)?);
+        (head.to_lowercase() == d && rest.starts_with('/')).then(|| format!("{default}{rest}"))
+    })
+}
+
 /// What kind of protected file a path is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProtectedKind {
@@ -4223,7 +4738,8 @@ fn protected_kind(
         || PROTECTED_SUFFIXES.iter().any(|s| norm.ends_with(s))
         || PROTECTED_DIRS.iter().any(|d| under_dir(&norm, d))
         || (matches!(name, "shellfirm" | "shellfirm.exe") && parent == "bin")
-        || org_policy_env_path().is_some_and(|p| norm == p);
+        || org_policy_env_path().is_some_and(|p| norm == p)
+        || in_moved_agent_home(&norm);
     if protected {
         return Some(ProtectedKind::Config);
     }
@@ -4291,12 +4807,18 @@ pub fn protected_path_hit(
     }
 }
 
-/// The path a file tool writes, plus what it resolves to on disk: the
-/// longest existing prefix is canonicalised (symlinked files and
-/// directories are followed) and a dangling symlink's target is added.
+/// The path a file tool writes, plus what it resolves to on disk.
+///
+/// `~` is the home directory, the longest existing prefix is canonicalised
+/// (symlinked files and directories are followed) and a dangling symlink's
+/// target is added.
 #[must_use]
 pub fn resolved_tool_paths(path: &str, cwd: Option<&Path>) -> Vec<String> {
-    let lexical = normalize_tool_path(path, cwd);
+    let home = (path == "~" || path.starts_with("~/"))
+        .then(crate::env::home_dir)
+        .flatten()
+        .map(|h| format!("{}{}", h.display(), &path[1..]));
+    let lexical = normalize_tool_path(home.as_deref().unwrap_or(path), cwd);
     let mut out = vec![lexical.clone()];
     let p = Path::new(&lexical);
     if p.is_absolute() {
@@ -4326,6 +4848,52 @@ pub fn resolved_tool_paths(path: &str, cwd: Option<&Path>) -> Vec<String> {
         }
     }
     out
+}
+
+/// Rule for a file tool that overwrites or deletes a private key or
+/// credential file ([`CREDENTIAL_PATHS`]).
+pub const CREDENTIAL_FILE_RULE: &str = "shellfirm-self:credential_file_edit";
+
+/// The [`CREDENTIAL_PATHS`] entry `path` is (under), when `path` is in the
+/// home directory (`home`, `/home/<user>`, `/Users/<user>` or `/root`).
+/// Public keys and `known_hosts` are not secrets.
+///
+/// Compared case-insensitively (macOS and Windows file systems usually
+/// are: `~/.SSH/id_rsa` is the key). The login files of an agent home moved
+/// by an environment variable (`$CLAUDE_CONFIG_DIR/.credentials.json`,
+/// `$CODEX_HOME/auth.json`) count too.
+fn credential_entry(path: &str, home: Option<&Path>) -> Option<&'static str> {
+    let norm = normalize_tool_path(path, None).to_lowercase();
+    if let Some(alias) = moved_agent_home_alias(&norm) {
+        if let Some(e) = CREDENTIAL_PATHS.iter().copied().find(|e| *e == alias) {
+            return Some(e);
+        }
+    }
+    let in_home = home
+        .map(|h| normalize_tool_path(&h.display().to_string(), None).to_lowercase())
+        .filter(|h| h.len() > 1)
+        .and_then(|h| norm.strip_prefix(&format!("{h}/")).map(str::to_string));
+    let usual = || {
+        norm.strip_prefix("/root/").map(str::to_string).or_else(|| {
+            ["/home/", "/users/"].iter().find_map(|p| {
+                norm.strip_prefix(p)
+                    .and_then(|r| r.split_once('/'))
+                    .map(|(_, rest)| rest.to_string())
+            })
+        })
+    };
+    let rest = in_home.or_else(usual)?;
+    let name = rest.rsplit('/').next().unwrap_or("").to_ascii_lowercase();
+    if rest.starts_with(".ssh/")
+        && (Path::new(&name).extension().is_some_and(|e| e == "pub")
+            || name.starts_with("known_hosts"))
+    {
+        return None;
+    }
+    CREDENTIAL_PATHS.iter().copied().find(|e| {
+        let e = &e[2..];
+        rest == e || rest.starts_with(&format!("{e}/"))
+    })
 }
 
 /// `context.sensitive_paths` entries that `path` is (under), `~`/`$HOME`
@@ -4367,6 +4935,9 @@ pub fn assess_file_tool(
 /// `sensitive` are the entries (`home` expands `~`): a write under one of
 /// them is matched as `fs:sensitive_path` and decided like a command with
 /// that severity (deny at/above `agent.auto_deny_severity`, otherwise ask).
+/// A private key or credential file in `home` is asked about
+/// ([`CREDENTIAL_FILE_RULE`]); Cursor's `Delete` tool deleting one is
+/// decided like `rm` of it.
 #[must_use]
 pub fn assess_file_tool_with(
     tool: &str,
@@ -4377,6 +4948,40 @@ pub fn assess_file_tool_with(
     sensitive: &[String],
     home: Option<&Path>,
 ) -> RiskAssessment {
+    let target = FileTarget {
+        path,
+        deletes: tool == "Delete",
+        cwd,
+        config_dir,
+        home,
+    };
+    assess_file_target(tool, &target, agent_config, sensitive)
+}
+
+/// The file a file tool changes.
+struct FileTarget<'a> {
+    path: &'a str,
+    /// The tool deletes the file (`Delete`, an `apply_patch` `*** Delete File:`).
+    deletes: bool,
+    cwd: Option<&'a Path>,
+    config_dir: Option<&'a Path>,
+    home: Option<&'a Path>,
+}
+
+#[allow(clippy::too_many_lines)]
+fn assess_file_target(
+    tool: &str,
+    target: &FileTarget<'_>,
+    agent_config: &AgentConfig,
+    sensitive: &[String],
+) -> RiskAssessment {
+    let FileTarget {
+        path,
+        deletes,
+        cwd,
+        config_dir,
+        home,
+    } = *target;
     let candidates = resolved_tool_paths(path, cwd);
     let mut config_dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Some(d) = config_dir {
@@ -4386,7 +4991,9 @@ pub fn assess_file_tool_with(
         }
     }
     let shown = sanitize_untrusted(path, 300);
-    // Persistence files stay protected with `self_protection: false`.
+    let verb = if deletes { "deletes" } else { "modifies" };
+    // Persistence and credential files stay protected with
+    // `self_protection: false`.
     let hit = candidates
         .iter()
         .find_map(|c| {
@@ -4396,7 +5003,17 @@ pub fn assess_file_tool_with(
                     .find_map(|d| protected_path_hit(c, None, Some(d)))
             })
         })
-        .filter(|h| agent_config.self_protection || PERSISTENCE_RULES.contains(&h.id));
+        .filter(|h| agent_config.self_protection || PERSISTENCE_RULES.contains(&h.id))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find_map(|c| credential_entry(c, home))
+                .map(|_| SelfProtectionHit {
+                    id: CREDENTIAL_FILE_RULE,
+                    description: "Overwrites or deletes a private key or credential file \
+                                  (SSH, GPG, cloud, registry or git credentials)",
+                })
+        });
     // A protected file is at least `ask`; a sensitive path may make it
     // `deny` (the stricter decision wins, both rules are reported).
     let protected = hit.map(|hit| {
@@ -4410,17 +5027,39 @@ pub fn assess_file_tool_with(
                 "a file that grants access or runs code later (login, scheduled task, git hook)"
             }
             "shellfirm-self:agent_instructions_edit" => "an AI-agent instruction file",
+            CREDENTIAL_FILE_RULE => "a private key or credential file",
+            "shellfirm-self:rc_file_edit" => "a shell startup file",
             _ => "a file that controls shellfirm or the agent's settings/hooks",
         };
+        // Deleting a key is `rm` of it (`fs:delete_credentials`, critical).
+        let severity = if deletes && hit.id == CREDENTIAL_FILE_RULE {
+            Severity::Critical
+        } else {
+            Severity::High
+        };
+        let threshold = agent_config.auto_deny_severity;
+        let decision = if severity == Severity::Critical
+            && severity >= threshold
+            && !agent_config.require_human_approval
+        {
+            Decision::Deny
+        } else {
+            Decision::Ask
+        };
+        let tail = if decision == Decision::Deny {
+            format!("; severity {severity}, agent auto-deny threshold {threshold}")
+        } else {
+            "; a human must approve this file edit".to_string()
+        };
         let mut a = RiskAssessment::fail_closed(
-            Decision::Ask,
-            format!(
-                "This {tool} call modifies {shown}{via}, {what}; a human must approve this file edit"
-            ),
+            decision,
+            format!("This {tool} call {verb} {shown}{via}, {what}{tail}"),
         );
-        a.severity = Some(Severity::High);
-        a.effective_severity = Some(Severity::High);
-        a.matched_rules.push(self_rule(hit.id, hit.description));
+        a.severity = Some(severity);
+        a.effective_severity = Some(severity);
+        let mut rule = self_rule(hit.id, hit.description);
+        rule.severity = severity;
+        a.matched_rules.push(rule);
         a
     });
 
@@ -4447,8 +5086,9 @@ pub fn assess_file_tool_with(
     let mut a = RiskAssessment::fail_closed(
         decision,
         format!(
-            "This {tool} call writes {shown}, under the sensitive path {} (context.sensitive_paths); \
+            "This {tool} call {} {shown}, under the sensitive path {} (context.sensitive_paths); \
              severity {severity}, agent auto-deny threshold {threshold}",
+            if deletes { "deletes" } else { "writes" },
             sanitize_untrusted(&entry, 200)
         ),
     );
@@ -4495,14 +5135,41 @@ pub fn assess_file_tool_for(
     settings: &Settings,
     home: Option<&Path>,
 ) -> RiskAssessment {
-    let a = assess_file_tool_with(
+    assess_file_change_for(
         tool,
         path,
+        tool == "Delete",
         cwd,
         config_dir,
+        settings,
+        home,
+    )
+}
+
+/// [`assess_file_tool_for`] for a tool that may delete the file
+/// (`deletes`: an `apply_patch` `*** Delete File:` hunk).
+#[must_use]
+pub fn assess_file_change_for(
+    tool: &str,
+    path: &str,
+    deletes: bool,
+    cwd: Option<&Path>,
+    config_dir: Option<&Path>,
+    settings: &Settings,
+    home: Option<&Path>,
+) -> RiskAssessment {
+    let target = FileTarget {
+        path,
+        deletes,
+        cwd,
+        config_dir,
+        home,
+    };
+    let a = assess_file_target(
+        tool,
+        &target,
         &settings.agent,
         &settings.context.sensitive_paths,
-        home,
     );
     let ignored = !a.matched_rules.is_empty()
         && a.matched_rules
@@ -5586,8 +6253,8 @@ pub fn format_reason(assessment: &RiskAssessment) -> String {
     format_reason_for(assessment, "command")
 }
 
-/// [`format_reason`] for a decision about `subject` (`"command"` or
-/// `"file edit"`).
+/// [`format_reason`] for a decision about `subject` (`"command"`,
+/// `"file edit"` or `"file read"`).
 #[must_use]
 pub fn format_reason_for(assessment: &RiskAssessment, subject: &str) -> String {
     use std::fmt::Write as _;
@@ -5597,13 +6264,25 @@ pub fn format_reason_for(assessment: &RiskAssessment, subject: &str) -> String {
         Decision::Ask if subject == "command" => {
             "shellfirm flagged this command as risky; confirm before running.".to_string()
         }
+        Decision::Ask if subject == "file read" => {
+            "shellfirm flagged this file read as risky; confirm before the file is read."
+                .to_string()
+        }
         Decision::Ask => {
             format!("shellfirm flagged this {subject} as risky; confirm before it is made.")
         }
         Decision::Allow => "shellfirm found no risky patterns.".to_string(),
     };
     parts.push(head);
-    for m in &assessment.matched_rules {
+    // The most severe rule first; on a tie, shellfirm's own protection.
+    let mut rules: Vec<&MatchedRule> = assessment.matched_rules.iter().collect();
+    rules.sort_by_key(|m| {
+        (
+            std::cmp::Reverse(m.severity),
+            m.group != SELF_PROTECTION_GROUP,
+        )
+    });
+    for m in rules {
         let mut line = if m.origin == "project-policy" {
             format!(
                 "[{}] [{}] project policy rule (untrusted text): {:?}",
@@ -5996,6 +6675,8 @@ mod tests {
             "shellfirm config",
             "shellfirm connect claude-code --uninstall",
             "shellfirm init --uninstall",
+            "shellfirm sandbox claude-code --remove",
+            "shellfirm sandbox codex --scope user --uninstall",
             "shellfirm audit clear",
             "/usr/local/bin/shellfirm config deny --remove x",
             "echo ok && shellfirm config severity Critical",
@@ -6158,6 +6839,8 @@ mod tests {
             "shellfirm status",
             "shellfirm audit show",
             "shellfirm connect claude-code --dry-run",
+            "shellfirm sandbox claude-code --scope project",
+            "shellfirm sandbox --list",
             "cat ~/.config/shellfirm/settings.yaml",
             "cat ~/.claude/settings.json 2>/dev/null",
             "jq . ~/.claude/settings.json",
@@ -6610,6 +7293,9 @@ mod tests {
         }
         for c in [
             "SHELLFIRM_LOG=debug shellfirm check -c ls",
+            "echo CODEX_HOME=/tmp",
+            "cat > .env.example <<X\nCODEX_HOME=/tmp/x\nX",
+            "unset CODEX_HOME",
             "echo \"HOME=$HOME\"",
             "GOHOME=/x go build",
             "export PATH=$PATH:~/bin",
@@ -6822,6 +7508,32 @@ mod tests {
     }
 
     #[test]
+    fn search_patterns_naming_config_vars_are_not_assignments() {
+        let env = home_env("/home/dev/projects/webapp");
+        let id = "shellfirm-self:config_env_override";
+        for cmd in [
+            "grep \"export CODEX_HOME=\" ~/.zshrc",
+            "grep 'export CODEX_HOME=' ~/.zshrc",
+            "grep -n \"CODEX_HOME=\" f",
+            "grep -n \"CODEX_HOME=\" ~/.zshrc",
+            "rg \"export COPILOT_HOME=\" .",
+            "cat ~/.zshrc | grep \"export HOME=\"",
+            "rg -n 'CLAUDE_CONFIG_DIR=' ~/.bashrc ~/.profile",
+        ] {
+            let ids = hit_ids(cmd, &env);
+            assert!(!ids.contains(&id), "unexpected {id} for {cmd:?}");
+        }
+        for cmd in [
+            "grep x ~/.zshrc; export CODEX_HOME=/tmp/e",
+            "rg x . && CODEX_HOME=/tmp/e codex",
+            "grep x f | CODEX_HOME=/tmp/e codex",
+        ] {
+            let ids = hit_ids(cmd, &env);
+            assert!(ids.contains(&id), "expected {id} for {cmd:?}, got {ids:?}");
+        }
+    }
+
+    #[test]
     fn rc_file_writes_that_relocate_config_are_flagged() {
         for c in [
             "echo 'export XDG_CONFIG_HOME=/tmp/cfg' >> ~/.zshrc",
@@ -6887,6 +7599,54 @@ mod tests {
     }
 
     // -- file-editing tools --
+
+    #[test]
+    fn sandbox_credential_paths_are_the_read_check_paths() {
+        // Every path `shellfirm sandbox` denies reading holds files that
+        // `exfil:read_secret_file` asks about, so the two lists agree.
+        let settings = Settings::default();
+        let checks = settings.get_active_checks().unwrap();
+        for p in CREDENTIAL_PATHS {
+            let cmd = format!("cat {}", credential_sample_file(p));
+            let a = assess_command(
+                &cmd,
+                &settings,
+                &checks,
+                &test_env(),
+                &AgentConfig::default(),
+            )
+            .unwrap();
+            assert!(
+                a.matched_rules
+                    .iter()
+                    .any(|r| r.id == "exfil:read_secret_file"),
+                "{cmd} is not matched by exfil:read_secret_file"
+            );
+        }
+        for p in CREDENTIAL_PATHS.iter().chain(SECRET_STORE_PATHS) {
+            assert!(p.starts_with("~/") && !p.ends_with('/'), "{p}");
+        }
+    }
+
+    #[test]
+    fn sandbox_write_paths_are_self_protected() {
+        for p in sandbox_write_protected_paths() {
+            let abs = p.replacen('~', "/home/dev", 1);
+            // A directory entry protects what is in it.
+            let probe = match p.as_str() {
+                "~/.ssh" => format!("{abs}/authorized_keys"),
+                "~/.config/fish" => format!("{abs}/config.fish"),
+                "~/.config/systemd" | "~/.config/autostart" | "~/Library/LaunchAgents" => {
+                    format!("{abs}/x.service")
+                }
+                _ => abs,
+            };
+            assert!(
+                protected_path_hit(&probe, None, None).is_some(),
+                "{probe} is not protected from agent edits"
+            );
+        }
+    }
 
     #[test]
     fn protected_paths_for_file_tools() {
@@ -7000,6 +7760,67 @@ mod tests {
         };
         let a = assess_file_tool("Edit", "/w/.shellfirm.yaml", None, None, &off);
         assert_eq!(a.decision, Decision::Allow);
+    }
+
+    #[test]
+    fn credential_file_tools_and_rule_order() {
+        let ac = AgentConfig::default();
+        let home = Path::new("/home/dev");
+        let write = |p: &str| assess_file_tool_with("Write", p, None, None, &ac, &[], Some(home));
+        for p in [
+            "/home/dev/.ssh/id_rsa",
+            "/home/dev/.aws/credentials",
+            "/home/dev/.git-credentials",
+        ] {
+            let a = write(p);
+            assert_eq!(a.decision, Decision::Ask, "{p}");
+            assert_eq!(a.matched_rules[0].id, CREDENTIAL_FILE_RULE, "{p}");
+        }
+        for p in [
+            "/home/dev/.ssh/id_rsa.pub",
+            "/home/dev/.ssh/known_hosts",
+            "/w/.npmrc",
+        ] {
+            assert_eq!(write(p).decision, Decision::Allow, "{p}");
+        }
+        // Deleting a key is denied (Cursor `Delete`), even with
+        // `self_protection: false`.
+        let off = AgentConfig {
+            self_protection: false,
+            ..AgentConfig::default()
+        };
+        let a = assess_file_tool_with(
+            "Delete",
+            "/home/dev/.ssh/id_rsa",
+            None,
+            None,
+            &off,
+            &[],
+            None,
+        );
+        assert_eq!(a.decision, Decision::Deny);
+        assert!(a.decision_reason.unwrap().contains("Delete call deletes"));
+
+        // The most severe rule leads the reason; self-protection wins a tie.
+        let mut a = RiskAssessment::fail_closed(Decision::Ask, "r");
+        let mut low = self_rule("fs-strict:any_deletion", "deletes files");
+        low.severity = Severity::Low;
+        low.group = "fs-strict".into();
+        let mut high_check = self_rule("fs:x", "a check");
+        high_check.group = "fs".into();
+        a.matched_rules = vec![
+            low,
+            high_check,
+            self_rule("shellfirm-self:protected_file_write", "own hook"),
+        ];
+        let text = format_reason_for(&a, "command");
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(
+            lines[1].starts_with("[shellfirm-self:protected_file_write]"),
+            "{text}"
+        );
+        assert!(lines[2].starts_with("[fs:x]"), "{text}");
+        assert!(lines[3].starts_with("[fs-strict:any_deletion]"), "{text}");
     }
 
     // -- invalid policy --
@@ -7394,9 +8215,35 @@ mod tests {
             ),
             ("claude --settings '{\"disableAllHooks\":true}' -p hi", "shellfirm-self:agent_hooks_bypass"),
             ("claude --dangerously-skip-permissions -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("codex exec --dangerously-bypass-hook-trust x", "shellfirm-self:agent_hooks_bypass"),
+            ("qwen --safe-mode -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("copilot --yolo -p x", "shellfirm-self:agent_hooks_bypass"),
             ("claude -p x --permission-mode bypassPermissions", "shellfirm-self:agent_hooks_bypass"),
             ("echo '{\"disableAllHooks\": true}' > /tmp/s.json", "shellfirm-self:agent_hooks_bypass"),
             ("codex --dangerously-bypass-approvals-and-sandbox exec x", "shellfirm-self:agent_hooks_bypass"),
+            ("gemini -y -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("qwen -y -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("gemini --approval-mode=yolo -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("copilot --allow-all-tools -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("copilot --allow-all -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("codex --sandbox danger-full-access", "shellfirm-self:agent_hooks_bypass"),
+            ("codex -s danger-full-access exec 'ls'", "shellfirm-self:agent_hooks_bypass"),
+            ("codex -c sandbox_mode=danger-full-access", "shellfirm-self:agent_hooks_bypass"),
+            ("codex -c features.hooks=false exec x", "shellfirm-self:agent_hooks_bypass"),
+            ("codex --disable=codex_hooks", "shellfirm-self:agent_hooks_bypass"),
+            ("codex -c 'default_permissions=\":danger-full-access\"'", "shellfirm-self:agent_hooks_bypass"),
+            ("codex -sdanger-full-access exec x", "shellfirm-self:agent_hooks_bypass"),
+            ("sudo /usr/local/bin/cursor-agent --yolo -p x", "shellfirm-self:agent_hooks_bypass"),
+            ("opencode run --dangerously-skip-permissions x", "shellfirm-self:agent_hooks_bypass"),
+            ("bash -c 'gemini -y -p x'", "shellfirm-self:agent_hooks_bypass"),
+            ("shellfirm connect codex --no-fail-closed", "shellfirm-self:connect_fail_open"),
+            ("CODEX_HOME=/tmp/e codex exec x", "shellfirm-self:config_env_override"),
+            ("COPILOT_HOME=/tmp/e copilot -p x", "shellfirm-self:config_env_override"),
+            ("echo '{}' | sponge ~/.codex/hooks.json", "shellfirm-self:protected_file_write"),
+            (
+                "jq '.hooksConfig.disabled=[\"shellfirm\"]' ~/.gemini/settings.json | sponge ~/.gemini/settings.json",
+                "shellfirm-self:protected_file_write",
+            ),
             ("cargo install shellfirm --version 0.2.0 --force", "shellfirm-self:install_other_version"),
             ("cargo install shellfirm@0.2.0", "shellfirm-self:install_other_version"),
             ("npm i -g shellfirm@0.1.0", "shellfirm-self:install_other_version"),
@@ -7426,9 +8273,97 @@ mod tests {
             "npm i -g typescript@5",
             "cd /tmp && rm -rf build",
             "cd ~/.claude && ls",
+            "gemini -p 'explain'",
+            "qwen -p x",
+            "copilot -p 'summarize'",
+            "copilot --allow-all-paths -p x",
+            "codex exec 'run tests'",
+            "codex --sandbox workspace-write exec x",
+            "jq . a.json | sponge a.json",
+            "sort x | sponge x",
+            "yarn add -D foo -y",
+            "gemini -p \"say -y\"",
+            "gemini --prompt='use -y'",
+            "gemini extensions install foo -y",
+            "gemini -p x --yolo-free",
+            "cursor-agent -p 'use --force'",
+            "codex -c model=o3 exec x",
+            "codex --enable hooks",
+            "apt-get install -y gemini",
         ] {
             let ids = hit_ids(cmd, &env);
             assert!(ids.is_empty(), "unexpected {ids:?} for {cmd:?}");
+        }
+    }
+
+    #[test]
+    fn agent_bypass_flags_follow_each_cli_option_grammar() {
+        let env = home_env("/home/dev/projects/webapp");
+        let id = "shellfirm-self:agent_hooks_bypass";
+        for cmd in [
+            // Switches do not take the next word as their value.
+            "claude -p --dangerously-skip-permissions \"fix tests\"",
+            "claude -p --permission-mode bypassPermissions \"x\"",
+            "claude -c --dangerously-skip-permissions",
+            "claude -c --allow-dangerously-skip-permissions",
+            "claude --print --dangerously-skip-permissions x",
+            "claude -p -c --dangerously-skip-permissions x",
+            "claude --model opus --dangerously-skip-permissions -p x",
+            "cursor-agent -p --force \"x\"",
+            "cursor-agent -p --yolo \"x\"",
+            "gemini -s -y -p x",
+            "gemini --sandbox -y",
+            "qwen -s -y",
+            // yargs and clap read a word starting with `-` as an option.
+            "gemini -p -y",
+            "gemini -p --yolo",
+            "gemini --prompt --yolo",
+            "qwen -p -y",
+            "qwen -p '-y'",
+            "gemini -m -y -p x",
+            "gemini -yp x",
+            "gemini -dy",
+            // Codex config spellings.
+            "codex -cfeatures.hooks=false",
+            "codex -c'features.hooks=false' exec x",
+            "codex -c 'features={hooks=false}'",
+            "codex -c 'features = { codex_hooks = false }'",
+            "codex -p p -c profiles.p.sandbox_mode=danger-full-access",
+            "codex -c 'profiles.p={sandbox_mode=\"danger-full-access\"}' -p p",
+            "codex -c profiles.p.default_permissions=danger-full-access",
+            "codex -s=danger-full-access",
+            // Package runners.
+            "npx @google/gemini-cli -y",
+            "npx -y @google/gemini-cli --yolo",
+            "bunx @google/gemini-cli -y",
+            "pnpm dlx @google/gemini-cli@latest -y",
+            "npx @openai/codex@latest --dangerously-bypass-approvals-and-sandbox",
+            "npx @anthropic-ai/claude-code -p --dangerously-skip-permissions x",
+            "bun x @qwen-code/qwen-code -y",
+        ] {
+            let ids = hit_ids(cmd, &env);
+            assert!(ids.contains(&id), "expected {id} for {cmd:?}, got {ids:?}");
+        }
+        for cmd in [
+            "claude -p \"what does --dangerously-skip-permissions do\"",
+            "claude -p 'explain --dangerously-skip-permissions'",
+            "copilot -p \"--allow-all-tools\"",
+            "gemini -p \"say -y\"",
+            "gemini -p 'run apt -y'",
+            "gemini extensions install foo -y",
+            "gemini mcp add x -y",
+            "gemini -p x --yolo-free",
+            "gemini -p yes",
+            "codex -c model=o3",
+            "codex -c features.web_search=false",
+            "codex -s read-only exec x",
+            "codex -p work exec x",
+            "npx @google/gemini-cli --version",
+            "npx prettier -y",
+            "npm i -g @google/gemini-cli",
+        ] {
+            let ids = hit_ids(cmd, &env);
+            assert!(!ids.contains(&id), "unexpected {id} for {cmd:?}");
         }
     }
 
@@ -7894,7 +8829,22 @@ mod tests {
                 "{p}"
             );
         }
-        for p in ["/etc/shellfirm/policy.yaml", "/home/dev/.codex/config.toml"] {
+        for p in [
+            "/etc/shellfirm/policy.yaml",
+            "/home/dev/.codex/config.toml",
+            "/home/dev/.codex/hooks.json",
+            "/w/.codex/hooks.json",
+            "/home/dev/.gemini/settings.json",
+            "/home/dev/.qwen/settings.json",
+            "/home/dev/.copilot/hooks/shellfirm.json",
+            "/w/.github/hooks/shellfirm.json",
+            "/home/dev/.codeium/windsurf/hooks.json",
+            "/w/.windsurf/hooks.json",
+            "/Users/dev/Documents/Cline/Hooks/PreToolUse",
+            "/w/.clinerules/hooks/PreToolUse",
+            "/home/dev/.config/opencode/plugins/shellfirm.js",
+            "/w/.opencode/plugins/shellfirm.js",
+        ] {
             assert_eq!(
                 protected_path_hit(p, None, None).map(|h| h.id),
                 Some("shellfirm-self:protected_file_edit"),
@@ -7936,6 +8886,13 @@ mod tests {
             "sudo mv /etc/shellfirm/policy.yaml /tmp/",
             "sudo sed -i '/deny/d' /etc/shellfirm/policy.yaml",
             "echo x > ~/.codex/config.toml",
+            "echo '{}' > ~/.codex/hooks.json",
+            "rm ~/.gemini/settings.json",
+            "rm -f ~/.copilot/hooks/shellfirm.json",
+            "mv ~/.codeium/windsurf/hooks.json /tmp/",
+            "rm ~/Documents/Cline/Hooks/PreToolUse",
+            "rm ~/.config/opencode/plugins/shellfirm.js",
+            "sed -i 's/shellfirm//' .qwen/settings.json",
         ] {
             let hits = self_protection_hits_in(c, &env);
             assert!(

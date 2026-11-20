@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_eval;
 mod agent_patterns;
 pub mod audit;
 pub mod blast_radius;
@@ -16,6 +17,7 @@ pub mod parser;
 pub mod policy;
 mod prefilter;
 pub mod prompt;
+pub mod replay;
 #[cfg(feature = "tui")]
 pub mod tui;
 #[cfg(feature = "wrap")]

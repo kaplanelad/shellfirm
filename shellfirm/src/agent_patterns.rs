@@ -6,7 +6,7 @@
 //! rules run on every agent check, and a rule whose literals are absent from
 //! the command is skipped without compiling its regex.
 
-pub const SHELLFIRM_SUB: &str = r#"(?:^|[\s;&|(`'"])(?:[^\s;&|()'"`]*/)?shellfirm\s+(?:--log(?:=|\s+)\S+\s+)?(config|connect|init|audit)\b([^;&|\n]*)"#;
+pub const SHELLFIRM_SUB: &str = r#"(?:^|[\s;&|(`'"])(?:[^\s;&|()'"`]*/)?shellfirm\s+(?:--log(?:=|\s+)\S+\s+)?(config|connect|init|audit|sandbox)\b([^;&|\n]*)"#;
 
 pub const PKG_UNINSTALL: &str = r"\b(?:cargo|brew|npm|pnpm|yarn|pip3?|pipx|apt|apt-get|dnf|yum|pacman)\s+(?:uninstall|remove|rm|purge|-R)\b[^;&|\n]*shellfirm";
 
@@ -16,7 +16,11 @@ pub const PROTECTED_FILES: &str = concat!(
     r"|\.shellfirm\.ya?ml(?:$|[^\w.])|\.claude/settings(?:\.local)?\.json|\.claude\.json|\.mcp\.json",
     // the org policy (`/etc/shellfirm/policy.yaml`) and Codex's config
     r"|/etc/shellfirm\b|\.codex/config\.toml",
-    r"|\.cursor/(?:hooks|mcp)\.json|\.codeium/windsurf/mcp_config\.json|zed/settings\.json",
+    r"|\.cursor/(?:hooks|mcp)\.json|\.codeium/windsurf/(?:mcp_config|hooks)\.json|zed/settings\.json",
+    // hook files of Codex, Gemini CLI, Qwen Code, Copilot CLI, Windsurf,
+    // Cline and OpenCode
+    r"|\.codex/hooks\.json|\.(?:gemini|qwen)/settings\.json|\.copilot/hooks/|\.github/hooks/shellfirm\.json",
+    r"|\.windsurf/hooks\.json|Cline/Hooks/|\.clinerules/hooks/|opencode/plugins?/",
     r"|bin/shellfirm\b|/shellfirm/audit\.log|/shellfirm/checks\b",
     // path joins in interpreter code: os.path.join(home, '.claude', 'settings.json')
     r#"|\.claude['"]?\s*[,+/]\s*['"]settings(?:\.local)?\.json|shellfirm['"]?\s*[,+/]\s*['"](?:settings\.ya?ml|checks|audit\.log)"#,
@@ -26,7 +30,7 @@ pub const PROTECTED_FILES: &str = concat!(
 pub const RC_FILES: &str = r"(?:\.(?:bashrc|bash_profile|zshrc|zprofile|zshenv|profile)\b|config\.fish\b|config\.nu\b|\.elvish/rc\.elv|Microsoft\.PowerShell_profile\.ps1)";
 
 pub const WRITE_OP: &str = concat!(
-    r"(?:(?:^|[\s;&|(`])(?:sudo\s+)?(?:rm|mv|ln|unlink|shred|truncate|tee|chmod|chown|chattr|dd|ed|ex|vi|vim|nvim|nano|emacs|perl|python[0-9.]*|ruby|node|deno|bun|osascript|patch|unzip|wget)\b",
+    r"(?:(?:^|[\s;&|(`])(?:sudo\s+)?(?:rm|mv|ln|unlink|shred|truncate|tee|chmod|chown|chattr|dd|ed|ex|vi|vim|nvim|nano|emacs|perl|python[0-9.]*|ruby|node|deno|bun|osascript|patch|unzip|wget|sponge)\b",
     r"|\bsed\b[^;&|\n]*\s-[A-Za-z]*i|\byq\b[^;&|\n]*\s-i|\bjq\b[^;&|\n]*>",
     r"|\bcurl\b[^;&|\n]*\s(?:-[A-Za-z]*[oO]|--output\b|--remote-name)",
     r"|\bgit\s+(?:-C\s+\S+\s+)?(?:restore|checkout|stash|apply|am|rm|mv)\b",
@@ -38,15 +42,19 @@ pub const DEV_NULL: &str = r"[0-9&]*>{1,2}&?\s*/dev/(?:null|stdout|stderr)\b|[0-
 
 pub const TRAP: &str = r"(?:^|[\s;&|(])trap\s+([^;&|\n]*)";
 
+/// An assignment of a config-location variable in command position (a
+/// prefix of a command, `export`, `declare -x`, `env X=`), not the text of
+/// an argument (`echo CODEX_HOME=/tmp`).
 pub const ENV_OVERRIDE_0: &str = concat!(
-    r"(?:^|[\s;&|(`])(?:export\s+|declare\s+-[a-zA-Z]*x[a-zA-Z]*\s+|typeset\s+-[a-zA-Z]*x[a-zA-Z]*\s+",
-    r"|env\s+(?:-\S+\s+)*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)?",
-    r"(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|SHELLFIRM_[A-Z0-9_]+)=",
+    r#"(?:^|[;&|(`{\n'"]|\b(?:then|do|else|sudo|doas|exec|command|nohup|time|xargs)\s)\s*"#,
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*",
+    r"(?:(?:export|declare\s+-[a-zA-Z]*x[a-zA-Z]*|typeset\s+-[a-zA-Z]*x[a-zA-Z]*|env(?:\s+-\S+)*)\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)?",
+    r"(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|CODEX_HOME|COPILOT_HOME|GEMINI_CLI_HOME|QWEN_HOME|SHELLFIRM_[A-Z0-9_]+)=",
 );
 
-pub const ENV_OVERRIDE_1: &str = r"(?:^|[\s;&|(`])(?:set\s+-[a-zA-Z]*x[a-zA-Z]*|setenv)\s+(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|SHELLFIRM_[A-Z0-9_]+)\b";
+pub const ENV_OVERRIDE_1: &str = r"(?:^|[\s;&|(`])(?:set\s+-[a-zA-Z]*x[a-zA-Z]*|setenv)\s+(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|CODEX_HOME|COPILOT_HOME|GEMINI_CLI_HOME|QWEN_HOME|SHELLFIRM_[A-Z0-9_]+)\b";
 
-pub const ENV_OVERRIDE_2: &str = r"(?:^|[\s;&|(`])(?:unset\s+(?:-v\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s+)*|env\s+(?:-\S+\s+)*(?:-u|--unset)(?:=|\s+))(XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|SHELLFIRM_[A-Z0-9_]+)\b";
+pub const ENV_OVERRIDE_2: &str = r"(?:^|[\s;&|(`])(?:unset\s+(?:-v\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s+)*|env\s+(?:-\S+\s+)*(?:-u|--unset)(?:=|\s+))(XDG_CONFIG_HOME|HOME|SHELLFIRM_[A-Z0-9_]+)\b";
 
 pub const RC_ENV_LINE: &str = r"\b(?:XDG_CONFIG_HOME|HOME|CLAUDE_CONFIG_DIR|SHELLFIRM_[A-Z0-9_]+|PROMPT_COMMAND|precmd_functions|preexec_functions)\s*=|\btrap\b|\bunset\s+-f\b|\bzle\s+-[ADN]\b|\badd-zsh-hook\b|\bset\s+-[a-zA-Z]*x[a-zA-Z]*\s+(?:XDG_CONFIG_HOME|HOME)\b";
 
@@ -63,14 +71,6 @@ pub const HOOK_TAMPER_3: &str =
 pub const HOOK_TAMPER_4: &str = r"(?:^|[\s;&|(])(?:export\s+)?PROMPT_COMMAND\s*=|\bpreexec_functions\s*=|\bprecmd_functions\s*=";
 
 pub const HOOK_TAMPER_5: &str = r"\balias\s+shellfirm=|\bunalias\b[^;&|\n]*shellfirm|(?:^|[\s;&|(])(?:function\s+)?shellfirm\s*\(\s*\)";
-
-pub const AGENT_BYPASS: &str = concat!(
-    r"\bdisableAllHooks\b",
-    r#"|(?:^|[\s;&|(`'"])(?:[^\s;&|()'"`]*/)?(?:claude|codex|cursor-agent|gemini)\s[^;&|\n]*?"#,
-    r"(?:--settings\b|--setting-sources\b|--bare\b|--dangerously-skip-permissions\b",
-    r"|--allow-dangerously-skip-permissions\b|--permission-mode(?:=|\s+)['\x22]?bypassPermissions",
-    r"|--dangerously-bypass-approvals-and-sandbox\b|--yolo\b)",
-);
 
 pub const OTHER_VERSION: &str = concat!(
     r"\bcargo\s+(?:\+\S+\s+)?install\b[^;&|\n]*(?:shellfirm@|\bshellfirm\b[^;&|\n]*\s--(?:version|vers|git|path|rev|tag|branch)\b",
@@ -126,7 +126,6 @@ pub const ALL: &[&str] = &[
     HOOK_TAMPER_3,
     HOOK_TAMPER_4,
     HOOK_TAMPER_5,
-    AGENT_BYPASS,
     OTHER_VERSION,
     BULK_REWRITE,
     EXTRACT_ELSEWHERE,

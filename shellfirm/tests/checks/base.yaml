@@ -486,3 +486,101 @@
 - test: "csrutil status"
   description: "negative: querying SIP status is read-only"
   expect_ids: []
+
+# -- base:disable_history --
+- test: "unset HISTFILE"
+  description: "unset HISTFILE"
+  expect_ids: ["base:disable_history"]
+- test: "export HISTFILE=/dev/null"
+  description: "HISTFILE to /dev/null"
+  expect_ids: ["base:disable_history"]
+- test: "set +o history"
+  description: "set +o history"
+  expect_ids: ["base:disable_history"]
+- test: "HISTFILE=/dev/null"
+  description: "plain assignment"
+  expect_ids: ["base:disable_history"]
+- test: "export HISTSIZE=0"
+  description: "history size zero"
+  expect_ids: ["base:disable_history"]
+- test: "unset HISTFILE HISTSIZE"
+  description: "several names"
+  expect_ids: ["base:disable_history"]
+- test: "export HISTSIZE=10000"
+  description: "negative: a larger history"
+  expect_ids: []
+- test: "export HISTFILE=~/.zsh_history"
+  description: "negative: a history file path"
+  expect_ids: []
+- test: "set -o history"
+  description: "negative: set -o history"
+  expect_ids: []
+- test: "set -euo pipefail"
+  description: "negative: strict mode"
+  expect_ids: []
+- test: "unset NODE_OPTIONS"
+  description: "negative: unset another variable"
+  expect_ids: []
+
+# -- base:disable_history (shopt) --
+- test: "shopt -u -o history"
+  description: "history option off"
+  expect_ids: ["base:disable_history"]
+- test: "shopt -ou history"
+  description: "bundled -ou"
+  expect_ids: ["base:disable_history"]
+- test: "shopt -s -o history"
+  description: "negative: history on"
+  expect_ids: []
+- test: "shopt -u histappend"
+  description: "negative: another option"
+  expect_ids: []
+
+# -- base:clear_history_file --
+- test: "rm -f ~/.bash_history"
+  description: "the bash history deleted"
+  expect_ids: ["base:clear_history_file", "fs-strict:any_deletion"]
+- test: "rm ~/.zsh_history"
+  description: "the zsh history deleted"
+  expect_ids: ["base:clear_history_file", "fs-strict:any_deletion"]
+- test: "> ~/.bash_history"
+  description: "emptied by a redirection"
+  expect_ids: ["base:clear_history_file", "fs:flush_file_content"]
+- test: ": > ~/.zsh_history"
+  description: "emptied with :"
+  expect_ids: ["base:clear_history_file", "fs:flush_file_content"]
+- test: "truncate -s0 ~/.zsh_history"
+  description: "truncated"
+  expect_ids: ["base:clear_history_file", "fs:truncate_zero"]
+- test: "ln -sf /dev/null ~/.bash_history"
+  description: "pointed at /dev/null"
+  expect_ids: ["base:clear_history_file", "fs:clobber_with_dev_null"]
+- test: "rm -f ./history.txt"
+  description: "negative: an ordinary file"
+  expect_ids: ["fs-strict:any_deletion"]
+- test: "history | grep ssh"
+  description: "negative: reading history"
+  expect_ids: []
+
+# -- base:wipe_system_logs --
+- test: "truncate -s 0 /var/log/auth.log"
+  description: "the login log emptied"
+  expect_ids: ["base:wipe_system_logs"]
+- test: "sudo truncate -s 0 /var/log/*"
+  description: "every system log emptied"
+  expect_ids: ["base:wipe_system_logs", "fs:truncate_zero"]
+- test: ": > /var/log/syslog"
+  description: "the syslog emptied"
+  expect_ids: ["base:wipe_system_logs", "fs:flush_file_content"]
+- test: "cat /dev/null > /var/log/wtmp"
+  description: "the login records emptied"
+  expect_ids: ["base:wipe_system_logs", "fs:flush_file_content"]
+- test: "truncate -s 0 app.log"
+  description: "negative: a project log"
+  expect_ids: []
+- test: ": > ./build.log"
+  description: "negative: a build log"
+  expect_ids: []
+- test: "tail -f /var/log/syslog"
+  description: "negative: reading the syslog"
+  expect_ids: []

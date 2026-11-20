@@ -4,7 +4,9 @@
   id: github:repo_delete
   severity: Critical
 - from: github
-  test: (?:^|\s)gh\s+repo\s+archive(\s|$)
+  # `gh repo archive`, or the REST call that does the same
+  # (`gh api -X PATCH repos/OWNER/REPO -f archived=true`).
+  test: '(?:^|\s)gh\s+repo\s+archive(\s|$)|(?:^|\s)gh\s+api\s+(?:\S+\s+)*?(?:-[fF]\s*|--(?:raw-)?field(?:\s+|=))archived=true(?:\s|$)'
   description: "Archiving a repository makes it read-only and can break workflows."
   id: github:repo_archive
   severity: High
@@ -54,6 +56,16 @@
   alternative: "gh api repos/<owner>/<repo>/git/refs/heads/<branch>"
   alternative_info: "Read the ref first (a GET) and make sure it is not a protected branch."
 - from: github
+  # Deleting a repository or organization webhook through the API (any
+  # order of `-X DELETE` and the path): the CI, deploy or security
+  # integration behind it stops getting events.
+  test: '(?:^|\s)gh\s+api\s+(?:(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?DELETE["'']?\s+(?:\S+\s+)*?/?(?:repos/[^/\s]+/[^/\s]+|orgs/[^/\s]+)/hooks/\d+|(?:\S+\s+)*?/?(?:repos/[^/\s]+/[^/\s]+|orgs/[^/\s]+)/hooks/\d+\s+(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?DELETE["'']?)(?:\s|$)'
+  description: "This deletes a repository or organization webhook through the GitHub API: the integration behind it (CI, deploys, security scanning) stops getting events."
+  id: github:api_delete_webhook
+  severity: Medium
+  alternative: "gh api repos/OWNER/REPO/hooks"
+  alternative_info: "List the webhooks first and check which integration this one belongs to."
+- from: github
   # DELETE / PUT / PATCH on `branches/<b>/protection` (or a sub-path) removes
   # or rewrites the protection rules.
   test: '(?:^|\s)gh\s+api\s+(?:(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?(?:DELETE|PUT|PATCH|POST)["'']?\s+(?:\S+\s+)*?/?repos/\S+/branches/\S+/protection\S*|(?:\S+\s+)*?/?repos/\S+/branches/\S+/protection\S*\s+(?:\S+\s+)*?(?:-X|--method)[\s=]*["'']?(?:DELETE|PUT|PATCH|POST)["'']?)(?:\s|$)'
@@ -62,3 +74,28 @@
   severity: High
   alternative: "gh api repos/<owner>/<repo>/branches/<branch>/protection"
   alternative_info: "Read the current protection rules first (a GET)."
+- from: github
+  test: (?:^|\s)gh\s+workflow\s+disable(?:\s|$)
+  description: "This turns a GitHub Actions workflow off: its CI, deploy or security checks stop running."
+  id: github:workflow_disable
+  severity: Medium
+  alternative: "gh workflow list"
+  alternative_info: "Check which workflow it is first; `gh workflow enable` turns it back on."
+- from: github
+  # `gh secret set NAME < /dev/null`, `gh variable set NAME --body ""`: the
+  # secret or variable is replaced with nothing.
+  test: '(?:^|\s)gh\s+(?:secret|variable)\s+set\s+(?:\S+\s+)*?(?:<\s*/dev/null(?:\s|$)|(?:-b|--body)(?:\s+|=)?(?:""|'''')?(?:\s+-|\s*$))'
+  description: "This replaces a GitHub secret or variable with an empty value: pipelines that use it break as if it were deleted."
+  id: github:secret_set_empty
+  severity: Medium
+- from: github
+  # The API form of `gh repo edit --visibility public`.
+  test: '(?:^|\s)gh\s+api\s+(?:\S+\s+)*?-[fF]\s*visibility=public(?:\s|$)|(?:^|\s)gh\s+api\s+(?:\S+\s+)*?-[fF]\s*private=false(?:\s|$)'
+  description: "This makes the repository public through the GitHub API: its code and history become visible to everyone."
+  id: github:api_make_public
+  severity: High
+- from: github
+  test: '(?:^|\s)gh\s+api\s+(?:\S+\s+)*?repos/[^/\s]+/[^/\s]+/actions/permissions\s+(?:\S+\s+)*?-[fF]\s*enabled=false(?:\s|$)|(?:^|\s)gh\s+api\s+(?:\S+\s+)*?-[fF]\s*enabled=false\s+(?:\S+\s+)*?repos/[^/\s]+/[^/\s]+/actions/permissions(?:\s|$)'
+  description: "This turns GitHub Actions off for the repository: no workflow (CI, deploys, security scans) runs."
+  id: github:api_disable_actions
+  severity: High
