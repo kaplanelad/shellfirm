@@ -1,6 +1,8 @@
 //! `shellfirm audit replay` end to end: the binary reads synthetic Claude
 //! Code and Codex CLI transcripts under a fixture `HOME`.
-#![cfg(feature = "cli")]
+// The fixture home is set through `HOME`, which Windows does not use for the
+// home directory, so these runs are Unix only.
+#![cfg(all(feature = "cli", unix))]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};

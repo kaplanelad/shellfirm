@@ -15,6 +15,9 @@
 //!   `pre_read_code`)
 //! - OpenCode: the payload sent by the plugin `shellfirm connect opencode`
 //!   writes
+// The fixture home is set through `HOME`, which Windows does not use for the
+// home directory, so these runs are Unix only.
+#![cfg(unix)]
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
