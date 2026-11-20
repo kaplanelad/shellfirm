@@ -890,13 +890,19 @@ mod tests {
             HookKind::Qwen,
             &json!({"cwd": "/w", "tool_name": "run_shell_command", "tool_input": {"command": "make", "directory": "sub"}}),
         );
-        assert_eq!(p.cwd.as_deref(), Some("/w/sub"));
+        assert_eq!(
+            p.cwd.as_deref(),
+            std::path::Path::new("/w").join("sub").to_str()
+        );
         // OpenCode: `workdir` is relative to the session directory.
         let p = parsed(
             HookKind::OpenCode,
             &json!({"tool_name": "bash", "tool_input": {"command": "ls", "workdir": "pkg"}, "cwd": "/w"}),
         );
-        assert_eq!(p.cwd.as_deref(), Some("/w/pkg"));
+        assert_eq!(
+            p.cwd.as_deref(),
+            std::path::Path::new("/w").join("pkg").to_str()
+        );
         // Cline CLI: several commands are checked line by line, and the
         // tool call id is kept.
         let p = parsed(
