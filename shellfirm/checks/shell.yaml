@@ -112,3 +112,16 @@
   description: "This runs a PowerShell command hidden in base64 (-EncodedCommand), so you cannot see what it does."
   id: shell:powershell_encoded_command
   severity: High
+- from: shell
+  # Inline code that downloads more code and runs it: `python3 -c
+  # "exec(urlopen(URL).read())"`, `node -e "https.get(URL, … eval(d))"`,
+  # `ruby -e "eval(Net::HTTP.get(…))"`, the same as `curl URL | python3`.
+  # A method named eval (`model.eval()`, `df.eval(…)`) is not the builtin;
+  # `builtins.exec(…)`, `__builtins__.exec(…)` and
+  # `getattr(__builtins__, 'exec')(…)` are.
+  test: '^(?:(?:python[0-9.]*|pypy[0-9.]*)\s+(?:\S+\s+)*?-[a-zA-Z]*c(?:\s\S*)?[^.\w](?:(?:(?:__builtins__\.|builtins\.)?(?:exec|eval)|getattr\(\x01*(?:__builtins__|builtins)\x01*,\x01*\W?(?:exec|eval)\W?\x01*\))\s*\(\S*(?:urlopen|urllib|requests\.|httpx\.|http\.client|urlretrieve)|(?:urlopen|urllib\.request|requests\.get|httpx\.get|http\.client)\S*[^.\w](?:(?:__builtins__\.|builtins\.)?(?:exec|eval)|getattr\(\x01*(?:__builtins__|builtins)\x01*,\x01*\W?(?:exec|eval)\W?\x01*\))\s*\()|(?:node|nodejs|bun|deno)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[ep]|--eval|--print|eval)(?:\s+|=)\S*(?:(?:\beval\b|\b(?:Function|vm\.run\w*)\s*\()\S*(?:https?\W{1,4}\.get\s*\(|https?\.request\s*\(|\bfetch\s*\(|axios)|(?:https?\W{1,4}\.get\s*\(|https?\.request\s*\(|\bfetch\s*\(|axios)\S*(?:\beval\b|\b(?:Function|vm\.run\w*)\s*\())|ruby\s+(?:\S+\s+)*?-[a-zA-Z]*e\s+\S*(?:\b(?:eval|instance_eval|class_eval)\b\S*(?:Net::HTTP|open-uri|URI\.open|URI\(\S*\)\.read|open\(\W?https?:)|(?:Net::HTTP|open-uri|URI\.open)\S*\b(?:eval|instance_eval)\b)|perl\s+(?:\S+\s+)*?-[a-zA-Z]*[eE]\s+\S*(?:\beval\b\S*(?:LWP|HTTP::Tiny|IO::Socket)|(?:LWP|HTTP::Tiny)\S*\beval\b)|php\s+(?:\S+\s+)*?-r\s+\S*\beval\s*\(\S*(?:file_get_contents|curl_exec|fopen)\s*\(\S*https?:)'
+  description: "This inline script downloads code from the network and runs it, without any chance to review it first."
+  id: shell:interpreter_remote_exec
+  severity: High
+  alternative: "curl -o script <url> && cat script"
+  alternative_info: "Download the code to a file and read it before running it."

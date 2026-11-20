@@ -10,11 +10,12 @@ pub mod init;
 #[cfg(feature = "mcp")]
 pub mod mcp_cmd;
 pub mod policy_cmd;
+pub mod sandbox_cmd;
 pub mod status_cmd;
 #[cfg(feature = "wrap")]
 pub mod wrap_cmd;
 
-/// `--config-dir DIR` for `status`, `config` and `audit` (global, so it can
+/// `--config-dir DIR` for `status`, `config`, `audit` and `sandbox` (global, so it can
 /// go before or after their subcommands): use the configuration in DIR
 /// instead of the default location or `SHELLFIRM_CONFIG_DIR`. DIR must
 /// exist (exit 2 otherwise), as for `check --config-dir`.

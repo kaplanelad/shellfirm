@@ -1781,7 +1781,9 @@ fn remove_recommended_settings() {
         return;
     };
     let path = &config.setting_file_path;
-    if fs::read_to_string(path).is_ok_and(|c| c.trim() == RECOMMENDED_SETTINGS.trim()) {
+    if shellfirm::config::read_regular_string(path)
+        .is_ok_and(|c| c.trim() == RECOMMENDED_SETTINGS.trim())
+    {
         let _ = fs::remove_file(path);
         if let Some(dir) = path.parent() {
             let _ = fs::remove_dir(dir);

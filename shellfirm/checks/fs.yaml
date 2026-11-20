@@ -12,9 +12,10 @@
   alternative_info: "Moves to trash instead of permanent deletion. Install: brew install trash (macOS) or trash-cli (Linux)."
 - from: fs
   # Credentials and keys in the home directory: losing them locks you out
-  # (SSH, GPG, cloud and cluster credentials).
-  test: '^(?:rm|unlink|shred|srm)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$)'
-  description: "This deletes SSH keys, GPG keys or cloud / cluster credentials from your home directory."
+  # (SSH, GPG, cloud and cluster credentials, saved git credentials). The
+  # names are matched in any case: macOS and Windows file systems ignore it.
+  test: '^(?:rm|unlink|shred|srm)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?i:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud|git-credentials)(?:/\S*)?)(?:\s|$)'
+  description: "This deletes SSH keys, GPG keys, git or cloud / cluster credentials from your home directory."
   id: fs:delete_credentials
   severity: Critical
   filters:
@@ -97,6 +98,30 @@
       value: '^rm\s+(?:-[a-zA-Z]+\s+)*(?:(?:~|\$HOME|\$\{HOME\}|\$ZDOTDIR|\$\{ZDOTDIR(?::-[^}\s]*)?\}|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.zcompdump[^\s/]*(?:\s+|$))+$'
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  # A whole well-known folder of a home directory by name (`rm -rf
+  # ~/Documents`, `rm -rf /Users/alice/Library`, `rm -rf ~/.ssh`): matched
+  # whether or not the folder exists where shellfirm runs (another user, a
+  # different HOME). A file or folder inside one (`~/Documents/old.txt`,
+  # `~/Library/Caches/app`) is not matched.
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/(?i:Documents|Desktop|Downloads|Pictures|Photos|Music|Movies|Videos|Public|Projects|work|workspaces?|src|sources?|code|dev|Developer|repos|repositories|git|github|Library|Applications|Dropbox|OneDrive|Google\x01Drive|\.config|\.local|\.local/share|Library/Keychains|Library/Mail|Library/Messages|Library/Application\x01Support|Library/Mobile\x01Documents|\.mozilla|\.thunderbird|\.ssh|\.gnupg|\.aws|\.kube|\.azure|\.docker|\.password-store|\.oci|\.terraform\.d|\.config/gcloud|\.config/gh|\.ethereum|\.electrum|\.bitcoin))(?:\s|$)'
+  description: "This recursively deletes a whole folder of a home directory (Documents, Desktop, Projects, Library, .config, .ssh, cloud credentials, ...): everything in it is lost."
+  id: fs:delete_home_folder
+  severity: High
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash instead of permanent deletion."
+- from: fs
+  # Moving a whole home folder into a scratch directory that is cleared on
+  # its own (`mv ~/Projects /tmp/x`, `mv -t /tmp ~/Projects`, `mv
+  # --target=/tmp ~/Projects` (any prefix of --target-directory), `rsync
+  # --remove-source-files ~/Documents /tmp/x`). Credential folders are
+  # fs:move_credentials.
+  test: '^mv\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/(?i:Documents|Desktop|Downloads|Pictures|Photos|Music|Movies|Videos|Public|Projects|work|workspaces?|src|sources?|code|dev|Developer|repos|repositories|git|github|Library|Applications|Dropbox|OneDrive|Google\x01Drive|\.config|\.local|\.local/share|Library/Keychains|Library/Mail|Library/Messages|Library/Application\x01Support|Library/Mobile\x01Documents|\.mozilla|\.thunderbird))\s+(?:\S+\s+)*?(?:/tmp|/var/tmp|/private/tmp|/private/var/tmp|/dev/shm|\$TMPDIR|\$\{TMPDIR\})(?:/\S*)?\s*$|^mv\s+(?:\S+\s+)*?(?:-[a-zA-Z]*t\s*|--t[a-z-]*(?:\s+|=))(?:/tmp|/var/tmp|/private/tmp|/private/var/tmp|/dev/shm|\$TMPDIR|\$\{TMPDIR\})(?:/\S*)?\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/(?i:Documents|Desktop|Downloads|Pictures|Photos|Music|Movies|Videos|Public|Projects|work|workspaces?|src|sources?|code|dev|Developer|repos|repositories|git|github|Library|Applications|Dropbox|OneDrive|Google\x01Drive|\.config|\.local|\.local/share|Library/Keychains|Library/Mail|Library/Messages|Library/Application\x01Support|Library/Mobile\x01Documents|\.mozilla|\.thunderbird))/?(?:\s|$)|^rsync\s+(?:\S+\s+)*?--remove-source-files\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/(?i:Documents|Desktop|Downloads|Pictures|Photos|Music|Movies|Videos|Public|Projects|work|workspaces?|src|sources?|code|dev|Developer|repos|repositories|git|github|Library|Applications|Dropbox|OneDrive|Google\x01Drive|\.config|\.local|\.local/share|Library/Keychains|Library/Mail|Library/Messages|Library/Application\x01Support|Library/Mobile\x01Documents|\.mozilla|\.thunderbird))/?\s+(?:\S+\s+)*?(?:/tmp|/var/tmp|/private/tmp|/private/var/tmp|/dev/shm|\$TMPDIR|\$\{TMPDIR\})(?:/\S*)?\s*$'
+  description: "This moves a whole folder of your home directory (Documents, Projects, Library, ...) into a temporary folder that the system clears on its own."
+  id: fs:move_home_folder
+  severity: High
+  alternative: "trash <path>"
+  alternative_info: "Moves to trash, where the folder can be restored."
 - from: fs
   # Emitted by shellfirm when `rm -r` deletes the root of a git repository
   # (a directory with a readable .git), by any spelling (`../webapp`,
@@ -471,7 +496,7 @@
   # Same targets as fs:recursively_chmod, plus a home directory by its absolute
   # path and its `.ssh` / `.gnupg` (`chown -R dev ./src` and
   # `chown -R dev /home/dev/project` are fine).
-  test: '(?:^|\s)chown\s+(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|(?:~|\$HOME)/\.(?:ssh|gnupg)\S*|\.+|\*|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|Users|Library|System)(?:/\*)?|/(?:home|Users)/[^/\s]+(?:/\*?|/\.(?:ssh|gnupg)\S*)?)(?:\s|$)'
+  test: '(?:^|\s)chown\s+(?:\S+\s+)*(?:-[a-zA-Z]*R[a-zA-Z]*|--recursive)\s+(?:\S+\s+)*(/\*?|~(?:/\*)?|\$HOME(?:/\*)?|(?:~|\$HOME)/\.(?i:ssh|gnupg)\S*|\.+|\*|/(?:home|etc|usr|var|bin|sbin|lib|lib64|boot|opt|root|srv|Users|Library|System)(?:/\*)?|/(?:home|Users)/[^/\s]+(?:/\*?|/\.(?:ssh|gnupg)\S*)?)(?:\s|$)'
   description: "Recursively changing the owner of the root, home or current directory, a system directory or your SSH keys can break the system and lock you out."
   id: fs:recursively_chown
   severity: Critical
@@ -526,10 +551,19 @@
     - type: NotMatches
       value: '\s(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(?:\s|$)'
 - from: fs
-  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?((?:~|\$HOME)/\S+/\*)(?:\s|$)'
+  # Everything in a home folder or a folder one level down (`rm -rf
+  # ~/Documents/*`, `~/projects/webapp/*`). A deeper folder
+  # (`~/projects/webapp/dist/*`, a build output) is left to
+  # fs-strict:recursive_deletion; emptying a cache or the trash
+  # (`~/.cache/*`, `~/.Trash/*`, `~/Library/Caches/*`, `~/.npm/_logs/*`) is
+  # not matched.
+  test: '^rm\s+(?:\S+\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(?:\S+\s+)*?((?:~|\$HOME)/[^/\s]+(?:/[^/\s]+)?/\*)(?:\s|$)'
   description: "This deletes everything inside a directory in your home folder."
   id: fs:recursive_delete_home_glob
   severity: High
+  filters:
+    - type: NotMatches
+      value: '^rm\s+(?:-\S+\s+)*(?:(?:~|\$HOME)/(?:\.cache|\.Trash|Library/Caches|\.npm/_logs|\.npm/_cacache)/\*(?:\s+|$))+$'
   alternative: "trash <path>"
   alternative_info: "Moves to trash instead of permanent deletion."
 - from: fs
@@ -550,17 +584,30 @@
   # A system file (any write), or a shell startup file replaced (`>`,
   # `tee` without `-a`); appending to a startup file is
   # fs:append_shell_startup_file.
-  test: '(?:(?:^|\s)\d*(?:>>?|>\||&>>?)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?)(/etc/\S+|/boot/\S+|/usr/\S+|/s?bin/\S+|/lib(?:64)?/\S+|/System/\S+)(?:\s|$)|(?:(?:^|\s)\d*(?:>|>\||&>)\s+|(?:^|\s)tee\s+(?:(?:-[b-zA-Z]\S*|--[b-z]\S*|[^-\s]\S*)\s+)*?)((?:~|\$HOME)/\.(?:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
+  test: '(?:(?:^|\s)\d*(?:>>?|>\||&>>?)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?)(/etc/\S+|/boot/\S+|/usr/\S+|/s?bin/\S+|/lib(?:64)?/\S+|/System/\S+)(?:\s|$)|(?:(?:^|\s)\d*(?:>|>\||&>)\s+|(?:^|\s)tee\s+(?:(?:-[b-zA-Z]\S*|--[b-z]\S*|[^-\s]\S*)\s+)*?)((?:~|\$HOME)/\.(?i:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
   description: "This writes to a system file or replaces a shell startup file. Overwriting it can break logins, networking or the whole system."
   id: fs:overwrite_system_file
   severity: High
 - from: fs
   # `echo 'export PATH=…' >> ~/.bashrc`: a routine setup step, but it also
   # runs on every new shell.
-  test: '(?:(?:^|\s)\d*(?:>>|&>>)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?(?:-[a-zA-Z]*a[a-zA-Z]*|--append)\s+(?:\S+\s+)*?)((?:~|\$HOME)/\.(?:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
+  test: '(?:(?:^|\s)\d*(?:>>|&>>)\s+|(?:^|\s)tee\s+(?:\S+\s+)*?(?:-[a-zA-Z]*a[a-zA-Z]*|--append)\s+(?:\S+\s+)*?)((?:~|\$HOME)/\.(?i:bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|cshrc|tcshrc|config/fish/config\.fish))(?:\s|$)'
   description: "This appends to a shell startup file: the added lines run in every new shell."
   id: fs:append_shell_startup_file
   severity: Low
+- from: fs
+  # A hard link (`ln ~/.bashrc x`, `ln -f ~/.ssh/id_rsa k`, `ln -- …`,
+  # `ln --target-directory=. …`, `link …`, `cp -l …`, `cp -al ~/.ssh k`) to
+  # a credential file or folder, a shell startup file or a git hook. The link is the
+  # same file under another name, so writing or reading it gets past every
+  # rule that looks at the path. Symbolic links (`ln -s`) are not matched:
+  # they are resolved to what they point to.
+  test: '^(?:(?:ln|link)\s+(?:(?:-[a-rt-zA-Z]+|--|--(?:[a-rt-z][\w-]*|s(?:[a-xz][\w-]*)?)(?:=\S+)?|[^-\s]\S*)\s+)*?|cp\s+(?:\S+\s+)*?(?:-[a-zA-Z]*l[a-zA-Z]*|--link)\s+(?:\S+\s+)*?)(?:(?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?i:(?:ssh|aws|gnupg|kube|docker)/?|ssh/(?:id_[\w-]+|authorized_keys2?)|aws/(?:credentials|config)|gnupg/\S+|kube/config|docker/config\.json|config/gcloud/\S+|netrc|git-credentials|npmrc|pypirc|bashrc|bash_profile|bash_login|profile|zshrc|zprofile|zshenv|zlogin|zlogout|cshrc|tcshrc|config/fish/config\.fish)|\S*\.git/hooks/[\w.-]+)(?:\s|$)'
+  description: "This makes a hard link to a credential file, shell startup file or git hook: the same file under a new name, so changes or reads through it are not seen as touching the original."
+  id: fs:hard_link_protected_file
+  severity: Medium
+  alternative: "ln -s <path> <link>"
+  alternative_info: "A symbolic link stays visibly tied to the original file, so the path checks still apply to it."
 - from: fs
   # Emitted by shellfirm for an alias written to a shell startup file that
   # makes a command run a different, destructive one (`alias ls=rm`).
@@ -581,16 +628,35 @@
   id: fs:move_system_file
   severity: High
 - from: fs
-  # Moving the credential directories away (`mv ~/.ssh /tmp/`) or into an
-  # archive that deletes them (`zip -rm x.zip ~/.ssh`).
-  test: '^(?:mv\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)\s+(?:\S+\s+)*?\S+\s*$|zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$))'
+  # Moving the credential directories away (`mv ~/.ssh /tmp/`, `mv -t /tmp
+  # ~/.ssh`, `mv --target=/tmp ~/.ssh`) or into an archive that deletes them
+  # (`zip -rm x.zip ~/.ssh`, `tar --remove-files -cf x.tar ~/.ssh`, also
+  # abbreviated `--remove` and as `gtar`).
+  test: '^(?:mv\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?i:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)\s+(?:\S+\s+)*?\S+\s*$|mv\s+(?:\S+\s+)*?(?:-[a-zA-Z]*t\s*|--t[a-z-]*(?:\s+|=))\S+\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?i:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$)|(?:zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)|g?tar\s+(?:\S+\s+)*?--rem(?:o(?:v(?:e(?:-(?:f(?:i(?:l(?:es?)?)?)?)?)?)?)?)?)\s+(?:\S+\s+)*?((?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?i:ssh|gnupg|aws|kube|azure|docker|password-store|config/gcloud)(?:/\S*)?)(?:\s|$))'
   description: "This moves SSH keys, GPG keys or cloud / cluster credentials out of your home directory (or into an archive that deletes them): logins and CLIs that use them stop working, and the copy may be readable elsewhere."
   id: fs:move_credentials
   severity: High
 - from: fs
-  # `zip -m` / `zip -rm` deletes the files it adds.
-  test: '(?:^|\s)zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)\s'
-  description: "zip -m deletes the original files after adding them to the archive."
+  # Moving away the folder that holds an AI agent's settings (`mv ~/.claude
+  # /tmp/old`, `mv ~/.codex …`), or removing the repository's Copilot hook
+  # folder (`git rm -r .github/hooks`): the shellfirm hook in it stops
+  # running. Moving a file or folder inside it (`mv ~/.claude/projects/x
+  # /tmp`) and `git rm --cached` are not matched; shellfirm's own folder is
+  # covered by the self-protection rules.
+  test: '^(?:mv\s+(?:\S+\s+)*?(?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:claude|codex)/?\s+(?:\S+\s+)*?\S+\s*$|mv\s+(?:\S+\s+)*?(?:-[a-zA-Z]*t\s*|--t[a-z-]*(?:\s+|=))\S+\s+(?:\S+\s+)*?(?:~|\$HOME|/home/[^/\s]+|/Users/[^/\s]+|/root)/\.(?:claude|codex)/?(?:\s|$)|(?:git\s+rm|rm)\s+(?:\S+\s+)*?(?:\./)?\.github/hooks/?(?:\s|$))'
+  description: "This moves or removes the folder that holds an AI agent's settings or a repository's agent hooks, so the shellfirm hook in it stops running."
+  id: fs:move_agent_settings_dir
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)--cached(?:\s|$)'
+  alternative: "move only the file you need"
+  alternative_info: "Move or delete the single file inside the folder (for example one project's history), not the whole settings folder."
+- from: fs
+  # `zip -m` / `zip -rm`, `tar --remove-files` (also abbreviated, `--remove`,
+  # and as `gtar`) and `7z a -sdel` delete the files they add.
+  test: '(?:^|\s)(?:(?:zip\s+(?:\S+\s+)*?(?:-[a-zA-Z]*m[a-zA-Z]*|--move)|g?tar\s+(?:\S+\s+)*?--rem(?:o(?:v(?:e(?:-(?:f(?:i(?:l(?:es?)?)?)?)?)?)?)?)?)\s|(?:7z|7za|7zz|7zr)\s+[au]\s+(?:\S+\s+)*?-sdel(?:\s|$))'
+  description: "zip -m, tar --remove-files and 7z -sdel delete the original files after adding them to the archive."
   id: fs:zip_move
   severity: Medium
 - from: fs

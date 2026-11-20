@@ -252,3 +252,26 @@
 - test: "heroku apps:destroy --help"
   description: "negative: a help request only prints usage"
   expect_ids: []
+
+# -- heroku:railway_delete / railway_resource_delete --
+- test: "railway delete"
+  description: "the whole project"
+  expect_ids: ["heroku:railway_delete"]
+- test: "railway project delete"
+  description: "the project subcommand"
+  expect_ids: ["heroku:railway_delete"]
+- test: "railway variables delete DATABASE_URL"
+  description: "one variable"
+  expect_ids: ["heroku:railway_resource_delete"]
+- test: "railway environment delete staging"
+  description: "an environment"
+  expect_ids: ["heroku:railway_resource_delete"]
+- test: "railway volume delete data"
+  description: "a volume"
+  expect_ids: ["heroku:railway_resource_delete"]
+- test: "railway variables --set FOO=bar"
+  description: "negative: setting a variable"
+  expect_ids: []
+- test: "railway status"
+  description: "negative: status"
+  expect_ids: []

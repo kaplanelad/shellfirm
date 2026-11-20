@@ -91,6 +91,10 @@ not `yes`); a wrong case is reported with the valid values.
   Fix it with `shellfirm config edit`, or start over with
   `shellfirm config reset` (the old file is backed up first).
 - `shellfirm status` shows `INVALID: <reason>` next to the settings file.
+- A `settings.yaml` or project `.shellfirm.yaml` that is not a regular file
+  (a FIFO, a device) is never read: it is reported like an invalid file
+  (`could not read settings file …: not a regular file`; a policy is not
+  applied), so no command waits on it.
 
 A file that parses but contains something that has no effect is applied, and
 every command warns about it; `status` then says `valid, with N warning(s)`
@@ -127,6 +131,7 @@ and lists them:
 | `approved_notice` | After you pass a challenge in a terminal, print one dim line so a slow command does not look hung: `✓ approved — running: helm uninstall web` (plain ASCII when the locale is not UTF-8: `ok: approved, running: helm uninstall web`; no colour with `NO_COLOR`). It goes to the terminal (`/dev/tty`, else stderr), never to the command's stdout. The line fits the real terminal width: a long command is cut in the middle (`kubectl get ns prod-x…; kubectl delete ns prod`) so its end stays visible, and `…` appears only when something was cut; a multi-line command shows its first line and `(+N lines)`. Never printed by the agent hooks or MCP. Set it with `shellfirm config approved-notice on\|off` or in `shellfirm config` → General → Behavior. | `true` |
 | `agent` | AI-agent mode: `auto_deny_severity`, `require_human_approval`, `context_escalation`, `self_protection`, `allow_safe`, `llm_review`, and per-mode `challenge` / `min_severity` / `severity_escalation` overrides (`inherit` = use the global value). See [Agent protection rules](#agent-protection-rules) | `auto_deny_severity: High` |
 | `wrappers` | `shellfirm wrap` settings: `tools.<program>.delimiter`, `tools.<program>.check_groups`, `challenge`, `min_severity` | |
+| `sandbox` | Paths `shellfirm sandbox` writes into an AI agent's OS sandbox settings on top of the built-in lists: `deny_read` (more paths sandboxed commands may not read), `deny_write` (may not write), `exclude` (built-in entries to leave out). `~/` or absolute paths (`..` is resolved; `/`, your home directory or a directory above it, an empty entry and `$VAR` are refused, and `status` / `doctor` name them); re-run `shellfirm sandbox <agent>` after a change (a re-run also takes out entries an `exclude` now leaves out). See [Agent sandbox](sandbox.md) | `{}` (built-in lists only) |
 | `llm` | Experimental LLM settings: `provider` (`anthropic`, `openai-compatible`), `model`, `base_url`, `timeout_ms`, `max_tokens`. Used only for AI-agent review when `agent.llm_review` is enabled. | not set |
 
 Example:
@@ -175,7 +180,10 @@ most ignores do not affect them, and they make a decision at least `ask`.
   instruction file are denied). Cursor asks for these edits
   instead of blocking them; where Cursor does not enforce `ask` for
   `preToolUse` the edit goes ahead, while edits of shellfirm, agent-settings
-  and persistence files are denied in Cursor (it cannot ask for them).
+  and persistence files are denied in Cursor (it cannot ask for them). The
+  same holds for the agents whose hooks cannot ask at all (Codex CLI,
+  Windsurf, Cline, OpenCode): instruction edits go ahead (Codex shows a
+  note), and every other `ask` (commands too) is denied with the reason.
 
 ## Context
 

@@ -3,33 +3,33 @@
 
 # Built-in checks
 
-500 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
+530 checks in 23 groups, generated from [`shellfirm/checks/`](../../shellfirm/checks). List them locally with `shellfirm check --list -a` (add `-g <group>` to filter).
 
 | Group | Checks | Enabled by default |
 |---|---:|---|
 | [aws](#aws) | 29 | yes |
 | [azure](#azure) | 11 | yes |
-| [base](#base) | 30 | yes |
-| [database](#database) | 79 | yes |
+| [base](#base) | 33 | yes |
+| [database](#database) | 81 | yes |
 | [docker](#docker) | 18 | yes |
-| [exfil](#exfil) | 11 | yes |
+| [exfil](#exfil) | 16 | yes |
 | [flyio](#flyio) | 4 | yes |
-| [fs](#fs) | 68 | yes |
+| [fs](#fs) | 72 | yes |
 | [gcp](#gcp) | 17 | yes |
 | [git](#git) | 38 | yes |
-| [github](#github) | 11 | yes |
-| [heroku](#heroku) | 22 | yes |
+| [github](#github) | 16 | yes |
+| [heroku](#heroku) | 23 | yes |
 | [kubernetes](#kubernetes) | 37 | yes |
 | [mongodb](#mongodb) | 16 | yes |
 | [mysql](#mysql) | 7 | yes |
 | [netlify](#netlify) | 3 | yes |
-| [network](#network) | 18 | yes |
+| [network](#network) | 22 | yes |
 | [npm](#npm) | 4 | yes |
 | [psql](#psql) | 13 | yes |
 | [redis](#redis) | 19 | yes |
-| [shell](#shell) | 14 | yes |
+| [shell](#shell) | 15 | yes |
 | [terraform](#terraform) | 27 | yes |
-| [vercel](#vercel) | 4 | yes |
+| [vercel](#vercel) | 9 | yes |
 
 ## aws
 
@@ -93,6 +93,7 @@
 | `base:shutdown_machine` | HIGH | This shuts down the machine. |  |
 | `process:kill_init_or_all` | CRITICAL | This signals PID 1 (init, or a container's main process) or every process you own (-1): it can halt the machine or end your whole session. |  |
 | `base:clear_history` | MEDIUM | This erases your shell history, including the record of what was run. |  |
+| `base:disable_history` | MEDIUM | This turns off your shell history, so the commands that follow leave no record. |  |
 | `process:kill_9` | LOW | SIGKILL gives no chance for graceful shutdown or cleanup. | `kill <pid>` |
 | `process:killall` | MEDIUM | This kills every process with that name. |  |
 | `process:pkill` | MEDIUM | This kills every process matching the pattern, which can include unintended ones. |  |
@@ -115,6 +116,8 @@
 | `base:clear_event_logs` | HIGH | This clears the Windows event logs, erasing the record of what happened on the machine. |  |
 | `base:disable_antivirus` | HIGH | This turns off Windows Defender protection, excludes a path from scanning, removes its definitions, or stops its service. |  |
 | `base:disable_macos_security` | HIGH | This disables a core macOS protection — System Integrity Protection (csrutil) or Gatekeeper (spctl) — letting unsigned or tampered code run. |  |
+| `base:clear_history_file` | MEDIUM | This deletes or empties your shell history file, erasing the record of the commands run before. |  |
+| `base:wipe_system_logs` | HIGH | This empties system log files under /var/log, erasing the record of logins and of what ran on the machine. |  |
 
 ## database
 
@@ -183,6 +186,7 @@
 | `database:dotnet_ef_update_zero` | HIGH | dotnet ef database update 0 reverts every Entity Framework Core migration: the tables they created are dropped. | `dotnet ef migrations script <current> <target>` |
 | `database:ecto_rollback_all` | HIGH | mix ecto.rollback --all rolls back every migration: the tables they created are dropped. | `mix ecto.rollback --step 1` |
 | `database:golang_migrate_down_all` | HIGH | migrate down -all (golang-migrate) applies every down migration without asking: the tables they created are dropped. | `migrate -path <dir> -database <url> down 1` |
+| `database:supabase_db_push_remote` | MEDIUM | supabase db push applies pending migrations to the linked remote database (often production); a migration that drops or alters tables changes live data. | `supabase db push --dry-run` |
 | `database:supabase_db_reset_remote` | CRITICAL | supabase db reset --linked resets the database of the linked remote project (often production): every table is dropped and the migrations and seed re-run. | `supabase db dump --linked -f backup.sql` |
 | `database:supabase_db_reset` | MEDIUM | supabase db reset drops the local database and re-runs the migrations and seed: local data is lost. | `supabase migration list` |
 | `database:supabase_projects_delete` | CRITICAL | supabase projects delete deletes the Supabase project with its database, storage and auth users. | `supabase projects list` |
@@ -199,6 +203,7 @@
 | `database:pscale_database_delete` | CRITICAL | pscale database delete deletes the PlanetScale database with all of its branches and data. | `pscale database list` |
 | `database:pscale_branch_delete` | HIGH | pscale branch delete deletes the PlanetScale branch and its data. | `pscale branch list <database>` |
 | `database:turso_db_destroy` | CRITICAL | turso db destroy deletes the Turso database (group destroy: every database in the group). | `turso db shell <database> .dump > backup.sql` |
+| `database:supabase_remote_delete` | HIGH | This deletes an edge function, a secret or storage objects of the Supabase project: whatever uses them breaks, and deleted files cannot be restored. | `supabase functions list` |
 
 ## docker
 
@@ -230,6 +235,7 @@
 | `exfil:secret_file_to_network` | HIGH | This sends a credentials file to the network. |  |
 | `exfil:env_to_network` | HIGH | This sends your environment variables (which often hold API keys and tokens) to the network. |  |
 | `exfil:upload_secret_file` | HIGH | This uploads a credentials or secrets file to a remote server. |  |
+| `exfil:history_to_network` | HIGH | This sends your shell history to the network. History holds every command you typed, including the tokens and passwords passed on them. |  |
 | `exfil:ssh_authorized_keys` | HIGH | This changes the SSH keys allowed to log in to this account, which can grant someone persistent access. |  |
 | `exfil:copy_secret_to_remote` | HIGH | This copies your SSH keys or cloud credentials to another machine. |  |
 | `exfil:archive_secret_dir` | MEDIUM | This packs your SSH keys or cloud credentials into an archive, which is easy to copy or upload somewhere else. |  |
@@ -238,6 +244,10 @@
 | `exfil:read_secret_file` | MEDIUM | This reads a private key or a credentials file. Shown on screen it can leak (screen sharing, terminal logs); run by an AI agent, the secret goes into the conversation and on to the model provider. | `read only what you need, not the secret itself` |
 | `exfil:print_token` | MEDIUM | This prints a live access token or a secret. Shown on screen it can leak; run by an AI agent, it goes into the conversation and on to the model provider. | `check that you are authenticated without printing the secret` |
 | `exfil:search_secret_files` | MEDIUM | This searches your home directory or the whole machine for private keys, credentials or wallet files. | `find . -name '<pattern>'` |
+| `exfil:list_secret_dir` | MEDIUM | This lists a folder of SSH keys, cloud credentials or crypto wallets. Run by a coding agent, the names of your keys and tokens go into the conversation, often as the first step of reading them. | `ssh-add -l` |
+| `exfil:print_secret_env` | MEDIUM | This prints the value of a secret environment variable (a token, password or key). Shown on screen it can leak; run by a coding agent, it goes into the conversation and on to the model provider. | `test -n "$NAME" && echo set` |
+| `exfil:secret_env_to_network` | HIGH | This sends the value of a secret environment variable (a token, password or key) to a server as the request body. |  |
+| `exfil:keychain_dump` | HIGH | This prints passwords stored in the macOS keychain (or dumps the whole keychain): browser, Wi-Fi and app secrets. | `security find-generic-password -s <service>` |
 
 ## flyio
 
@@ -253,7 +263,7 @@
 | Id | Severity | Description | Alternative |
 |---|---|---|---|
 | `fs:recursively_delete` | CRITICAL | This deletes a critical location: the filesystem root, your home directory, a system directory, the repository, or everything in the current directory. | `trash <path>` |
-| `fs:delete_credentials` | CRITICAL | This deletes SSH keys, GPG keys or cloud / cluster credentials from your home directory. | `trash <path>` |
+| `fs:delete_credentials` | CRITICAL | This deletes SSH keys, GPG keys, git or cloud / cluster credentials from your home directory. | `trash <path>` |
 | `fs:diskutil_erase` | CRITICAL | This erases a disk or volume with diskutil: all data on it is lost. |  |
 | `fs:write_to_block_device` | CRITICAL | This writes straight onto a disk device, overwriting the partition table and file systems on it. |  |
 | `fs:nvme_format` | CRITICAL | This erases or sanitizes an NVMe device at the controller level: all data on it is lost. |  |
@@ -262,6 +272,8 @@
 | `fs:windows_pipeline_delete` | CRITICAL | This lists a whole Windows drive or your user profile and pipes every item into a delete. |  |
 | `fs:windows_format_drive` | CRITICAL | This formats a Windows drive or wipes a disk, erasing all data on it. |  |
 | `fs:recursively_delete_outside` | HIGH | This recursively deletes a top-level folder of your home directory (for example `~/projects` or `~/data`), or a directory outside the current one reached with `../`. | `trash <path>` |
+| `fs:delete_home_folder` | HIGH | This recursively deletes a whole folder of a home directory (Documents, Desktop, Projects, Library, .config, .ssh, cloud credentials, ...): everything in it is lost. | `trash <path>` |
+| `fs:move_home_folder` | HIGH | This moves a whole folder of your home directory (Documents, Projects, Library, ...) into a temporary folder that the system clears on its own. | `trash <path>` |
 | `fs:delete_repository` | HIGH | This recursively deletes a whole git repository, including any work that was never pushed. | `trash <path>` |
 | `fs:delete_git_dir` | CRITICAL | This deletes the .git directory of a repository: its whole history, branches, stashes and every commit that was never pushed. | `trash <path>` |
 | `fs:move_work_away` | HIGH | This moves a folder with work git does not have to a scratch folder that is cleared on its own. | `git stash push --include-untracked -- <path>` |
@@ -305,11 +317,13 @@
 | `fs:recursive_delete_top_level_dir` | HIGH | This recursively deletes a top-level directory of the filesystem. |  |
 | `fs:overwrite_system_file` | HIGH | This writes to a system file or replaces a shell startup file. Overwriting it can break logins, networking or the whole system. |  |
 | `fs:append_shell_startup_file` | LOW | This appends to a shell startup file: the added lines run in every new shell. |  |
+| `fs:hard_link_protected_file` | MEDIUM | This makes a hard link to a credential file, shell startup file or git hook: the same file under a new name, so changes or reads through it are not seen as touching the original. | `ln -s <path> <link>` |
 | `fs:startup_alias_replaces_command` | HIGH | This adds an alias to a shell startup file that makes a command run a different, destructive one (for example `ls` running `rm`) in every new shell. |  |
 | `fs:delete_system_file` | HIGH | This deletes a system file. The system may not boot or let you log in afterwards. |  |
 | `fs:move_system_file` | HIGH | This moves a system file or directory (or your home directory) away. Programs and logins that need it break until it is moved back. |  |
 | `fs:move_credentials` | HIGH | This moves SSH keys, GPG keys or cloud / cluster credentials out of your home directory (or into an archive that deletes them): logins and CLIs that use them stop working, and the copy may be readable elsewhere. |  |
-| `fs:zip_move` | MEDIUM | zip -m deletes the original files after adding them to the archive. |  |
+| `fs:move_agent_settings_dir` | HIGH | This moves or removes the folder that holds an AI agent's settings or a repository's agent hooks, so the shellfirm hook in it stops running. | `move only the file you need` |
+| `fs:zip_move` | MEDIUM | zip -m, tar --remove-files and 7z -sdel delete the original files after adding them to the archive. |  |
 | `fs:clobber_with_dev_null` | HIGH | This replaces the file with /dev/null and erases its contents. |  |
 | `fs:chmod_critical_location` | HIGH | Changing permissions of the root, home or a system directory can lock you out and break SSH and system services. |  |
 | `fs:watch_repeated_delete` | MEDIUM | watch runs this deletion again and again, every interval. |  |
@@ -400,7 +414,12 @@
 | `github:api_delete_repo` | CRITICAL | This deletes the GitHub repository through the API, with its issues, pull requests and wiki. |  |
 | `github:pr_merge_admin` | MEDIUM | This merges the pull request as an administrator, bypassing the branch protection rules (required reviews and checks). |  |
 | `github:api_delete_ref` | HIGH | This deletes a branch or tag of the repository through the GitHub API (like `git push --delete`). | `gh api repos/<owner>/<repo>/git/refs/heads/<branch>` |
+| `github:api_delete_webhook` | MEDIUM | This deletes a repository or organization webhook through the GitHub API: the integration behind it (CI, deploys, security scanning) stops getting events. | `gh api repos/OWNER/REPO/hooks` |
 | `github:api_branch_protection` | HIGH | This removes or changes the branch protection rules (required reviews and checks) through the GitHub API. | `gh api repos/<owner>/<repo>/branches/<branch>/protection` |
+| `github:workflow_disable` | MEDIUM | This turns a GitHub Actions workflow off: its CI, deploy or security checks stop running. | `gh workflow list` |
+| `github:secret_set_empty` | MEDIUM | This replaces a GitHub secret or variable with an empty value: pipelines that use it break as if it were deleted. |  |
+| `github:api_make_public` | HIGH | This makes the repository public through the GitHub API: its code and history become visible to everyone. |  |
+| `github:api_disable_actions` | HIGH | This turns GitHub Actions off for the repository: no workflow (CI, deploys, security scans) runs. |  |
 
 ## heroku
 
@@ -428,6 +447,7 @@
 | `heroku:pg_reset` | CRITICAL | This deletes all data in the Heroku Postgres database. |  |
 | `heroku:railway_down` | HIGH | railway down removes the most recent deployment of the service, which takes it offline. | `railway status` |
 | `heroku:railway_delete` | CRITICAL | railway delete deletes the Railway project with its services, databases and volumes. | `railway status` |
+| `heroku:railway_resource_delete` | HIGH | This deletes a Railway environment, service, volume, domain or variable: what runs on it, or reads it, stops working. | `railway status` |
 
 ## kubernetes
 
@@ -534,6 +554,10 @@
 | `network:flush_addresses` | HIGH | This removes the IP addresses of a network interface: the machine (and your SSH session) loses connectivity on it. |  |
 | `network:ufw_default_deny` | HIGH | This makes the firewall refuse all incoming connections by default, including SSH unless a rule allows it. | `ufw allow OpenSSH` |
 | `network:disable_firewall_windows` | CRITICAL | This turns the Windows firewall off, leaving every port open. |  |
+| `network:http_delete_authenticated` | HIGH | This sends an authenticated HTTP DELETE request: the API deletes the resource at that URL (a project, repository, database, volume, ...) with your credentials. | `curl -X GET <url>` |
+| `network:http_delete` | MEDIUM | This sends an HTTP DELETE request: the server deletes the resource at that URL. | `curl -X GET <url>` |
+| `network:graphql_destructive_mutation` | HIGH | This sends a GraphQL mutation that deletes or archives something (a project, repository, volume, service, ...) through the API. | `query the object first` |
+| `network:stop_firewall` | HIGH | This turns the firewall off: every listening port becomes reachable from the network. |  |
 
 ## npm
 
@@ -604,6 +628,7 @@
 | `shell:powershell_download_exec` | HIGH | This downloads a PowerShell script and runs it (Invoke-Expression) without inspection. | `Invoke-WebRequest <url> -OutFile script.ps1; Get-Content script.ps1` |
 | `shell:lolbin_download_exec` | HIGH | This uses a Windows built-in tool (certutil, bitsadmin, mshta or regsvr32) to download and run code from a URL, bypassing normal download controls. | `Invoke-WebRequest <url> -OutFile file; Get-FileHash file` |
 | `shell:powershell_encoded_command` | HIGH | This runs a PowerShell command hidden in base64 (-EncodedCommand), so you cannot see what it does. |  |
+| `shell:interpreter_remote_exec` | HIGH | This inline script downloads code from the network and runs it, without any chance to review it first. | `curl -o script <url> && cat script` |
 
 ## terraform
 
@@ -645,3 +670,8 @@
 | `vercel:project_remove` | CRITICAL | Removing a Vercel project deletes it and all its deployments. |  |
 | `vercel:env_remove` | HIGH | Removing an environment variable can break deployments that depend on it. |  |
 | `vercel:domain_remove` | HIGH | Removing a domain disconnects it from your deployment. |  |
+| `vercel:alias_remove` | HIGH | Removing an alias takes the deployment off that domain: visitors of the domain get no site. |  |
+| `vercel:dns_remove` | HIGH | Removing a DNS record can take a domain, its email or another service offline. |  |
+| `vercel:blob_delete` | HIGH | This permanently deletes files from Vercel Blob storage. |  |
+| `vercel:team_remove` | HIGH | This removes a Vercel team, with its projects, deployments and members. | `vercel teams ls` |
+| `vercel:integration_remove` | HIGH | This removes a Vercel integration: the resources it provisioned (a database, storage) and the environment variables it set can go with it. | `vercel integration list` |

@@ -19,7 +19,7 @@
   id: network:flush_nat_rules
   severity: High
 - from: network
-  test: (?:^|\s)ufw\s+disable(\s|$)
+  test: (?:^|\s)ufw\s+(?:--force\s+)?disable(\s|$)
   description: "This disables the firewall."
   id: network:disable_firewall
   severity: Critical
@@ -110,3 +110,67 @@
   description: "This turns the Windows firewall off, leaving every port open."
   id: network:disable_firewall_windows
   severity: Critical
+- from: network
+  # An HTTP DELETE sent with credentials (`curl -X DELETE -H "Authorization:
+  # Bearer $T" …`, `http DELETE … Authorization:…`, `wget --method=DELETE
+  # --header=…`): an authenticated API call that deletes a resource
+  # (a project, repository, volume, DNS record, …). A local development
+  # server is not matched: `localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`,
+  # `*.localhost`, `host.docker.internal` or the httpie `:3000/…` shorthand,
+  # unless the path starts with `_` or holds a `*` (`localhost:9200/_all`
+  # deletes every Elasticsearch index).
+  test: '(?:^(?:curl|curlie)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*X\s*|--request(?:\s+|=))(?i:delete)(?:\s|$)|^wget\s+(?:\S+\s+)*?--method(?:\s+|=)(?i:delete)(?:\s|$)|^(?:http|https|xh|xhs)\s+(?:(?:-a|--auth|-A|--auth-type|--session|--session-read-only|--proxy|--cert|--cert-key|--cert-key-pass|--ssl|--ciphers|--timeout|--max-redirects|-o|--output|-p|--print|--pretty|-s|--style|--default-scheme|--boundary|--bearer)\s+\S+\s+|-\S+\s+)*(?i:delete)\s+\S*[:./])'
+  description: "This sends an authenticated HTTP DELETE request: the API deletes the resource at that URL (a project, repository, database, volume, ...) with your credentials."
+  id: network:http_delete_authenticated
+  severity: High
+  filters:
+    - type: Matches
+      value: '(?i)(?:^|\s)(?:-H|--header)(?:\s+|=)?(?:authorization|proxy-authorization|x-api-key|api-key|apikey|x-auth-token|x-auth-key|x-auth-email|x-access-token|private-token|x-goog-api-key|x-figma-token|cookie)\s*:|(?:^|\s)(?:authorization|x-api-key|api-key|x-auth-token|x-access-token|private-token|cookie):|(?:^|\s)(?:-u|--user|--oauth2-bearer|--bearer|--aws-sigv4|-a|--auth|--http-user|--http-password|--header=authorization:\S*|-n|--netrc|--netrc-file|-b|--cookie)(?:\s|=|$)|[?&](?:access_token|api_key|apikey|token|key|auth)=|://[^/\s:@]+:[^/\s@]+@'
+    - type: NotMatches
+      value: '(?:^|\s)(?:(?:https?://)?(?:[^\s/@]+@)?(?:localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|\[::1\]|[\w-]+(?:\.[\w-]+)*\.localhost|host\.docker\.internal)(?::\d+)?|:\d+)(?:/(?:[^\s_*][^\s*]*)?|[?#]\S*)?(?:\s|$)'
+  alternative: "curl -X GET <url>"
+  alternative_info: "Fetch the resource first and check it is the one to delete."
+- from: network
+  # An HTTP DELETE without credentials on the line. A local development
+  # server is not matched (see network:http_delete_authenticated).
+  test: '(?:^(?:curl|curlie)\s+(?:\S+\s+)*?(?:-[a-zA-Z]*X\s*|--request(?:\s+|=))(?i:delete)(?:\s|$)|^wget\s+(?:\S+\s+)*?--method(?:\s+|=)(?i:delete)(?:\s|$)|^(?:http|https|xh|xhs)\s+(?:(?:-a|--auth|-A|--auth-type|--session|--session-read-only|--proxy|--cert|--cert-key|--cert-key-pass|--ssl|--ciphers|--timeout|--max-redirects|-o|--output|-p|--print|--pretty|-s|--style|--default-scheme|--boundary|--bearer)\s+\S+\s+|-\S+\s+)*(?i:delete)\s+\S*[:./])'
+  description: "This sends an HTTP DELETE request: the server deletes the resource at that URL."
+  id: network:http_delete
+  severity: Medium
+  filters:
+    - type: NotMatches
+      value: '(?i)(?:^|\s)(?:-H|--header)(?:\s+|=)?(?:authorization|proxy-authorization|x-api-key|api-key|apikey|x-auth-token|x-auth-key|x-auth-email|x-access-token|private-token|x-goog-api-key|x-figma-token|cookie)\s*:|(?:^|\s)(?:authorization|x-api-key|api-key|x-auth-token|x-access-token|private-token|cookie):|(?:^|\s)(?:-u|--user|--oauth2-bearer|--bearer|--aws-sigv4|-a|--auth|--http-user|--http-password|--header=authorization:\S*|-n|--netrc|--netrc-file|-b|--cookie)(?:\s|=|$)|[?&](?:access_token|api_key|apikey|token|key|auth)=|://[^/\s:@]+:[^/\s@]+@'
+    - type: NotMatches
+      value: '(?:^|\s)(?:(?:https?://)?(?:[^\s/@]+@)?(?:localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|\[::1\]|[\w-]+(?:\.[\w-]+)*\.localhost|host\.docker\.internal)(?::\d+)?|:\d+)(?:/(?:[^\s_*][^\s*]*)?|[?#]\S*)?(?:\s|$)'
+  alternative: "curl -X GET <url>"
+  alternative_info: "Fetch the resource first and check it is the one to delete."
+- from: network
+  # A GraphQL mutation with a top-level field that deletes something:
+  # `volumeDelete(…)`, `deleteRepository(…)`, `projectDestroy(…)`,
+  # `delete_users(…)`, `removeOutsideCollaborator(…)`, `archiveRepository(…)`,
+  # sent with an HTTP client or `gh api graphql`. The parser reads every
+  # top-level field of the mutation, stepping over arguments, selection sets
+  # and string literals, and emits one marker segment per field (followed by
+  # the words that can name the server), so text inside arguments (an issue
+  # title or comment body, even with a `)` in it) is not read as a field.
+  # Relationship edits (`removeLabelsFromLabelable`, `removeReaction`,
+  # `removeStar`, `issueRemoveLabel`), queries, and a local development
+  # server are not matched.
+  test: '^shellfirm-graphql-field\s+(?:(?i:delete|destroy|drop|purge|wipe|erase|truncate)(?:[A-Z_0-9]\w*)?|remove(?:[A-Z]\w*)?(?:Member|OutsideCollaborator)|archiveRepository|[a-z]\w*?(?:Delete|Destroy|Drop|Purge|Wipe|Erase|Truncate)(?:[A-Z_0-9]\w*)?|[a-z]\w*?Remove)(?:\s|$)'
+  description: "This sends a GraphQL mutation that deletes or archives something (a project, repository, volume, service, ...) through the API."
+  id: network:graphql_destructive_mutation
+  severity: High
+  filters:
+    - type: NotMatches
+      value: '(?:^|\s)(?:(?:https?://)?(?:[^\s/@]+@)?(?:localhost|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0|\[::1\]|[\w-]+(?:\.[\w-]+)*\.localhost|host\.docker\.internal)(?::\d+)?|:\d+)(?:/(?:[^\s_*][^\s*]*)?|[?#]\S*)?(?:\s|$)'
+  alternative: "query the object first"
+  alternative_info: "Run a GraphQL query for the object to check it is the one to delete, then confirm the mutation."
+- from: network
+  # Stopping or disabling the firewall service (`systemctl stop firewalld`,
+  # `systemctl disable ufw`, `service ufw stop`), the macOS application
+  # firewall (`socketfilterfw --setglobalstate off`, unloading
+  # com.apple.alf), or the macOS packet filter (`pfctl -d`).
+  test: '(?:^|\s)(?:systemctl\s+(?:-\S+\s+)*(?:stop|disable|mask|kill)\s+(?:\S+\s+)*?(?:firewalld|ufw|nftables|iptables|ip6tables|netfilter-persistent|shorewall|csf)(?:\.service)?|service\s+(?:firewalld|ufw|nftables|iptables|ip6tables|netfilter-persistent)\s+stop|(?:\S*/)?socketfilterfw\s+(?:\S+\s+)*?--setglobalstate(?:\s+|=)off|launchctl\s+(?:unload|bootout|disable)\s+(?:\S+\s+)*?\S*com\.apple\.alf\S*|defaults\s+write\s+\S*com\.apple\.alf\s+globalstate\s+(?:-int\s+)?0|pfctl\s+(?:\S+\s+)*?-d)(?:\s|$)'
+  description: "This turns the firewall off: every listening port becomes reachable from the network."
+  id: network:stop_firewall
+  severity: High

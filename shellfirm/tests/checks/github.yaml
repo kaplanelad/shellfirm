@@ -38,6 +38,18 @@
 - test: "gh  repo  archive"
   description: "match repo archive with extra spaces"
   expect_ids: ["github:repo_archive"]
+- test: "gh api -X PATCH repos/acme/x -f archived=true"
+  description: "archiving through the REST API"
+  expect_ids: ["github:repo_archive"]
+- test: "gh api --method PATCH repos/acme/x --field archived=true"
+  description: "archiving through the REST API (long options)"
+  expect_ids: ["github:repo_archive"]
+- test: "gh api -X PATCH repos/acme/x -f archived=false"
+  description: "negative: unarchiving"
+  expect_ids: []
+- test: "gh api repos/acme/x --jq .archived"
+  description: "negative: reading the archived flag"
+  expect_ids: []
 - test: "gh repo archived"
   description: "negative: archived is not archive command"
   expect_ids: []
@@ -225,4 +237,64 @@
   expect_ids: ["github:repo_delete"]
 - test: "gh release delete -h"
   description: "negative: a help request only prints usage"
+  expect_ids: []
+
+# -- github:workflow_disable / secret_set_empty / api_make_public / api_disable_actions --
+- test: "gh workflow disable deploy.yml"
+  description: "a workflow turned off"
+  expect_ids: ["github:workflow_disable"]
+- test: "gh workflow enable deploy.yml"
+  description: "negative: a workflow turned on"
+  expect_ids: []
+- test: "gh workflow list"
+  description: "negative: listing workflows"
+  expect_ids: []
+- test: "gh secret set PROD_KEY < /dev/null"
+  description: "a secret replaced with nothing"
+  expect_ids: ["github:secret_set_empty"]
+- test: "gh secret set KEY < key.txt"
+  description: "negative: a secret set from a file"
+  expect_ids: []
+- test: "gh variable set PROD_URL --body \"\""
+  description: "a variable replaced with an empty body"
+  expect_ids: ["github:secret_set_empty"]
+- test: "gh secret set PROD_KEY --body '' --repo acme/webapp"
+  description: "a secret replaced with an empty body"
+  expect_ids: ["github:secret_set_empty"]
+- test: "gh variable set PROD_URL --body https://app.example.com"
+  description: "negative: a variable set to a value"
+  expect_ids: []
+- test: "gh variable list"
+  description: "negative: listing variables"
+  expect_ids: []
+# -- github:api_delete_webhook --
+- test: "gh api -X DELETE repos/acme/webapp/hooks/1"
+  description: "a repository webhook deleted"
+  expect_ids: ["github:api_delete_webhook"]
+- test: "gh api orgs/acme/hooks/42 --method DELETE"
+  description: "an organization webhook deleted, method last"
+  expect_ids: ["github:api_delete_webhook"]
+- test: "gh api repos/acme/webapp/hooks"
+  description: "negative: listing webhooks"
+  expect_ids: []
+- test: "gh api -X POST repos/acme/webapp/hooks/1/pings"
+  description: "negative: pinging a webhook"
+  expect_ids: []
+- test: "gh api -X PATCH repos/acme/webapp -f visibility=public"
+  description: "the repository made public"
+  expect_ids: ["github:api_make_public"]
+- test: "gh api -X PATCH repos/acme/webapp -F private=false"
+  description: "private turned off"
+  expect_ids: ["github:api_make_public"]
+- test: "gh api -X PATCH repos/acme/webapp -f visibility=private"
+  description: "negative: made private"
+  expect_ids: []
+- test: "gh api repos/acme/webapp"
+  description: "negative: reading the repository"
+  expect_ids: []
+- test: "gh api -X PUT repos/acme/webapp/actions/permissions -F enabled=false"
+  description: "Actions turned off"
+  expect_ids: ["github:api_disable_actions"]
+- test: "gh api repos/acme/webapp/actions/permissions"
+  description: "negative: reading the Actions permissions"
   expect_ids: []

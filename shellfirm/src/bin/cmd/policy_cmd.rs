@@ -214,7 +214,7 @@ impl FileReport {
 }
 
 fn validate_file(path: &Path, known: &std::collections::HashSet<String>) -> FileReport {
-    let content = match std::fs::read_to_string(path) {
+    let content = match shellfirm::config::read_regular_string(path) {
         Ok(c) => c,
         Err(e) => {
             let reason = if e.kind() == std::io::ErrorKind::NotFound {

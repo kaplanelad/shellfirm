@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use shellfirm::agent::{self, AgentAuditInfo, Decision, RiskAssessment};
+use shellfirm::agent_eval;
 use shellfirm::error::Result;
 use shellfirm::{
     checks::{self, Check, Severity},
     env::{Environment, RealEnvironment},
     Config, Settings,
 };
+
+mod agents;
 
 // ---------------------------------------------------------------------------
 // Exit-code contract (documented in `shellfirm check --help`)
@@ -73,10 +76,13 @@ JSON (--format json): a versioned RiskAssessment (\"schema_version\": 2,
   \"deny_reason\", \"policy_sources\"  for a deny (policy_deny | user_deny |
                            agent_auto_deny)
 
-Hook modes (--hook claude-code | cursor, or --format claude-hook |
-cursor-hook) read the agent's hook payload from stdin, always exit 0 and
-answer in the agent's JSON protocol; they fail closed (deny), and exit 2 when
-the answer cannot be written. The hook line installed by older shellfirm
+Hook modes (--hook claude-code | cursor | codex | gemini | qwen | copilot |
+cline | windsurf | opencode, or --format claude-hook | cursor-hook) read the
+agent's hook payload from stdin and answer in the agent's protocol: JSON on
+stdout and exit 0 (windsurf: the reason on stderr and exit 2 to block). Agents
+that cannot ask (codex, cline, windsurf, opencode) get deny for a risky
+command. They fail closed (deny), and exit 2 when the answer cannot be
+written. The hook line installed by older shellfirm
 versions (`check --stdin --format json --exit-code`) still works.
 
 --no-context (or SHELLFIRM_NO_CONTEXT=1) runs no external programs (git,
@@ -92,8 +98,9 @@ https://github.com/kaplanelad/shellfirm/blob/main/docs/check.md";
 pub const EXIT_STRICT: i32 = 78;
 /// Output could not be written (`EX_IOERR`).
 pub const EXIT_IO: i32 = 74;
-/// Hook mode: the decision could not be written. Exit code 2 blocks the tool
-/// call in both Claude Code and Cursor.
+/// Hook mode: the decision could not be written (Windsurf: the action is
+/// blocked). Exit code 2 blocks the tool call in every supported agent but
+/// Cline, whose hook script answers for shellfirm.
 const EXIT_HOOK_BLOCK: i32 = 2;
 
 pub fn command() -> Command {
@@ -125,8 +132,8 @@ pub fn command() -> Command {
         .arg(
             Arg::new("hook")
                 .long("hook")
-                .help("Run as an AI-agent hook (reads the hook payload from stdin)")
-                .value_parser(["claude-code", "cursor"])
+                .help("Run as an AI-agent hook (reads the agent's hook payload from stdin)")
+                .value_parser(HookKind::NAMES)
                 .conflicts_with_all(["list", "command"]),
         )
         .arg(
@@ -191,14 +198,57 @@ pub fn command() -> Command {
 enum HookKind {
     ClaudeCode,
     Cursor,
+    Codex,
+    Gemini,
+    Qwen,
+    Copilot,
+    Cline,
+    Windsurf,
+    OpenCode,
 }
 
 impl HookKind {
+    /// `--hook` values.
+    const NAMES: [&'static str; 9] = [
+        "claude-code",
+        "cursor",
+        "codex",
+        "gemini",
+        "qwen",
+        "copilot",
+        "cline",
+        "windsurf",
+        "opencode",
+    ];
+
     const fn agent_name(self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Cursor => "cursor",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Qwen => "qwen",
+            Self::Copilot => "copilot",
+            Self::Cline => "cline",
+            Self::Windsurf => "windsurf",
+            Self::OpenCode => "opencode",
         }
+    }
+
+    fn from_name(name: &str) -> Option<Self> {
+        [
+            Self::ClaudeCode,
+            Self::Cursor,
+            Self::Codex,
+            Self::Gemini,
+            Self::Qwen,
+            Self::Copilot,
+            Self::Cline,
+            Self::Windsurf,
+            Self::OpenCode,
+        ]
+        .into_iter()
+        .find(|k| k.agent_name() == name)
     }
 }
 
@@ -215,10 +265,11 @@ fn parse_severity(s: &str) -> Option<Severity> {
 
 /// Hook mode requested explicitly (`--hook` or a hook `--format`).
 fn hook_kind(matches: &ArgMatches, format: &str) -> Option<HookKind> {
-    match matches.get_one::<String>("hook").map(String::as_str) {
-        Some("claude-code") => return Some(HookKind::ClaudeCode),
-        Some("cursor") => return Some(HookKind::Cursor),
-        _ => {}
+    if let Some(kind) = matches
+        .get_one::<String>("hook")
+        .and_then(|h| HookKind::from_name(h))
+    {
+        return Some(kind);
     }
     match format {
         "claude-hook" => Some(HookKind::ClaudeCode),
@@ -678,6 +729,21 @@ enum HookAction {
     Command(String),
     /// Write a file with a file-editing tool (`Write`, `Edit`, ...).
     FileWrite { tool: String, path: String },
+    /// Write several files at once (an `apply_patch` patch); `deleted` are
+    /// the ones it deletes.
+    FileWrites {
+        tool: String,
+        paths: Vec<String>,
+        deleted: Vec<String>,
+    },
+    /// Read files with a file tool, checked like `command` (`cat <paths>`).
+    /// `can_ask`: the hook can ask about it (Cursor `beforeReadFile` cannot).
+    FileRead {
+        tool: String,
+        paths: Vec<String>,
+        command: String,
+        can_ask: bool,
+    },
     /// A tool shellfirm has no opinion about.
     #[default]
     NotApplicable,
@@ -698,7 +764,7 @@ struct HookPayload {
 impl HookPayload {
     fn command(&self) -> Option<&str> {
         match &self.action {
-            HookAction::Command(c) => Some(c),
+            HookAction::Command(c) | HookAction::FileRead { command: c, .. } => Some(c),
             _ => None,
         }
     }
@@ -722,8 +788,9 @@ const PATH_KEYS: &[&str] = &[
     "relative_workspace_path",
 ];
 
-/// Parse a Claude Code `PreToolUse` or Cursor `beforeShellExecution` /
-/// `preToolUse` payload.
+/// Parse an agent's hook payload: Claude Code `PreToolUse`, Cursor
+/// `beforeShellExecution` / `preToolUse`, or one of the agents in
+/// [`agents`] (rewritten into the Claude Code shape first).
 ///
 /// Fails (→ the caller denies) on anything that isn't a well-formed payload.
 #[allow(clippy::too_many_lines)]
@@ -734,6 +801,7 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
     }
     let value: serde_json::Value =
         serde_json::from_str(trimmed).map_err(|e| format!("malformed JSON hook input ({e})"))?;
+    let value = agents::normalize(kind, value)?;
     let obj = value
         .as_object()
         .ok_or_else(|| "hook input must be a JSON object".to_string())?;
@@ -778,6 +846,32 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
         ),
     };
 
+    // Cursor `beforeReadFile`: a file the agent reads (no `tool_name`).
+    // Cursor can only allow or deny it.
+    if kind == HookKind::Cursor
+        && obj.get("tool_name").is_none()
+        && obj
+            .get("hook_event_name")
+            .and_then(serde_json::Value::as_str)
+            == Some("beforeReadFile")
+    {
+        let path = str_field(obj.get("file_path"), "file_path")?
+            .filter(|p| !p.trim().is_empty())
+            .ok_or_else(|| "beforeReadFile hook input has no file_path".to_string())?;
+        let paths = vec![path];
+        let command = agent_eval::read_command(
+            &paths,
+            cwd.as_deref().map(Path::new),
+            shellfirm::env::home_dir().as_deref(),
+        );
+        return Ok(base(HookAction::FileRead {
+            tool: "Read".into(),
+            paths,
+            command,
+            can_ask: false,
+        }));
+    }
+
     if let Some(tool) = str_field(obj.get("tool_name"), "tool_name")? {
         let cursor_file_tool =
             kind == HookKind::Cursor && CURSOR_FILE_TOOLS.contains(&tool.as_str());
@@ -817,6 +911,24 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
                 })?;
             return Ok(base(HookAction::FileWrite { tool, path }));
         }
+        if agents_patch_tool(kind, &tool) {
+            // `apply_patch`: every file the patch touches is checked like a
+            // `Write` of that file. A patch naming no file is malformed.
+            let ti =
+                tool_input.ok_or_else(|| format!("{tool} hook input has no tool_input object"))?;
+            let patch = str_field(ti.get("command"), "tool_input.command")?
+                .ok_or_else(|| format!("{tool} hook input has no patch text"))?;
+            let paths = agent_eval::patch_paths(&patch);
+            if paths.is_empty() {
+                return Err(format!("{tool} hook input names no file to change"));
+            }
+            let deleted = agent_eval::patch_deleted_paths(&patch);
+            return Ok(base(HookAction::FileWrites {
+                tool,
+                paths,
+                deleted,
+            }));
+        }
         if agent::FILE_READ_TOOLS.contains(&tool.as_str()) {
             // Checked like the shell read of the same file (`cat <path>`). The
             // path is resolved the way the write tools are (lexically, and
@@ -824,16 +936,49 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
             // seen, not just the literal text.
             let ti =
                 tool_input.ok_or_else(|| format!("{tool} hook input has no tool_input object"))?;
-            let path = str_field(ti.get("file_path"), "tool_input.file_path")?
-                .filter(|p| !p.trim().is_empty())
-                .ok_or_else(|| format!("{tool} hook input has no tool_input.file_path"))?;
-            let cwd_path = cwd.as_deref().map(Path::new);
-            let operands = agent::resolved_tool_paths(&path, cwd_path)
-                .iter()
-                .map(|p| format!("'{}'", p.replace('\'', r"'\''")))
-                .collect::<Vec<_>>()
-                .join(" ");
-            return Ok(base(HookAction::Command(format!("cat {operands}"))));
+            // `file_paths`: several files in one read (Cline `read_files`).
+            let paths: Vec<String> = match ti.get("file_paths") {
+                Some(serde_json::Value::Array(a)) if kind != HookKind::ClaudeCode => a
+                    .iter()
+                    .map(|p| {
+                        p.as_str()
+                            .filter(|p| !p.trim().is_empty())
+                            .map(ToString::to_string)
+                            .ok_or_else(|| {
+                                format!("{tool} hook input has a file path that is not a string")
+                            })
+                    })
+                    .collect::<std::result::Result<_, _>>()?,
+                // Gemini / Qwen `read_many_files` without a list.
+                Some(_) if kind != HookKind::ClaudeCode => {
+                    return Err(
+                        "read_many_files hook input has no list of paths (paths / include)".into(),
+                    )
+                }
+                // Cursor documents no `Read` input: its path keys are tried.
+                _ if kind == HookKind::Cursor => vec![PATH_KEYS
+                    .iter()
+                    .find_map(|k| ti.get(*k).and_then(serde_json::Value::as_str))
+                    .filter(|p| !p.trim().is_empty())
+                    .map(ToString::to_string)
+                    .ok_or_else(|| format!("{tool} hook input has no file path in tool_input"))?],
+                _ => vec![str_field(ti.get("file_path"), "tool_input.file_path")?
+                    .filter(|p| !p.trim().is_empty())
+                    .ok_or_else(|| format!("{tool} hook input has no tool_input.file_path"))?],
+            };
+            let command = agent_eval::read_command(
+                &paths,
+                cwd.as_deref().map(Path::new),
+                shellfirm::env::home_dir().as_deref(),
+            );
+            // Cursor does not enforce `ask` for reads (as for
+            // `beforeReadFile`).
+            return Ok(base(HookAction::FileRead {
+                tool,
+                paths,
+                command,
+                can_ask: kind != HookKind::Cursor,
+            }));
         }
         let shell_tool = agent::SHELL_TOOLS.contains(&tool.as_str())
             || OTHER_SHELL_TOOLS.contains(&tool.as_str());
@@ -871,6 +1016,23 @@ fn parse_hook_payload(input: &str, kind: HookKind) -> std::result::Result<HookPa
     Ok(p)
 }
 
+/// `true` when a command or path of `action` holds a NUL byte.
+fn action_has_nul(action: &HookAction) -> bool {
+    match action {
+        HookAction::Command(c) => c.contains('\0'),
+        HookAction::FileWrite { path, .. } => path.contains('\0'),
+        HookAction::FileWrites { paths, .. } | HookAction::FileRead { paths, .. } => {
+            paths.iter().any(|p| p.contains('\0'))
+        }
+        HookAction::NotApplicable => false,
+    }
+}
+
+/// `apply_patch` (Codex, Cline, `OpenCode`, Copilot): a multi-file patch.
+fn agents_patch_tool(kind: HookKind, tool: &str) -> bool {
+    !matches!(kind, HookKind::ClaudeCode | HookKind::Cursor) && tool == "apply_patch"
+}
+
 /// Pick the configuration directory for a hook run.
 ///
 /// `--config-dir` (recorded by `shellfirm connect`) wins over the location
@@ -902,18 +1064,34 @@ fn hook_config(config_dir: Option<&Path>) -> Option<Config> {
     default
 }
 
-/// `true` when a raw hook payload names a file-editing tool (whatever
-/// else is wrong with it).
-fn raw_names_file_tool(raw: &str, kind: HookKind) -> bool {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(strip_bom(raw).trim()) else {
-        return false;
+/// What a raw hook payload is about (whatever else is wrong with it):
+/// `file edit` for a file-editing tool, `file read` for a file read
+/// (Cursor `beforeReadFile` too), else `command`.
+fn raw_subject(raw: &str, kind: HookKind) -> &'static str {
+    let Some(v) = serde_json::from_str::<serde_json::Value>(strip_bom(raw).trim())
+        .ok()
+        .and_then(|v| agents::normalize(kind, v).ok())
+    else {
+        return "command";
     };
-    v.get("tool_name")
-        .and_then(serde_json::Value::as_str)
-        .is_some_and(|t| {
-            agent::FILE_WRITE_TOOLS.contains(&t)
-                || (kind == HookKind::Cursor && CURSOR_FILE_TOOLS.contains(&t))
-        })
+    let tool = v.get("tool_name").and_then(serde_json::Value::as_str);
+    match tool {
+        Some(t)
+            if agent::FILE_WRITE_TOOLS.contains(&t)
+                || agents_patch_tool(kind, t)
+                || (kind == HookKind::Cursor && CURSOR_FILE_TOOLS.contains(&t)) =>
+        {
+            "file edit"
+        }
+        Some(t) if agent::FILE_READ_TOOLS.contains(&t) => "file read",
+        None if kind == HookKind::Cursor
+            && v.get("hook_event_name").and_then(serde_json::Value::as_str)
+                == Some("beforeReadFile") =>
+        {
+            "file read"
+        }
+        _ => "command",
+    }
 }
 
 struct HookOutcome {
@@ -952,8 +1130,10 @@ fn evaluate_hook(
 ) -> HookOutcome {
     // A malformed file-tool payload is reported as a file edit, not a
     // command.
-    let file_tool_input =
-        matches!(&input, Ok(HookInput::Raw(raw)) if raw_names_file_tool(raw, kind));
+    let raw_subject = match &input {
+        Ok(HookInput::Raw(raw)) => raw_subject(raw, kind),
+        _ => "command",
+    };
     let payload = match input {
         Ok(HookInput::Command(c)) => Ok(HookPayload {
             action: HookAction::Command(c),
@@ -968,18 +1148,22 @@ fn evaluate_hook(
     let no_exec = agent::NoExecEnvironment::new(&real);
     let env: &dyn Environment = if ctx.no_context { &no_exec } else { &real };
 
+    // A NUL byte cuts the text short for whatever runs it next: what shellfirm
+    // judges may not be what runs.
+    let payload = payload.and_then(|p| {
+        if action_has_nul(&p.action) {
+            Err("the tool input contains a NUL byte".to_string())
+        } else {
+            Ok(p)
+        }
+    });
     let payload = match payload {
         Ok(p) => p,
         Err(reason) => {
             let assessment = RiskAssessment::fail_closed(
                 Decision::Deny,
                 format!(
-                    "shellfirm could not evaluate this {}: {reason}. Failing closed.",
-                    if file_tool_input {
-                        "file edit"
-                    } else {
-                        "command"
-                    }
+                    "shellfirm could not evaluate this {raw_subject}: {reason}. Failing closed."
                 ),
             );
             let mut to_log = assessment.clone();
@@ -1004,11 +1188,7 @@ fn evaluate_hook(
             return HookOutcome {
                 assessment,
                 allow_safe: false,
-                subject: if file_tool_input {
-                    "file edit"
-                } else {
-                    "command"
-                },
+                subject: raw_subject,
             };
         }
     };
@@ -1061,64 +1241,68 @@ fn evaluate_hook(
         None => (ctx.settings, ctx.checks, &[][..]),
     };
 
+    let home = env.home_dir();
+    let assess_file = |tool: &str, path: &str, deletes: bool| {
+        agent::assess_file_change_for(
+            tool,
+            path,
+            deletes,
+            Some(&cwd),
+            config.as_ref().map(|c| c.root_folder.as_path()),
+            settings,
+            home.as_deref(),
+        )
+    };
     let (audit_text, assessment) = match &payload.action {
         HookAction::FileWrite { tool, path } => {
-            let mut a = agent::assess_file_tool_for(
-                tool,
-                path,
-                Some(&cwd),
-                config.as_ref().map(|c| c.root_folder.as_path()),
-                settings,
-                env.home_dir().as_deref(),
-            );
-            // An agent-instruction edit (AGENTS.md, CLAUDE.md, Cursor rules) is
-            // an everyday task: it stays `ask` even in Cursor, where `ask` may
-            // not be enforced for preToolUse (the edit then goes ahead). Turn
-            // it off with `shellfirm config ignore shellfirm-self:agent_instructions_edit`.
-            if kind == HookKind::Cursor
-                && a.decision == Decision::Ask
-                && !agent::only_instruction_edits(&a)
-            {
-                // Cursor does not enforce `ask` for preToolUse: deny, and
-                // tell the user to make the change themselves.
-                a.decision = Decision::Deny;
-                let r = format!(
-                    "{} (Cursor cannot ask for file edits, so shellfirm blocks it; make this \
-                     change yourself if it is intended)",
-                    a.decision_reason.take().unwrap_or_default()
-                );
-                a.denial_reason = Some(r.clone());
-                a.decision_reason = Some(r);
-                a.requires_human_approval = false;
-            }
+            let mut a = assess_file(tool, path, tool == "Delete");
+            file_edit_decision(kind, &mut a);
             (format!("{tool} {path}"), a)
         }
-        HookAction::Command(command) => {
-            // One time budget for both evaluations (this one and the
-            // target repository's policy), from the settings used here.
-            let _scope = settings.command_scope();
-            let mut assessment =
-                agent::assess_command(command, settings, checks, env, &settings.agent)
-                    .unwrap_or_else(|e| {
-                        RiskAssessment::fail_closed(
-                            Decision::Deny,
-                            format!(
-                                "shellfirm failed to analyze this command ({e}). Failing closed."
-                            ),
-                        )
-                    });
-            agent::apply_policy_errors(&mut assessment, policy_errors);
-            // `cd /other/repo && ...` from outside the repository: that
-            // repository's policy applies too.
-            if let Some(c) = config.as_ref() {
-                let files = match &loaded {
-                    Some(Ok(l)) => l.policy.files.clone(),
-                    _ => Vec::new(),
-                };
-                assessment =
-                    agent::apply_target_repo_policies(assessment, command, c, env, &cwd, &files);
+        HookAction::FileWrites {
+            tool,
+            paths,
+            deleted,
+        } => {
+            // The most restrictive answer over every file of the patch.
+            let mut a = agent_eval::worst_of(
+                paths
+                    .iter()
+                    .map(|p| assess_file(tool, p, deleted.contains(p)))
+                    .collect(),
+            );
+            file_edit_decision(kind, &mut a);
+            (format!("{tool} {}", paths.join(" ")), a)
+        }
+        HookAction::Command(command) | HookAction::FileRead { command, .. } => {
+            let policy_files = match &loaded {
+                Some(Ok(l)) => l.policy.files.as_slice(),
+                _ => &[],
+            };
+            let assessment = agent_eval::assess_shell_command(
+                command,
+                settings,
+                checks,
+                env,
+                &cwd,
+                policy_errors,
+                config.as_ref().map(|c| (c, policy_files)),
+            );
+            let (mut assessment, instruction_patch) =
+                agent_eval::with_shell_patch(assessment, command, assess_file);
+            let (subject, audit, can_ask) = match &payload.action {
+                HookAction::FileRead {
+                    tool,
+                    paths,
+                    can_ask,
+                    ..
+                } => ("file read", format!("{tool} {}", paths.join(" ")), *can_ask),
+                _ => ("command", command.clone(), true),
+            };
+            if (!kind.can_ask_command() || !can_ask) && !instruction_patch {
+                agent_eval::ask_becomes_deny(&mut assessment, kind.display_name(), subject);
             }
-            (command.clone(), assessment)
+            (audit, assessment)
         }
         HookAction::NotApplicable => unreachable!("handled above"),
     };
@@ -1132,15 +1316,22 @@ fn evaluate_hook(
         &payload,
         false,
     );
-    let subject = if matches!(payload.action, HookAction::FileWrite { .. }) {
-        "file edit"
-    } else {
-        "command"
+    let subject = match payload.action {
+        HookAction::FileWrite { .. } | HookAction::FileWrites { .. } => "file edit",
+        HookAction::FileRead { .. } => "file read",
+        _ => "command",
     };
     HookOutcome {
         assessment,
         allow_safe: settings.agent.allow_safe,
         subject,
+    }
+}
+
+/// See [`agent_eval::file_edit_cannot_ask`].
+fn file_edit_decision(kind: HookKind, a: &mut RiskAssessment) {
+    if !kind.can_ask_file_edit() {
+        agent_eval::file_edit_cannot_ask(a, kind.display_name());
     }
 }
 
@@ -1191,6 +1382,9 @@ fn build_hook_output_for(
     allow_safe: bool,
     subject: &str,
 ) -> Option<serde_json::Value> {
+    if !matches!(kind, HookKind::ClaudeCode | HookKind::Cursor) {
+        return agents::build_output(kind, assessment, allow_safe, subject);
+    }
     if assessment.decision == Decision::Allow && !allow_safe {
         // No decision. Claude Code: "exit code 0 with no output" means the
         // normal permission flow applies. Cursor documents no neutral value
@@ -1198,6 +1392,7 @@ fn build_hook_output_for(
         // stays silent there too (`agent.allow_safe` opts in to `allow`).
         return None;
     }
+    #[allow(clippy::single_match_else)]
     match kind {
         HookKind::ClaudeCode => {
             let reason = if assessment.decision == Decision::Allow {
@@ -1213,7 +1408,7 @@ fn build_hook_output_for(
                 }
             }))
         }
-        HookKind::Cursor => {
+        _ => {
             if assessment.decision == Decision::Allow {
                 return Some(serde_json::json!({ "permission": "allow" }));
             }
@@ -1233,6 +1428,19 @@ fn build_hook_output_for(
 }
 
 fn emit_hook(kind: HookKind, outcome: &HookOutcome) -> shellfirm::CmdExit {
+    if kind == HookKind::Windsurf {
+        // Windsurf reads no JSON: exit 2 blocks, stderr is the reason.
+        return agents::windsurf_block(&outcome.assessment, outcome.subject).map_or(
+            shellfirm::CmdExit {
+                code: EXIT_OK,
+                message: None,
+            },
+            |reason| shellfirm::CmdExit {
+                code: EXIT_HOOK_BLOCK,
+                message: Some(reason),
+            },
+        );
+    }
     if let Some(out) = build_hook_output_for(
         kind,
         &outcome.assessment,
@@ -2192,11 +2400,11 @@ mod tests {
             .unwrap()
             .action
         {
-            HookAction::Command(c) => {
+            HookAction::FileRead { command: c, .. } => {
                 assert!(c.starts_with("cat "));
                 assert!(c.contains(r"'/home/u/it'\''s.txt'"), "got: {c}");
             }
-            other => panic!("expected a command, got {other:?}"),
+            other => panic!("expected a file read, got {other:?}"),
         }
         assert!(php(r#"{"tool_name":"Read","tool_input":{}}"#).is_err());
         assert!(php(r#"{"tool_name":"Read","tool_input":{"file_path":"  "}}"#).is_err());
@@ -2205,8 +2413,10 @@ mod tests {
             .unwrap()
             .action
         {
-            HookAction::Command(c) => assert!(c.contains("'/home/u/.ssh/id_rsa'"), "got: {c}"),
-            other => panic!("expected a command, got {other:?}"),
+            HookAction::FileRead { command: c, .. } => {
+                assert!(c.contains("'/home/u/.ssh/id_rsa'"), "got: {c}")
+            }
+            other => panic!("expected a file read, got {other:?}"),
         }
         // a file tool without a path fails closed
         assert!(php(r#"{"tool_name":"Edit","tool_input":{}}"#).is_err());

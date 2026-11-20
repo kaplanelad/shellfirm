@@ -48,15 +48,19 @@ pub fn command() -> Command {
             "Check the shell integration: which shell you use, whether this shell session \
              has loaded the hook, which shellfirm binary the hook runs, whether the rc file \
              loads the hook (once), whether Enter (and the other keys that run a command) go \
-             through shellfirm in a new interactive shell, known plugin conflicts, and \
-             whether the configuration is valid.\n\n\
+             through shellfirm in a new interactive shell, known plugin conflicts, \
+             whether the configuration is valid, and the AI-agent hooks installed by \
+             `shellfirm connect` (`agent_hook` findings: a hook that does not cover the \
+             agent's shell tool or is turned off in the agent's settings is a warning).\n\n\
              The live check starts a new interactive shell, so it sees what your rc files \
              set up, not key bindings you changed by hand in this session. To check this \
              session, pipe the hook's probe in (bash, zsh and fish):\n\
              \x20 __shellfirm_doctor_probe | shellfirm doctor --stdin\n\n\
              Exit codes:\n\
              \x20 0   nothing is wrong (warnings may still be listed)\n\
-             \x20 1   a check failed: commands typed in this shell may run unchecked\n\
+             \x20 1   a check failed: commands typed in this shell may run unchecked (when no \
+             shell hook is installed at all and the AI-agent hooks are in order, the shell \
+             findings are warnings and the exit code is 0)\n\
              \x20 64  usage error (for example, the shell could not be detected)\n\n\
              `--format json` prints one object with `schema_version`, `ok`, \
              `session_hooked`, `enter_routes_through_shellfirm` and the findings.",
@@ -523,6 +527,188 @@ fn check_default_groups(report: &mut Report, settings: &shellfirm::config::Setti
     }
 }
 
+/// `row` is only off because of `allowManagedHooksOnly`, and a working hook
+/// of the same agent is in its managed settings.
+fn covered_by_managed_hook(
+    row: &super::connect_cmd::IntegrationStatus,
+    rows: &[super::connect_cmd::IntegrationStatus],
+) -> bool {
+    !row.hook_off.is_empty()
+        && row
+            .hook_off
+            .iter()
+            .all(|o| o.starts_with(super::connect_cmd::MANAGED_HOOKS_ONLY))
+        && rows.iter().any(|m| {
+            m.tool == row.tool
+                && m.scope == "managed"
+                && m.hook_installed
+                && m.hook_off.is_empty()
+                && m.error.is_none()
+        })
+}
+
+/// AI-agent hooks installed by `shellfirm connect`: one finding per hook
+/// (a warning when it does not cover the agent's shell tool, is turned off
+/// in the agent's settings, or its file cannot be read).
+fn check_agent_hooks(report: &mut Report, rows: &[super::connect_cmd::IntegrationStatus]) {
+    let mut any = false;
+    for r in rows {
+        let file = r.hook_file.as_deref().unwrap_or("?");
+        if let Some(e) = &r.error {
+            // Maybe installed: not "no AI-agent hook installed".
+            any = true;
+            report.add(
+                "agent_hook",
+                Status::Warn,
+                format!(
+                    "{} ({}): could not read its configuration: {e}",
+                    r.tool, r.scope
+                ),
+            );
+            continue;
+        }
+        if !r.hook_present {
+            // A file at shellfirm's hook path that it did not write.
+            if !r.notes.is_empty() {
+                report.add(
+                    "agent_hook",
+                    Status::Warn,
+                    format!("{} ({}): {}", r.tool, r.scope, r.notes.join("; ")),
+                );
+            }
+            continue;
+        }
+        any = true;
+        // Problems `shellfirm connect` fixes, then settings that turn the
+        // hook off (each message says how to turn it back on).
+        let mut problems: Vec<String> = Vec::new();
+        if !r.hook_installed {
+            problems.push("the hook does not cover the agent's shell commands".into());
+        }
+        if !r.shell_tools_missing.is_empty() {
+            problems.push(format!("not covered: {}", r.shell_tools_missing.join(", ")));
+        }
+        if r.legacy_hook {
+            problems.push("legacy hook command line".into());
+        }
+        let rerun = if problems.is_empty() {
+            String::new()
+        } else {
+            format!("; re-run `shellfirm connect {}`", r.tool)
+        };
+        if problems.is_empty() && covered_by_managed_hook(r, rows) {
+            report.add(
+                "agent_hook",
+                Status::Info,
+                format!(
+                    "{} ({}): hook in {file} is not loaded ({}); the managed hook is used",
+                    r.tool,
+                    r.scope,
+                    super::connect_cmd::MANAGED_HOOKS_ONLY
+                ),
+            );
+            continue;
+        }
+        problems.extend(r.hook_off.iter().cloned());
+        if problems.is_empty() {
+            report.add(
+                "agent_hook",
+                Status::Ok,
+                format!(
+                    "{} ({}): hook in {file}{}",
+                    r.tool,
+                    r.scope,
+                    if r.fail_closed {
+                        ""
+                    } else if r.tool == "gemini" {
+                        // Gemini CLI blocks on any exit status but 0 and 1.
+                        " (Gemini CLI runs the tool call if shellfirm exits with status 1; a \
+                         missing binary or a crash blocks it)"
+                    } else {
+                        " (the agent runs the tool call if shellfirm cannot run)"
+                    }
+                ),
+            );
+        } else {
+            report.add(
+                "agent_hook",
+                Status::Warn,
+                format!(
+                    "{} ({}): hook in {file}: {}{rerun}",
+                    r.tool,
+                    r.scope,
+                    problems.join("; "),
+                ),
+            );
+        }
+    }
+    if !any {
+        report.add(
+            "agent_hook",
+            Status::Info,
+            "no AI-agent hook installed (see `shellfirm connect --help`)",
+        );
+    }
+}
+
+/// Findings about the shell hook: they fail when the hook is missing.
+const SHELL_HOOK_FINDINGS: &[&str] = &[
+    "session",
+    "rc_file",
+    "hook_loaded",
+    "enter",
+    "ctrl_o",
+    "widgets",
+];
+
+/// A machine set up for AI agents only: no shell hook at all, and every
+/// agent hook found is in order. The missing shell hook is then a warning,
+/// not a failure (exit 0), so an agent-only rollout can be checked.
+fn agent_only_setup(report: &mut Report, shell_hook_absent: bool) {
+    let agent = |s: Status| {
+        report
+            .findings
+            .iter()
+            .any(|f| f.id == "agent_hook" && f.status == s)
+    };
+    if !shell_hook_absent || !agent(Status::Ok) || agent(Status::Warn) {
+        return;
+    }
+    let mut changed = false;
+    for f in &mut report.findings {
+        if f.status == Status::Fail && SHELL_HOOK_FINDINGS.contains(&f.id) {
+            f.status = Status::Warn;
+            changed = true;
+        }
+    }
+    if changed {
+        report.add(
+            "agent_only",
+            Status::Info,
+            "no shell hook is installed, but the AI-agent hooks are in place: doctor does not \
+             fail for the shell. Run `shellfirm init` to check commands you type too.",
+        );
+    }
+}
+
+/// settings.yaml parses: `ok`, unless `shellfirm sandbox` refuses some
+/// of its entries (`refused`).
+fn valid_settings(report: &mut Report, path: &str, refused: &[String]) {
+    if refused.is_empty() {
+        report.add("settings", Status::Ok, format!("{path} is valid"));
+    } else {
+        report.add(
+            "settings",
+            Status::Warn,
+            format!(
+                "{path} parses, but `shellfirm sandbox` refuses it: {}; fix it with \
+                 `shellfirm config edit`",
+                refused.join("; ")
+            ),
+        );
+    }
+}
+
 fn check_config(report: &mut Report) -> serde_json::Value {
     let config = match Config::new(None) {
         Ok(c) => c,
@@ -543,9 +729,14 @@ fn check_config(report: &mut Report) -> serde_json::Value {
             Status::Fail,
             format!("{path} is invalid (built-in defaults are used for the bad values): {e}"),
         ),
-        None if config.setting_file_path.exists() => {
-            report.add("settings", Status::Ok, format!("{path} is valid"));
-        }
+        None if config.setting_file_path.exists() => valid_settings(
+            report,
+            &path,
+            &super::sandbox_cmd::settings_errors(
+                &dirs::home_dir().unwrap_or_default(),
+                &settings.sandbox,
+            ),
+        ),
         None => report.add(
             "settings",
             Status::Info,
@@ -571,6 +762,22 @@ fn check_config(report: &mut Report) -> serde_json::Value {
                 custom.warnings.join("; ")
             ),
         );
+    }
+    // `shellfirm sandbox`: say when an agent's sandbox lost shellfirm's
+    // entries (or was turned off) after it was set up.
+    let sandboxes = super::sandbox_cmd::sandbox_status(
+        &dirs::home_dir().unwrap_or_default(),
+        &std::env::current_dir().unwrap_or_default(),
+        &config.root_folder,
+        &settings.sandbox,
+    );
+    for row in &sandboxes {
+        let status = if row.complete() {
+            Status::Ok
+        } else {
+            Status::Warn
+        };
+        report.add("agent_sandbox", status, row.line());
     }
     json!({
         "settings_file": path,
@@ -1106,6 +1313,16 @@ pub fn run(matches: &ArgMatches) -> shellfirm::CmdExit {
         );
     }
     let config = check_config(&mut report);
+    check_agent_hooks(
+        &mut report,
+        &super::connect_cmd::integration_status(
+            &dirs::home_dir().unwrap_or_default(),
+            &std::env::current_dir().unwrap_or_default(),
+        ),
+    );
+    let shell_hook_absent =
+        !rc.installed && rc.loaded_from.is_none() && !live_hooked && session != Session::Hooked;
+    agent_only_setup(&mut report, shell_hook_absent);
     let failed = report.failed();
 
     if format == "json" {
@@ -1462,5 +1679,202 @@ mod tests {
         let mut r = Report::default();
         check_rc(&mut r, Shell::Fish, &rc, false, false);
         assert!(!r.failed());
+    }
+
+    #[test]
+    fn agent_only_setup_does_not_fail_for_the_missing_shell_hook() {
+        let base = || {
+            let mut r = Report::default();
+            r.add(
+                "rc_file",
+                Status::Fail,
+                "~/.zshrc does not load the shellfirm hook",
+            );
+            r.add("hook_loaded", Status::Fail, "not loaded");
+            r.add("binary", Status::Ok, "ok");
+            r
+        };
+        // Agent hooks in order: the shell findings become warnings.
+        let mut r = base();
+        r.add("agent_hook", Status::Ok, "claude-code (user): hook in x");
+        agent_only_setup(&mut r, true);
+        assert!(!r.failed());
+        assert!(r.findings.iter().any(|f| f.id == "agent_only"));
+        // A shell hook that is installed but broken still fails.
+        let mut r = base();
+        r.add("agent_hook", Status::Ok, "claude-code (user): hook in x");
+        agent_only_setup(&mut r, false);
+        assert!(r.failed());
+        // No agent hook, or one with a problem: still a failure.
+        let mut r = base();
+        r.add("agent_hook", Status::Info, "no AI-agent hook installed");
+        agent_only_setup(&mut r, true);
+        assert!(r.failed());
+        let mut r = base();
+        r.add("agent_hook", Status::Ok, "codex (user): hook in x");
+        r.add(
+            "agent_hook",
+            Status::Warn,
+            "claude-code (user): disableAllHooks",
+        );
+        agent_only_setup(&mut r, true);
+        assert!(r.failed());
+        // Other failures (the binary) are kept.
+        let mut r = base();
+        r.add("binary", Status::Fail, "missing");
+        r.add("agent_hook", Status::Ok, "claude-code (user): hook in x");
+        agent_only_setup(&mut r, true);
+        assert!(r.failed());
+    }
+
+    #[test]
+    fn agent_hook_advice_matches_the_problem() {
+        let row =
+            |hook_off: Vec<String>, installed: bool| super::super::connect_cmd::IntegrationStatus {
+                tool: "gemini",
+                scope: "user",
+                hook_file: Some("s.json".into()),
+                hook_installed: installed,
+                hook_present: true,
+                shell_tools_missing: Vec::new(),
+                file_tools_covered: true,
+                legacy_hook: false,
+                fail_closed: false,
+                config_dir: None,
+                mcp_file: None,
+                mcp_registered: false,
+                notes: Vec::new(),
+                hook_off,
+                error: None,
+            };
+        let msg = |r| {
+            let mut rep = Report::default();
+            check_agent_hooks(&mut rep, &[r]);
+            rep.findings[0].message.clone()
+        };
+        let m = msg(row(
+            vec!["hooks are turned off (hooksConfig.enabled: false; set it to true)".into()],
+            true,
+        ));
+        assert!(m.contains("set it to true") && !m.contains("re-run"), "{m}");
+        let m = msg(row(Vec::new(), false));
+        assert!(m.contains("re-run `shellfirm connect gemini`"), "{m}");
+        let m = msg(row(Vec::new(), true));
+        assert!(
+            m.contains("exits with status 1; a missing binary or a crash blocks it"),
+            "{m}"
+        );
+    }
+
+    #[test]
+    fn a_managed_hook_covers_a_user_hook_turned_off_by_managed_only() {
+        let row = |scope, hook_off: Vec<String>| super::super::connect_cmd::IntegrationStatus {
+            tool: "claude-code",
+            scope,
+            hook_file: Some("s.json".into()),
+            hook_installed: true,
+            hook_present: true,
+            shell_tools_missing: Vec::new(),
+            file_tools_covered: true,
+            legacy_hook: false,
+            fail_closed: true,
+            config_dir: None,
+            mcp_file: None,
+            mcp_registered: false,
+            notes: Vec::new(),
+            hook_off,
+            error: None,
+        };
+        let only = vec!["allowManagedHooksOnly is true in /etc/m.json: ...".to_string()];
+        let statuses = |rows: &[super::super::connect_cmd::IntegrationStatus]| {
+            let mut rep = Report::default();
+            check_agent_hooks(&mut rep, rows);
+            rep.findings.iter().map(|f| f.status).collect::<Vec<_>>()
+        };
+        // Without a managed hook, the user hook being off is a warning.
+        assert_eq!(statuses(&[row("user", only.clone())]), [Status::Warn]);
+        assert_eq!(
+            statuses(&[row("user", only.clone()), row("managed", Vec::new())]),
+            [Status::Info, Status::Ok]
+        );
+        // A managed hook that is itself off does not cover it.
+        let off = vec!["disableAllHooks is true in /etc/m.json".to_string()];
+        assert_eq!(
+            statuses(&[row("user", only), row("managed", off)]),
+            [Status::Warn, Status::Warn]
+        );
+        // An unreadable configuration is a warning, never "not installed".
+        let mut unreadable = row("user", Vec::new());
+        unreadable.hook_present = false;
+        unreadable.error = Some("can't read /h/.claude/settings.json: denied".into());
+        let mut rep = Report::default();
+        check_agent_hooks(&mut rep, &[unreadable]);
+        assert_eq!(rep.findings.len(), 1);
+        assert_eq!(rep.findings[0].status, Status::Warn);
+        assert!(rep.findings[0].message.contains("can't read"));
+        // The managed hook alone is enough for an agent-only setup.
+        let mut rep = Report::default();
+        check_agent_hooks(&mut rep, &[row("managed", Vec::new())]);
+        assert_eq!(rep.findings[0].status, Status::Ok);
+    }
+
+    #[test]
+    fn a_foreign_file_at_a_hook_path_is_a_warning() {
+        let row = super::super::connect_cmd::IntegrationStatus {
+            tool: "cline",
+            scope: "user",
+            hook_file: Some("PreToolUse".into()),
+            hook_installed: false,
+            hook_present: false,
+            shell_tools_missing: Vec::new(),
+            file_tools_covered: false,
+            legacy_hook: false,
+            fail_closed: false,
+            config_dir: None,
+            mcp_file: None,
+            mcp_registered: false,
+            notes: vec![
+                "/h/Documents/Cline/Hooks/PreToolUse exists but was not written by shellfirm"
+                    .into(),
+            ],
+            hook_off: Vec::new(),
+            error: None,
+        };
+        let mut rep = Report::default();
+        check_agent_hooks(&mut rep, &[row]);
+        let f = &rep.findings[0];
+        assert_eq!(f.status, Status::Warn);
+        assert!(
+            f.message.contains(
+                "cline (user): /h/Documents/Cline/Hooks/PreToolUse exists but was not written"
+            ),
+            "{}",
+            f.message
+        );
+    }
+
+    #[test]
+    fn settings_with_a_refused_sandbox_entry_are_not_called_valid() {
+        let mut rep = Report::default();
+        valid_settings(&mut rep, "s.yaml", &[]);
+        assert_eq!(rep.findings[0].status, Status::Ok);
+        let mut rep = Report::default();
+        let refused = shellfirm_sandbox_errors();
+        valid_settings(&mut rep, "s.yaml", &refused);
+        let f = &rep.findings[0];
+        assert_eq!(f.status, Status::Warn);
+        assert!(
+            f.message.contains("sandbox.deny_read: `/`") && f.message.contains("config edit"),
+            "{}",
+            f.message
+        );
+    }
+
+    fn shellfirm_sandbox_errors() -> Vec<String> {
+        let cfg = shellfirm::config::SandboxConfig {
+            deny_read: vec!["/".into()],
+            ..shellfirm::config::SandboxConfig::default()
+        };
+        super::super::sandbox_cmd::settings_errors(std::path::Path::new("/h"), &cfg)
     }
 }

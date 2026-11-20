@@ -4,8 +4,8 @@
 use std::{
     collections::{HashMap, HashSet},
     env, fmt, fs,
-    io::{Read, Write},
-    path::PathBuf,
+    io::Write,
+    path::{Path, PathBuf},
 };
 
 use crate::error::{Error, Result};
@@ -218,6 +218,26 @@ impl Default for AgentConfig {
     }
 }
 
+/// Extra paths for `shellfirm sandbox`.
+///
+/// Written into an AI agent's OS sandbox settings on top of the built-in
+/// lists (credential files for reads; startup, persistence and agent
+/// settings files plus shellfirm's configuration for writes). Entries are
+/// `~/`-relative or absolute paths.
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq, Eq)]
+pub struct SandboxConfig {
+    /// More paths sandboxed commands must not read.
+    #[serde(default)]
+    pub deny_read: Vec<String>,
+    /// More paths sandboxed commands must not write.
+    #[serde(default)]
+    pub deny_write: Vec<String>,
+    /// Built-in entries to leave out (e.g. `~/.npmrc` when a sandboxed
+    /// build must read it).
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
 /// Configuration for the `shellfirm wrap` PTY proxy.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct WrappersConfig {
@@ -324,6 +344,33 @@ impl SeverityEscalationConfig {
 }
 
 const DEFAULT_SETTING_FILE_NAME: &str = "settings.yaml";
+
+/// Read `path` only when it is a regular file (or a symlink to one). A
+/// FIFO or a device at a settings path would block the read, or never end.
+///
+/// # Errors
+///
+/// Returns the `metadata`/`read` error, or `InvalidInput` ("not a regular
+/// file") for anything that is not a regular file.
+pub fn read_regular_file(path: &Path) -> std::io::Result<Vec<u8>> {
+    if !fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    fs::read(path)
+}
+
+/// [`read_regular_file`] as UTF-8 text.
+///
+/// # Errors
+///
+/// As [`read_regular_file`], or `InvalidData` when the file is not UTF-8.
+pub fn read_regular_string(path: &Path) -> std::io::Result<String> {
+    String::from_utf8(read_regular_file(path)?)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
 
 /// Environment variable naming the configuration directory, with the same
 /// meaning as `--config-dir` (an explicit `--config-dir` wins).
@@ -695,6 +742,10 @@ pub struct Settings {
     /// Per-check-ID minimum challenge overrides (check ID → challenge).
     #[serde(default)]
     pub check_escalation: HashMap<String, Challenge>,
+    /// Paths `shellfirm sandbox` adds to (or leaves out of) the agent's OS
+    /// sandbox settings.
+    #[serde(default)]
+    pub sandbox: SandboxConfig,
 }
 
 impl fmt::Display for Challenge {
@@ -762,6 +813,7 @@ impl Default for Settings {
             severity_escalation: SeverityEscalationConfig::default(),
             group_escalation: HashMap::new(),
             check_escalation: HashMap::new(),
+            sandbox: SandboxConfig::default(),
         }
     }
 }
@@ -1247,10 +1299,7 @@ impl Config {
     ///
     /// Will return `Err` if the config file cannot be opened or read.
     pub fn read_config_file(&self) -> Result<String> {
-        let mut file = std::fs::File::open(&self.setting_file_path)?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
-        Ok(content)
+        Ok(read_regular_string(&self.setting_file_path)?)
     }
 
     /// Load settings as a raw [`serde_yaml::Value`] tree.
@@ -1918,7 +1967,7 @@ pub fn glyph(unicode: &'static str, ascii: &'static str) -> &'static str {
 }
 
 /// Replace the non-ASCII punctuation shellfirm prints (`—`, `→`, `✓`, `✗`,
-/// `…`, `·`) with ASCII when the locale is not UTF-8.
+/// `…`, `·`, `×`) with ASCII when the locale is not UTF-8.
 #[must_use]
 pub fn ascii_fallback(text: &str) -> String {
     if unicode_output() {
@@ -1932,6 +1981,7 @@ pub fn ascii_fallback(text: &str) -> String {
         .replace('·', "-")
         .replace('‹', "<")
         .replace('›', ">")
+        .replace('×', "x")
 }
 
 // ---------------------------------------------------------------------------
@@ -2416,6 +2466,7 @@ pub const IGNORABLE_BUILTIN_RULE_IDS: &[&str] = &["shellfirm-self:agent_instruct
 /// `agent.self_protection: false` (they protect the machine, or they guard
 /// the analysis itself).
 pub const ALWAYS_ON_BUILTIN_RULE_IDS: &[&str] = &[
+    "shellfirm-self:credential_file_edit",
     "shellfirm-self:persistence_file_edit",
     "shellfirm-self:persistence_file_write",
     "shellfirm-self:persistence_install",
@@ -2435,7 +2486,9 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "shellfirm-self:bulk_rewrite_protected",
     "shellfirm-self:config_change",
     "shellfirm-self:config_env_override",
+    "shellfirm-self:connect_fail_open",
     "shellfirm-self:connect_uninstall",
+    "shellfirm-self:credential_file_edit",
     "shellfirm-self:init_uninstall",
     "shellfirm-self:install_other_version",
     "shellfirm-self:invalid_project_policy",
@@ -2448,6 +2501,7 @@ pub const BUILTIN_RULE_IDS: &[&str] = &[
     "shellfirm-self:rc_hook_edit",
     "shellfirm-self:remove_zsh_hook",
     "shellfirm-self:reset_hook_arrays",
+    "shellfirm-self:sandbox_remove",
     "shellfirm-self:shadow_binary",
     "shellfirm-self:trap_debug",
     "shellfirm-self:uninstall_binary",
@@ -3196,6 +3250,79 @@ mod test_loading {
             config.read_config_file().unwrap(),
             "deny_patterns_ids: [git:force_push]\nchallenge: Banana\n"
         );
+    }
+
+    /// Run `f` on a thread and fail the test if it does not finish in time
+    /// (a read that blocks on a FIFO would otherwise hang the test run).
+    #[cfg(unix)]
+    fn within_seconds<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(f());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10))
+            .expect("blocked on a non-regular file")
+    }
+
+    #[cfg(unix)]
+    fn mkfifo(path: &Path) {
+        assert!(std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_settings_file_is_an_error_not_a_hang() {
+        let tree = tree_fs::TreeBuilder::default().create().unwrap();
+        let config = config_in(&tree);
+        fs::create_dir_all(&config.root_folder).unwrap();
+        mkfifo(&config.setting_file_path);
+        let (strict, lenient, warnings) = within_seconds(move || {
+            (
+                config.get_settings_from_file().map_err(|e| e.to_string()),
+                config.load_settings_lenient(),
+                config.settings_warnings(),
+            )
+        });
+        let err = strict.unwrap_err();
+        assert!(err.contains("could not read settings file"), "{err}");
+        assert!(err.contains("not a regular file"), "{err}");
+        assert_eq!(lenient.1.as_deref(), Some(err.as_str()));
+        assert!(warnings.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_project_policy_is_not_applied_and_does_not_hang() {
+        let tree = tree_fs::TreeBuilder::default()
+            .add("repo/.git/HEAD", "ref: refs/heads/main\n")
+            .create()
+            .unwrap();
+        let repo = tree.root.join("repo");
+        let policy = repo.join(crate::policy::POLICY_FILENAME);
+        mkfifo(&policy);
+        let load = within_seconds(move || crate::policy::load(&crate::env::RealEnvironment, &repo));
+        assert!(load.policy.is_none());
+        assert_eq!(load.not_applied, vec![policy]);
+        assert!(
+            load.errors[0].message.contains("not a regular file"),
+            "{:?}",
+            load.errors
+        );
+    }
+
+    #[test]
+    fn read_regular_file_rejects_a_directory() {
+        let tree = tree_fs::TreeBuilder::default()
+            .add("f.txt", "x")
+            .create()
+            .unwrap();
+        assert_eq!(read_regular_string(&tree.root.join("f.txt")).unwrap(), "x");
+        let e = read_regular_file(&tree.root).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
     }
 
     #[test]

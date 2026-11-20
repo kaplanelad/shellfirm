@@ -46,6 +46,15 @@
   id: base:clear_history
   severity: Medium
 - from: base
+  # Turning shell history off so later commands leave no trace: `unset
+  # HISTFILE`, `export HISTFILE=/dev/null`, `HISTSIZE=0`, `set +o history`,
+  # `shopt -u -o history`.
+  # (`shellfirm-history-off` is emitted by shellfirm for the assignments.)
+  test: '^(?:shellfirm-history-off\b|unset\s+(?:-v\s+)?(?:\S+\s+)*?HISTFILE\b|set\s+(?:\S+\s+)*?\+o\s+history\b|shopt\s+(?:-\S+\s+)*-[a-z]*u[a-z]*\s+(?:-\S+\s+)*history\b)'
+  description: "This turns off your shell history, so the commands that follow leave no record."
+  id: base:disable_history
+  severity: Medium
+- from: base
   test: (?:^|\s)kill\s+-9\s+
   description: "SIGKILL gives no chance for graceful shutdown or cleanup."
   id: process:kill_9
@@ -176,4 +185,21 @@
   test: '(?:^|\s)(?:csrutil\s+(?:\S+\s+)*?disable|spctl\s+--(?:master|global)-disable)(?:\s|$)'
   description: "This disables a core macOS protection — System Integrity Protection (csrutil) or Gatekeeper (spctl) — letting unsigned or tampered code run."
   id: base:disable_macos_security
+  severity: High
+- from: base
+  # Deleting or emptying the shell history file (`rm ~/.bash_history`, `>
+  # ~/.zsh_history`, `truncate -s 0 ~/.bash_history`, `ln -sf /dev/null
+  # ~/.bash_history`): the record of earlier commands is gone.
+  test: '^(?:rm|shred|unlink|srm)\s+(?:\S+\s+)*?\S*(?:\.(?:bash|zsh|sh|ksh)_history|\.zhistory|\.histfile|\.local/share/fish/fish_history)(?:\s|$)|^truncate\s+(?:\S+\s+)*?-s\s*0\s+(?:\S+\s+)*?\S*(?:\.(?:bash|zsh|sh|ksh)_history|\.zhistory|\.histfile|\.local/share/fish/fish_history)(?:\s|$)|(?:^|\s)>\|?\s*\S*(?:\.(?:bash|zsh|sh|ksh)_history|\.zhistory|\.histfile|\.local/share/fish/fish_history)(?:\s|$)|^ln\s+(?:\S+\s+)*?/dev/null\s+\S*(?:\.(?:bash|zsh|sh|ksh)_history|\.zhistory|\.histfile|\.local/share/fish/fish_history)(?:\s|$)'
+  description: "This deletes or empties your shell history file, erasing the record of the commands run before."
+  id: base:clear_history_file
+  severity: Medium
+- from: base
+  # Emptying system logs (`truncate -s 0 /var/log/auth.log`, `: >
+  # /var/log/syslog`, `truncate -s 0 /var/log/*`): the record of logins and
+  # what ran on the machine is erased. An application's own log
+  # (`/var/log/app.log`, `: > build.log`) is not matched.
+  test: '^truncate\s+(?:\S+\s+)*?-s\s*0\s+(?:\S+\s+)*?/var/log/(?:auth\.log|secure|syslog|messages|kern\.log|daemon\.log|wtmp|btmp|lastlog|faillog|system\.log|audit/\S*|journal/\S*|\*)(?:\s|$)|(?:^|\s)>\|?\s*/var/log/(?:auth\.log|secure|syslog|messages|kern\.log|daemon\.log|wtmp|btmp|lastlog|faillog|system\.log|audit/\S*|journal/\S*|\*)(?:\s|$)'
+  description: "This empties system log files under /var/log, erasing the record of logins and of what ran on the machine."
+  id: base:wipe_system_logs
   severity: High

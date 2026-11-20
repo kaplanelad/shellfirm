@@ -107,9 +107,20 @@
   alternative: "railway status"
   alternative_info: "Check which project, environment and service are linked first."
 - from: heroku
-  test: (?:^|\s)railway\s+(?:\S+\s+)*?(?:delete|project\s+delete)(?:\s|$)
+  # `railway delete` / `railway project delete` (the ids keep the `heroku:`
+  # prefix they were published with).
+  test: (?:^|\s)railway\s+(?:-\S+\s+)*(?:project\s+)?delete(?:\s|$)
   description: "railway delete deletes the Railway project with its services, databases and volumes."
   id: heroku:railway_delete
   severity: Critical
   alternative: "railway status"
   alternative_info: "Check which project is linked first, and back its databases up."
+- from: heroku
+  # One Railway resource deleted: an environment, service, volume, domain
+  # or variable (`railway variables delete DATABASE_URL`).
+  test: (?:^|\s)railway\s+(?:\S+\s+)*?(?:environment|env|service|volume|domain|variables?|vars?)\s+(?:\S+\s+)*?(?:delete|remove|rm)(?:\s|$)
+  description: "This deletes a Railway environment, service, volume, domain or variable: what runs on it, or reads it, stops working."
+  id: heroku:railway_resource_delete
+  severity: High
+  alternative: "railway status"
+  alternative_info: "Check which project and environment are linked first."

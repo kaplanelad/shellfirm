@@ -117,6 +117,21 @@ impl CommandOutcome {
 /// Production [`Environment`] backed by the real OS.
 pub struct RealEnvironment;
 
+/// The user's home directory without a trailing `/`:
+/// `HOME=/var/lib/jenkins/` (a Docker `ENV` line) is `/var/lib/jenkins`.
+#[must_use]
+pub fn home_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| {
+        let s = h.display().to_string();
+        let trimmed = s.trim_end_matches('/');
+        if trimmed.is_empty() || trimmed.len() == s.len() {
+            h
+        } else {
+            PathBuf::from(trimmed)
+        }
+    })
+}
+
 impl Environment for RealEnvironment {
     fn var(&self, key: &str) -> Option<String> {
         std::env::var(key).ok()
@@ -131,7 +146,7 @@ impl Environment for RealEnvironment {
     }
 
     fn home_dir(&self) -> Option<PathBuf> {
-        dirs::home_dir()
+        home_dir()
     }
 
     fn run_command(&self, cmd: &str, args: &[&str], timeout_ms: u64) -> Option<String> {
@@ -170,7 +185,7 @@ impl Environment for RealEnvironment {
     }
 
     fn read_file(&self, path: &Path) -> Result<String> {
-        Ok(std::fs::read_to_string(path)?)
+        Ok(crate::config::read_regular_string(path)?)
     }
 
     fn find_file_upward(&self, start: &Path, filename: &str) -> Option<PathBuf> {

@@ -19,6 +19,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{json, Map, Value};
 use shellfirm::error::Result;
 
+mod agents;
+
 /// Hook arguments written by this version.
 const CLAUDE_HOOK_ARGS: &str = "check --hook claude-code";
 const CURSOR_HOOK_ARGS: &str = "check --hook cursor";
@@ -28,7 +30,7 @@ const MCP_ARGS: &[&str] = &["mcp"];
 /// under a second; the optional LLM review is capped at 10 s.
 const HOOK_TIMEOUT_SECS: u64 = 30;
 
-type OpResult<T> = std::result::Result<T, String>;
+pub(super) type OpResult<T> = std::result::Result<T, String>;
 
 // ---------------------------------------------------------------------------
 // Providers and plan
@@ -62,14 +64,35 @@ enum OpKind {
     StandardMcp,
     /// Zed `context_servers.shellfirm`.
     ZedMcp,
+    /// Codex CLI `hooks.json` `hooks.PreToolUse[]`.
+    CodexHooks,
+    /// Gemini CLI `settings.json` `hooks.BeforeTool[]`.
+    GeminiHooks,
+    /// Qwen Code `settings.json` `hooks.PreToolUse[]`.
+    QwenHooks,
+    /// GitHub Copilot CLI hook file `hooks.preToolUse[]`.
+    CopilotHooks,
+    /// Windsurf `hooks.json` `hooks.pre_run_command[]` (and file hooks).
+    WindsurfHooks,
+    /// Cline `PreToolUse` hook script (a file shellfirm owns).
+    ClineScript,
+    /// `OpenCode` plugin (a file shellfirm owns).
+    OpenCodePlugin,
 }
 
 impl OpKind {
     const fn component(self) -> Component {
         match self {
-            Self::ClaudeHooks | Self::CursorHooks => Component::Hooks,
-            _ => Component::Mcp,
+            Self::ClaudeMcp | Self::LegacyClaudeSettingsMcp | Self::StandardMcp | Self::ZedMcp => {
+                Component::Mcp
+            }
+            _ => Component::Hooks,
         }
+    }
+
+    /// A file shellfirm owns entirely (not a JSON file it edits).
+    const fn is_owned_file(self) -> bool {
+        matches!(self, Self::ClineScript | Self::OpenCodePlugin)
     }
 }
 
@@ -77,33 +100,50 @@ impl OpKind {
 enum Provider {
     ClaudeCode,
     Cursor,
+    Codex,
+    Gemini,
+    Qwen,
+    Copilot,
     Windsurf,
-    Zed,
     Cline,
+    OpenCode,
+    Zed,
 }
 
-const SUPPORTED_PROVIDERS: &str = "claude-code, cursor, windsurf, zed, cline";
+const SUPPORTED_PROVIDERS: &str =
+    "claude-code, cursor, codex, gemini, qwen, copilot, windsurf, cline, opencode, zed";
+
+/// Every provider, in `status` order.
+const ALL_PROVIDERS: [Provider; 10] = [
+    Provider::ClaudeCode,
+    Provider::Cursor,
+    Provider::Codex,
+    Provider::Gemini,
+    Provider::Qwen,
+    Provider::Copilot,
+    Provider::Windsurf,
+    Provider::Cline,
+    Provider::OpenCode,
+    Provider::Zed,
+];
 
 impl Provider {
     fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "claude-code" => Some(Self::ClaudeCode),
-            "cursor" => Some(Self::Cursor),
-            "windsurf" => Some(Self::Windsurf),
-            "zed" => Some(Self::Zed),
-            "cline" => Some(Self::Cline),
-            _ => None,
-        }
+        ALL_PROVIDERS.into_iter().find(|p| p.cli_name() == name)
     }
 
-    #[allow(dead_code)]
     const fn cli_name(self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::Cursor => "cursor",
+            Self::Codex => "codex",
+            Self::Gemini => "gemini",
+            Self::Qwen => "qwen",
+            Self::Copilot => "copilot",
             Self::Windsurf => "windsurf",
-            Self::Zed => "zed",
             Self::Cline => "cline",
+            Self::OpenCode => "opencode",
+            Self::Zed => "zed",
         }
     }
 
@@ -111,17 +151,37 @@ impl Provider {
         match self {
             Self::ClaudeCode => "Claude Code",
             Self::Cursor => "Cursor",
+            Self::Codex => "Codex CLI",
+            Self::Gemini => "Gemini CLI",
+            Self::Qwen => "Qwen Code",
+            Self::Copilot => "GitHub Copilot CLI",
             Self::Windsurf => "Windsurf",
-            Self::Zed => "Zed",
             Self::Cline => "Cline",
+            Self::OpenCode => "OpenCode",
+            Self::Zed => "Zed",
         }
     }
 
     const fn supports_hooks(self) -> bool {
-        matches!(self, Self::ClaudeCode | Self::Cursor)
+        !matches!(self, Self::Zed)
     }
 
+    /// shellfirm registers its MCP server with this tool.
+    const fn supports_mcp(self) -> bool {
+        matches!(
+            self,
+            Self::ClaudeCode | Self::Cursor | Self::Windsurf | Self::Cline | Self::Zed
+        )
+    }
+
+    /// `--scope project` is available (for the hook; the MCP registration of
+    /// Windsurf and Cline is user-level only).
     const fn supports_scope(self) -> bool {
+        self.supports_hooks()
+    }
+
+    /// The MCP registration follows `--scope` (otherwise it is user-level).
+    const fn mcp_follows_scope(self) -> bool {
         matches!(self, Self::ClaudeCode | Self::Cursor)
     }
 }
@@ -135,6 +195,137 @@ struct ConnectEnv {
     backup_dir: Option<PathBuf>,
     /// shellfirm's configuration directory, recorded in user-scope hooks.
     config_dir: Option<PathBuf>,
+    /// Agent home directories moved by environment variables.
+    dirs: AgentDirs,
+}
+
+/// Where agents keep their user-level configuration when an environment
+/// variable moves it (`None`: the default under `home`).
+#[derive(Debug, Clone, Default)]
+struct AgentDirs {
+    /// `CODEX_HOME` (default `~/.codex`).
+    codex_home: Option<PathBuf>,
+    /// `COPILOT_HOME` (default `~/.copilot`).
+    copilot_home: Option<PathBuf>,
+    /// `XDG_CONFIG_HOME` (default `~/.config`), for `OpenCode`.
+    xdg_config_home: Option<PathBuf>,
+    /// `CLAUDE_CONFIG_DIR` (default `~/.claude`; `.claude.json` moves into
+    /// it too).
+    claude_config_dir: Option<PathBuf>,
+    /// Claude Code's managed settings file (read for `disableAllHooks`).
+    claude_managed: Option<PathBuf>,
+    /// The running shellfirm binary: the Cline script and the `OpenCode`
+    /// plugin fall back to it when `shellfirm` is not on the agent's PATH.
+    current_exe: Option<PathBuf>,
+}
+
+impl AgentDirs {
+    fn from_env() -> Self {
+        let var = |k: &str| {
+            std::env::var_os(k)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+        };
+        Self {
+            codex_home: var("CODEX_HOME"),
+            copilot_home: var("COPILOT_HOME"),
+            xdg_config_home: var("XDG_CONFIG_HOME"),
+            claude_config_dir: claude_config_dir_from(
+                std::env::var_os("CLAUDE_CONFIG_DIR"),
+                std::env::current_dir().ok().as_deref(),
+            ),
+            claude_managed: Some(claude_managed_settings()),
+            current_exe: std::env::current_exe().ok(),
+        }
+    }
+
+    /// Claude Code's user directory: `$CLAUDE_CONFIG_DIR`, else `~/.claude`.
+    fn claude_dir(&self, home: &Path) -> PathBuf {
+        self.claude_config_dir
+            .clone()
+            .unwrap_or_else(|| home.join(".claude"))
+    }
+
+    /// Claude Code's `.claude.json` (user MCP servers): inside
+    /// `$CLAUDE_CONFIG_DIR` when it is set, else `~/.claude.json`.
+    fn claude_json(&self, home: &Path) -> PathBuf {
+        self.claude_config_dir
+            .as_ref()
+            .map_or_else(|| home.join(".claude.json"), |d| d.join(".claude.json"))
+    }
+}
+
+/// `$CLAUDE_CONFIG_DIR` as Claude Code uses it: a relative value (`rel`,
+/// a literal `~/cc`) is relative to the current directory. Empty: unset.
+fn claude_config_dir_from(
+    value: Option<std::ffi::OsString>,
+    cwd: Option<&Path>,
+) -> Option<PathBuf> {
+    let p = PathBuf::from(value.filter(|v| !v.is_empty())?);
+    if p.is_absolute() {
+        Some(p)
+    } else {
+        cwd.map(|c| c.join(p))
+    }
+}
+
+/// Claude Code's user directory for `home`: `$CLAUDE_CONFIG_DIR` (a
+/// relative one resolved against the current directory) or `~/.claude`.
+#[must_use]
+pub(super) fn claude_user_dir(home: &Path) -> PathBuf {
+    AgentDirs::from_env().claude_dir(home)
+}
+
+/// Where Claude Code reads managed (organisation) settings on this platform.
+#[must_use]
+pub(super) fn claude_managed_settings() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from("/Library/Application Support/ClaudeCode/managed-settings.json")
+    } else if cfg!(windows) {
+        PathBuf::from(r"C:\Program Files\ClaudeCode\managed-settings.json")
+    } else {
+        PathBuf::from("/etc/claude-code/managed-settings.json")
+    }
+}
+
+/// `path` (under `root`) reaches outside `root` through a symlink: the
+/// file itself or a directory between `root` and it is a link that points
+/// out of `root`, or a dangling link. Returns the offending link and where
+/// it leads. A project-scope file is shared with the repository; a link
+/// planted in it must not make shellfirm write another file (an agent's
+/// user settings, say).
+#[must_use]
+pub(super) fn symlink_out_of(path: &Path, root: &Path) -> Option<(PathBuf, String)> {
+    let rel = path.strip_prefix(root).ok()?;
+    let root_canon = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let mut cur = root.to_path_buf();
+    for comp in rel.components() {
+        cur.push(comp);
+        if !fs::symlink_metadata(&cur).is_ok_and(|m| m.file_type().is_symlink()) {
+            continue;
+        }
+        match fs::canonicalize(&cur) {
+            Ok(target) if target.starts_with(&root_canon) => {}
+            Ok(target) => return Some((cur, target.display().to_string())),
+            Err(_) => return Some((cur, "a missing target".into())),
+        }
+    }
+    None
+}
+
+/// The error for [`symlink_out_of`]; `scope` is `project` or `local`.
+pub(super) fn symlink_refusal(path: &Path, link: &Path, target: &str, scope: &str) -> String {
+    format!(
+        "{} is a symlink to {target}, outside this project; shellfirm does not write through \
+         it at {scope} scope (it would change {}). Remove the link, or edit the file by hand.",
+        link.display(),
+        if link == path {
+            "that file".to_string()
+        } else {
+            format!("a file other than {}", path.display())
+        }
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -161,7 +352,7 @@ fn cline_settings_path(home: &Path) -> Option<PathBuf> {
 }
 
 /// Ordered list of `(file, operations)` for a provider.
-#[allow(clippy::trivially_copy_pass_by_ref)]
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::too_many_lines)]
 fn plan(
     provider: Provider,
     opts: &Options,
@@ -174,14 +365,17 @@ fn plan(
     };
     match provider {
         Provider::ClaudeCode => {
-            let settings = base.join(".claude").join("settings.json");
+            let settings = match opts.scope {
+                Scope::User => env.dirs.claude_dir(&env.home).join("settings.json"),
+                Scope::Project => base.join(".claude").join("settings.json"),
+            };
             if opts.hooks {
                 steps.push((settings.clone(), OpKind::ClaudeHooks));
             }
             if opts.mcp {
                 match opts.scope {
                     Scope::User => {
-                        steps.push((env.home.join(".claude.json"), OpKind::ClaudeMcp));
+                        steps.push((env.dirs.claude_json(&env.home), OpKind::ClaudeMcp));
                         steps.push((settings, OpKind::LegacyClaudeSettingsMcp));
                     }
                     Scope::Project => steps.push((base.join(".mcp.json"), OpKind::ClaudeMcp)),
@@ -197,22 +391,103 @@ fn plan(
                 steps.push((dir.join("mcp.json"), OpKind::StandardMcp));
             }
         }
-        Provider::Windsurf => steps.push((
-            env.home
-                .join(".codeium")
-                .join("windsurf")
-                .join("mcp_config.json"),
-            OpKind::StandardMcp,
-        )),
+        Provider::Codex if opts.hooks => {
+            let dir = match opts.scope {
+                Scope::User => env
+                    .dirs
+                    .codex_home
+                    .clone()
+                    .unwrap_or_else(|| env.home.join(".codex")),
+                Scope::Project => base.join(".codex"),
+            };
+            steps.push((dir.join("hooks.json"), OpKind::CodexHooks));
+        }
+        Provider::Gemini if opts.hooks => {
+            steps.push((
+                base.join(".gemini").join("settings.json"),
+                OpKind::GeminiHooks,
+            ));
+        }
+        Provider::Qwen if opts.hooks => {
+            steps.push((base.join(".qwen").join("settings.json"), OpKind::QwenHooks));
+        }
+        Provider::Copilot if opts.hooks => {
+            let dir = match opts.scope {
+                Scope::User => env
+                    .dirs
+                    .copilot_home
+                    .clone()
+                    .unwrap_or_else(|| env.home.join(".copilot"))
+                    .join("hooks"),
+                Scope::Project => base.join(".github").join("hooks"),
+            };
+            steps.push((dir.join("shellfirm.json"), OpKind::CopilotHooks));
+        }
+        Provider::OpenCode if opts.hooks => {
+            let dir = match opts.scope {
+                Scope::User => env
+                    .dirs
+                    .xdg_config_home
+                    .clone()
+                    .unwrap_or_else(|| env.home.join(".config"))
+                    .join("opencode"),
+                Scope::Project => base.join(".opencode"),
+            };
+            steps.push((
+                dir.join("plugins").join("shellfirm.js"),
+                OpKind::OpenCodePlugin,
+            ));
+        }
+        Provider::Codex
+        | Provider::Gemini
+        | Provider::Qwen
+        | Provider::Copilot
+        | Provider::OpenCode => {}
+        Provider::Windsurf => {
+            if opts.hooks {
+                let path = match opts.scope {
+                    Scope::User => env
+                        .home
+                        .join(".codeium")
+                        .join("windsurf")
+                        .join("hooks.json"),
+                    Scope::Project => base.join(".windsurf").join("hooks.json"),
+                };
+                steps.push((path, OpKind::WindsurfHooks));
+            }
+            if opts.mcp && opts.scope == Scope::User {
+                steps.push((
+                    env.home
+                        .join(".codeium")
+                        .join("windsurf")
+                        .join("mcp_config.json"),
+                    OpKind::StandardMcp,
+                ));
+            }
+        }
         Provider::Zed => steps.push((
             env.home.join(".config").join("zed").join("settings.json"),
             OpKind::ZedMcp,
         )),
         Provider::Cline => {
-            let path = cline_settings_path(&env.home).ok_or_else(|| {
-                "Cline's settings location is unknown on this platform".to_string()
-            })?;
-            steps.push((path, OpKind::StandardMcp));
+            if opts.hooks {
+                if cfg!(windows) {
+                    return Err("shellfirm's Cline hook is a POSIX shell script; it is not \
+                                available on Windows (use --mcp-only)"
+                        .into());
+                }
+                let dir = match opts.scope {
+                    Scope::User => env.home.join("Documents").join("Cline").join("Hooks"),
+                    Scope::Project => base.join(".clinerules").join("hooks"),
+                };
+                steps.push((dir.join("PreToolUse"), OpKind::ClineScript));
+            }
+            if opts.mcp && opts.scope == Scope::User {
+                let path = cline_settings_path(&env.home).ok_or_else(|| {
+                    "Cline's settings location is unknown on this platform".to_string()
+                })?;
+                steps.push((path, OpKind::StandardMcp));
+            }
         }
     }
 
@@ -442,7 +717,10 @@ fn matcher_covers(matcher: Option<&str>, tool: &str) -> bool {
 // JSON shape helpers
 // ---------------------------------------------------------------------------
 
-fn root_object<'a>(value: &'a mut Value, path: &Path) -> OpResult<&'a mut Map<String, Value>> {
+pub(super) fn root_object<'a>(
+    value: &'a mut Value,
+    path: &Path,
+) -> OpResult<&'a mut Map<String, Value>> {
     value.as_object_mut().ok_or_else(|| {
         format!(
             "{} does not contain a JSON object at the top level; refusing to modify it",
@@ -451,7 +729,7 @@ fn root_object<'a>(value: &'a mut Value, path: &Path) -> OpResult<&'a mut Map<St
     })
 }
 
-fn child_object<'a>(
+pub(super) fn child_object<'a>(
     parent: &'a mut Map<String, Value>,
     key: &str,
     path: &Path,
@@ -472,7 +750,7 @@ fn child_object<'a>(
     }
 }
 
-fn child_array<'a>(
+pub(super) fn child_array<'a>(
     parent: &'a mut Map<String, Value>,
     key: &str,
     what: &str,
@@ -619,6 +897,11 @@ const CURSOR_TOOL_EVENT: &str = "preToolUse";
 /// Matcher of the Cursor file-edit hook (Cursor matchers are regexes; tool
 /// names from Cursor's hooks docs).
 const CURSOR_FILE_MATCHER: &str = "Write|Delete";
+/// Cursor hook event that runs before the agent reads a file (its payload
+/// carries `file_path`); a read of a credential file is blocked.
+const CURSOR_READ_EVENT: &str = "beforeReadFile";
+/// Every Cursor event shellfirm writes an entry in.
+const CURSOR_EVENTS: [&str; 3] = [CURSOR_SHELL_EVENT, CURSOR_TOOL_EVENT, CURSOR_READ_EVENT];
 
 fn cursor_event_entries<'a>(value: &'a Value, event: &str) -> Vec<(HookCmd, &'a Value)> {
     value
@@ -964,9 +1247,9 @@ fn install_cursor_hooks(
     spec: &InstallSpec,
 ) -> OpResult<Vec<String>> {
     let mut actions = Vec::new();
-    let existing_dir = cursor_hook_entries(value)
-        .into_iter()
-        .chain(cursor_event_entries(value, CURSOR_TOOL_EVENT))
+    let existing_dir = CURSOR_EVENTS
+        .iter()
+        .flat_map(|e| cursor_event_entries(value, e))
         .find_map(|(hc, _)| hc.config_dir);
     let spec = &InstallSpec {
         config_dir: existing_dir.or_else(|| spec.config_dir.clone()),
@@ -974,11 +1257,12 @@ fn install_cursor_hooks(
     };
     let desired = spec.hook_command(CURSOR_HOOK_ARGS);
     let has_file_hook = !cursor_file_hook_entries(value).is_empty();
+    let has_read_hook = !cursor_event_entries(value, CURSOR_READ_EVENT).is_empty();
     let root = root_object(value, path)?;
     let had_hooks_key = root.contains_key("hooks");
     let hooks = child_object(root, "hooks", path, true)?.expect("created");
     let mut kept_shell = 0usize;
-    for event in [CURSOR_SHELL_EVENT, CURSOR_TOOL_EVENT] {
+    for event in CURSOR_EVENTS {
         let Some(list) = child_array(hooks, event, &format!("hooks.{event}"), path, false)? else {
             continue;
         };
@@ -1033,6 +1317,16 @@ fn install_cursor_hooks(
              shellfirm, policy, agent-settings and shell startup files are blocked"
         ));
     }
+    if !has_read_hook {
+        let list = child_array(hooks, CURSOR_READ_EVENT, "hooks.beforeReadFile", path, true)?
+            .expect("created");
+        list.push(json!({ "command": desired, "timeout": HOOK_TIMEOUT_SECS }));
+        actions.push(
+            "add hooks.beforeReadFile entry so agent reads of private keys and credential \
+             files are blocked"
+                .into(),
+        );
+    }
     if hooks.is_empty() && !had_hooks_key {
         root.shift_remove("hooks");
     }
@@ -1050,11 +1344,15 @@ fn install(
     path: &Path,
     spec: &InstallSpec,
 ) -> OpResult<Vec<String>> {
+    if let Some(r) = agents::install(op, value, path, spec) {
+        return r;
+    }
     match op {
         OpKind::ClaudeHooks => return install_claude_hooks(value, path, spec),
         OpKind::CursorHooks => return install_cursor_hooks(value, path, spec),
         OpKind::LegacyClaudeSettingsMcp => return uninstall(op, value, path),
         OpKind::ClaudeMcp | OpKind::StandardMcp | OpKind::ZedMcp => {}
+        _ => return Err(format!("internal error: {op:?} is not a JSON operation")),
     }
     let container = if op == OpKind::ZedMcp {
         "context_servers"
@@ -1080,6 +1378,9 @@ fn install(
 
 /// Apply an uninstall operation, removing only shellfirm's own entries.
 fn uninstall(op: OpKind, value: &mut Value, path: &Path) -> OpResult<Vec<String>> {
+    if let Some(r) = agents::uninstall(op, value, path) {
+        return r;
+    }
     let Some(root) = value.as_object_mut() else {
         // Nothing of ours can be in a non-object file.
         return Ok(Vec::new());
@@ -1122,7 +1423,7 @@ fn uninstall(op: OpKind, value: &mut Value, path: &Path) -> OpResult<Vec<String>
             let Some(hooks) = child_object(root, "hooks", path, false)? else {
                 return Ok(actions);
             };
-            for event in [CURSOR_SHELL_EVENT, CURSOR_TOOL_EVENT] {
+            for event in CURSOR_EVENTS {
                 let Some(list) = child_array(hooks, event, &format!("hooks.{event}"), path, false)?
                 else {
                     continue;
@@ -1140,6 +1441,13 @@ fn uninstall(op: OpKind, value: &mut Value, path: &Path) -> OpResult<Vec<String>
                 root.shift_remove("hooks");
             }
         }
+        OpKind::CodexHooks
+        | OpKind::GeminiHooks
+        | OpKind::QwenHooks
+        | OpKind::CopilotHooks
+        | OpKind::WindsurfHooks
+        | OpKind::ClineScript
+        | OpKind::OpenCodePlugin => {}
         OpKind::ClaudeMcp
         | OpKind::StandardMcp
         | OpKind::ZedMcp
@@ -1174,12 +1482,163 @@ fn uninstall(op: OpKind, value: &mut Value, path: &Path) -> OpResult<Vec<String>
     Ok(actions)
 }
 
+/// A planned change to a file shellfirm owns (Cline script, `OpenCode` plugin).
+struct OwnedChange {
+    path: PathBuf,
+    exists: bool,
+    /// New content; `None` removes the file.
+    content: Option<String>,
+    executable: bool,
+    actions: Vec<String>,
+}
+
+/// What to do with a file shellfirm owns. `None`: nothing to change. A file
+/// at `path` that shellfirm did not write is never replaced or removed.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn plan_owned(
+    op: OpKind,
+    path: &Path,
+    opts: &Options,
+    spec: &InstallSpec,
+    fallback: Option<&str>,
+) -> OpResult<Option<OwnedChange>> {
+    let current = match read_regular(path) {
+        Ok(b) => Some(String::from_utf8_lossy(&b).into_owned()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if fs::symlink_metadata(path).is_ok() {
+                return Err(format!(
+                    "{} is a dangling symlink; refusing to modify it",
+                    path.display()
+                ));
+            }
+            None
+        }
+        Err(e) => return Err(format!("could not read {}: {e}", path.display())),
+    };
+    let ours = current.as_deref().is_some_and(|c| agents::is_ours(op, c));
+    let what = if op == OpKind::ClineScript {
+        "Cline PreToolUse hook script"
+    } else {
+        "OpenCode plugin"
+    };
+    if opts.uninstall {
+        return Ok(ours.then(|| OwnedChange {
+            path: path.to_path_buf(),
+            exists: true,
+            content: None,
+            executable: false,
+            actions: vec![format!("remove the shellfirm {what}")],
+        }));
+    }
+    if current.is_some() && !ours {
+        return Err(format!(
+            "{} exists and was not written by shellfirm; nothing was changed. Move it away (or \
+             call `shellfirm check --hook {}` from it) and run this again.",
+            path.display(),
+            if op == OpKind::ClineScript {
+                "cline"
+            } else {
+                "opencode"
+            }
+        ));
+    }
+    // An existing shellfirm file keeps the configuration directory it records.
+    let spec = InstallSpec {
+        config_dir: current
+            .as_deref()
+            .and_then(|c| agents::recorded_config_dir(op, c))
+            .or_else(|| spec.config_dir.clone()),
+        ..spec.clone()
+    };
+    let desired = agents::owned_content(op, &spec, fallback);
+    if current.as_deref() == Some(desired.as_str()) {
+        return Ok(None);
+    }
+    Ok(Some(OwnedChange {
+        path: path.to_path_buf(),
+        exists: current.is_some(),
+        executable: op == OpKind::ClineScript,
+        actions: vec![if current.is_some() {
+            format!("rewrite the shellfirm {what} (it is out of date)")
+        } else {
+            format!(
+                "add the {what} running `{}`",
+                spec.hook_command(&format!(
+                    "check --hook {}",
+                    if op == OpKind::ClineScript {
+                        "cline"
+                    } else {
+                        "opencode"
+                    }
+                ))
+            )
+        }],
+        content: Some(desired),
+    }))
+}
+
+/// Write (or remove) a file shellfirm owns, backing up the old one first.
+fn save_owned(c: &OwnedChange, backup_dir: Option<&Path>) -> OpResult<Option<PathBuf>> {
+    let target = if c.exists {
+        fs::canonicalize(&c.path).map_err(|e| format!("{}: {e}", c.path.display()))?
+    } else {
+        c.path.clone()
+    };
+    let backup = if c.exists {
+        if let Some(d) = backup_dir {
+            create_private_dir(d)
+                .map_err(|e| format!("could not create backup directory {}: {e}", d.display()))?;
+        }
+        let bak = backup_path_for(&target, backup_dir);
+        fs::copy(&target, &bak)
+            .map_err(|e| format!("could not back up {}: {e}", c.path.display()))?;
+        prune_backups(&bak);
+        Some(bak)
+    } else {
+        None
+    };
+    let Some(content) = &c.content else {
+        fs::remove_file(&target)
+            .map_err(|e| format!("could not remove {}: {e}", c.path.display()))?;
+        return Ok(backup);
+    };
+    let parent = target
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+    fs::create_dir_all(&parent)
+        .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    let name = target
+        .file_name()
+        .map_or_else(|| "hook".into(), |n| n.to_string_lossy().into_owned());
+    let tmp = parent.join(format!(".{name}.shellfirm-tmp-{}", std::process::id()));
+    let write = || -> std::io::Result<()> {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(content.as_bytes())?;
+        f.sync_all()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = if c.executable { 0o755 } else { 0o644 };
+            fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+        }
+        fs::rename(&tmp, &target)
+    };
+    if let Err(e) = write() {
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("could not write {}: {e}", c.path.display()));
+    }
+    Ok(backup)
+}
+
 /// `true` when a file holds nothing but (at most) a Cursor `version` key, so
 /// it can be deleted instead of being left behind as a `{}` stub.
 fn is_empty_stub(value: &Value, ops: &[OpKind]) -> bool {
     value.as_object().is_some_and(|m| {
         m.is_empty()
-            || (ops.contains(&OpKind::CursorHooks) && m.len() == 1 && m.contains_key("version"))
+            || ((ops.contains(&OpKind::CursorHooks) || ops.contains(&OpKind::CopilotHooks))
+                && m.len() == 1
+                && m.contains_key("version"))
     })
 }
 
@@ -1192,7 +1651,8 @@ fn is_empty_stub(value: &Value, ops: &[OpKind]) -> bool {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, serde_derive::Serialize)]
 pub struct IntegrationStatus {
-    /// `claude-code`, `cursor`, `windsurf`, `zed` or `cline`.
+    /// `claude-code`, `cursor`, `codex`, `gemini`, `qwen`, `copilot`,
+    /// `windsurf`, `cline`, `opencode` or `zed`.
     pub tool: &'static str,
     /// `user` or `project`.
     pub scope: &'static str,
@@ -1222,16 +1682,35 @@ pub struct IntegrationStatus {
     pub mcp_file: Option<String>,
     /// shellfirm is registered as an MCP server.
     pub mcp_registered: bool,
+    /// Things to know about an installed hook (the agent must trust it
+    /// first, a file at its path that shellfirm did not write, ...).
+    pub notes: Vec<String>,
+    /// Why the hook does not run although it is installed (turned off in
+    /// the agent's settings), each with how to turn it back on.
+    pub hook_off: Vec<String>,
     /// A file could not be read or parsed.
     pub error: Option<String>,
 }
 
-#[allow(dead_code)]
-fn read_value(path: &Path) -> std::result::Result<Option<Value>, String> {
-    if !path.exists() {
-        return Ok(None);
+/// Read `path` only when it is a regular file (see
+/// [`shellfirm::config::read_regular_file`]).
+pub(super) fn read_regular(path: &Path) -> std::io::Result<Vec<u8>> {
+    shellfirm::config::read_regular_file(path)
+}
+
+/// [`read_regular`] as UTF-8 text.
+pub(super) fn read_regular_string(path: &Path) -> std::io::Result<String> {
+    shellfirm::config::read_regular_string(path)
+}
+
+pub(super) fn read_value(path: &Path) -> std::result::Result<Option<Value>, String> {
+    // A folder on the path that cannot be read is an error, not "missing".
+    match path.try_exists() {
+        Ok(false) => return Ok(None),
+        Err(e) => return Err(format!("can't read {}: {e}", path.display())),
+        Ok(true) => {}
     }
-    let content = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let content = read_regular_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     parse_jsonc(&content)
         .map(|(v, _)| Some(v))
         .map_err(|e| format!("{}: {e}", path.display()))
@@ -1249,24 +1728,24 @@ fn read_value(path: &Path) -> std::result::Result<Option<Value>, String> {
 #[must_use]
 #[allow(clippy::too_many_lines)]
 pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
-    let env = ConnectEnv {
+    integration_status_in(&ConnectEnv {
         home: home.to_path_buf(),
         cwd: cwd.to_path_buf(),
         backup_dir: None,
         config_dir: None,
-    };
+        dirs: AgentDirs::from_env(),
+    })
+}
+
+#[allow(clippy::too_many_lines)]
+fn integration_status_in(env: &ConnectEnv) -> Vec<IntegrationStatus> {
+    let (home, cwd) = (env.home.as_path(), env.cwd.as_path());
     let mut out = Vec::new();
     let mut scopes = vec![Scope::User];
     if cwd != home {
         scopes.push(Scope::Project);
     }
-    for provider in [
-        Provider::ClaudeCode,
-        Provider::Cursor,
-        Provider::Windsurf,
-        Provider::Zed,
-        Provider::Cline,
-    ] {
+    for provider in ALL_PROVIDERS {
         for &scope in &scopes {
             if scope == Scope::Project && !provider.supports_scope() {
                 continue;
@@ -1274,12 +1753,13 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
             let opts = Options {
                 dry_run: true,
                 uninstall: false,
-                hooks: provider.supports_hooks(),
-                mcp: true,
+                // shellfirm's Cline hook is a POSIX shell script.
+                hooks: provider.supports_hooks() && !(cfg!(windows) && provider == Provider::Cline),
+                mcp: provider.supports_mcp(),
                 scope,
                 fail_closed: true,
             };
-            let Ok(files) = plan(provider, &opts, &env) else {
+            let Ok(files) = plan(provider, &opts, env) else {
                 continue;
             };
             let mut st = IntegrationStatus {
@@ -1299,9 +1779,46 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
                 config_dir: None,
                 mcp_file: None,
                 mcp_registered: false,
+                notes: Vec::new(),
+                hook_off: Vec::new(),
                 error: None,
             };
             for (path, ops) in files {
+                if scope == Scope::Project {
+                    if let Some((link, target)) = symlink_out_of(&path, cwd) {
+                        st.hook_file = Some(path.display().to_string());
+                        st.error = Some(symlink_refusal(&path, &link, &target, "project"));
+                        continue;
+                    }
+                }
+                if let Some(&op) = ops.iter().find(|o| o.is_owned_file()) {
+                    st.hook_file = Some(path.display().to_string());
+                    match read_regular_string(&path) {
+                        Ok(content) if agents::is_ours(op, &content) => {
+                            st.hook_present = true;
+                            st.hook_installed = true;
+                            st.file_tools_covered = true;
+                            // Both answer "block" themselves when shellfirm
+                            // cannot run.
+                            st.fail_closed = true;
+                            st.config_dir = agents::recorded_config_dir(op, &content);
+                            if op == OpKind::ClineScript {
+                                st.notes.push(
+                                    "in the VS Code extension, turn on \"Enable Hooks\" in \
+                                     Cline's settings"
+                                        .into(),
+                                );
+                            }
+                        }
+                        Ok(_) => st.notes.push(format!(
+                            "{} exists but was not written by shellfirm",
+                            path.display()
+                        )),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(e) => st.error = Some(format!("{}: {e}", path.display())),
+                    }
+                    continue;
+                }
                 let value = match read_value(&path) {
                     Ok(v) => v.unwrap_or_else(|| json!({})),
                     Err(e) => {
@@ -1310,26 +1827,14 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
                     }
                 };
                 for op in ops {
+                    if agents::status(op, &value, &mut st) {
+                        st.hook_file = Some(path.display().to_string());
+                        continue;
+                    }
                     match op {
                         OpKind::ClaudeHooks => {
-                            let s = claude_hook_state(&value);
                             st.hook_file = Some(path.display().to_string());
-                            st.hook_installed = s.covered.contains(&"Bash");
-                            st.hook_present = s.entries > 0;
-                            if s.entries > 0 {
-                                st.shell_tools_missing = shellfirm::agent::SHELL_TOOLS
-                                    .iter()
-                                    .copied()
-                                    .filter(|t| !s.covered.contains(t))
-                                    .collect();
-                            }
-                            st.file_tools_covered = shellfirm::agent::FILE_WRITE_TOOLS
-                                .iter()
-                                .chain(shellfirm::agent::FILE_READ_TOOLS)
-                                .all(|t| s.covered.contains(t));
-                            st.legacy_hook = s.legacy > 0;
-                            st.fail_closed = s.entries > 0 && s.fail_closed == s.entries;
-                            st.config_dir = s.config_dirs.first().cloned();
+                            fill_claude_hook_state(&mut st, &value);
                         }
                         OpKind::CursorHooks => {
                             let entries = cursor_hook_entries(&value);
@@ -1337,10 +1842,15 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
                             let files = cursor_file_hook_entries(&value);
                             st.hook_installed = !entries.is_empty();
                             st.hook_present = !entries.is_empty()
-                                || !cursor_event_entries(&value, CURSOR_TOOL_EVENT).is_empty();
-                            st.file_tools_covered = !files.is_empty();
-                            st.legacy_hook =
-                                entries.iter().chain(files.iter()).any(|(hc, _)| hc.legacy);
+                                || !cursor_event_entries(&value, CURSOR_TOOL_EVENT).is_empty()
+                                || !cursor_event_entries(&value, CURSOR_READ_EVENT).is_empty();
+                            let reads = cursor_event_entries(&value, CURSOR_READ_EVENT);
+                            st.file_tools_covered = !files.is_empty() && !reads.is_empty();
+                            st.legacy_hook = entries
+                                .iter()
+                                .chain(files.iter())
+                                .chain(reads.iter())
+                                .any(|(hc, _)| hc.legacy);
                             st.config_dir =
                                 entries.iter().find_map(|(hc, _)| hc.config_dir.clone());
                         }
@@ -1353,14 +1863,181 @@ pub fn integration_status(home: &Path, cwd: &Path) -> Vec<IntegrationStatus> {
                             st.mcp_file = Some(path.display().to_string());
                             st.mcp_registered = server_installed(&value, container);
                         }
-                        OpKind::LegacyClaudeSettingsMcp => {}
+                        _ => {}
                     }
+                }
+            }
+            if st.hook_present {
+                match provider {
+                    Provider::ClaudeCode => st.hook_off.extend(
+                        claude_hooks_off(env)
+                            .into_iter()
+                            .chain(claude_managed_only(env)),
+                    ),
+                    Provider::Codex => st.hook_off.extend(codex_hooks_off(env)),
+                    _ => {}
                 }
             }
             out.push(st);
         }
+        if provider == Provider::ClaudeCode {
+            out.extend(claude_managed_row(env));
+        }
     }
     out
+}
+
+/// What the shellfirm entries in Claude Code `hooks` cover.
+fn fill_claude_hook_state(st: &mut IntegrationStatus, value: &Value) {
+    let s = claude_hook_state(value);
+    st.hook_installed = s.covered.contains(&"Bash");
+    st.hook_present = s.entries > 0;
+    if s.entries > 0 {
+        st.shell_tools_missing = shellfirm::agent::SHELL_TOOLS
+            .iter()
+            .copied()
+            .filter(|t| !s.covered.contains(t))
+            .collect();
+    }
+    st.file_tools_covered = shellfirm::agent::FILE_WRITE_TOOLS
+        .iter()
+        .chain(shellfirm::agent::FILE_READ_TOOLS)
+        .all(|t| s.covered.contains(t));
+    st.legacy_hook = s.legacy > 0;
+    st.fail_closed = s.entries > 0 && s.fail_closed == s.entries;
+    st.config_dir = s.config_dirs.first().cloned();
+}
+
+/// A shellfirm hook in Claude Code's managed settings (put there by an
+/// administrator; `connect` never writes that file). `None` when the file
+/// is missing or holds no shellfirm hook.
+fn claude_managed_row(env: &ConnectEnv) -> Option<IntegrationStatus> {
+    let path = env.dirs.claude_managed.as_ref()?;
+    let mut st = IntegrationStatus {
+        tool: Provider::ClaudeCode.cli_name(),
+        scope: "managed",
+        hook_file: Some(path.display().to_string()),
+        hook_installed: false,
+        hook_present: false,
+        shell_tools_missing: Vec::new(),
+        file_tools_covered: false,
+        legacy_hook: false,
+        fail_closed: false,
+        config_dir: None,
+        mcp_file: None,
+        mcp_registered: false,
+        notes: Vec::new(),
+        hook_off: Vec::new(),
+        error: None,
+    };
+    match read_value(path) {
+        Ok(None) => return None,
+        Ok(Some(value)) => {
+            fill_claude_hook_state(&mut st, &value);
+            if !st.hook_present {
+                return None;
+            }
+            // Only managed settings can turn managed hooks off.
+            if value.get("disableAllHooks").and_then(Value::as_bool) == Some(true) {
+                st.hook_off.push(format!(
+                    "disableAllHooks is true in {}: Claude Code runs no hook (remove it or set \
+                     it to false)",
+                    path.display()
+                ));
+            }
+        }
+        Err(e) => st.error = Some(e),
+    }
+    Some(st)
+}
+
+/// The managed settings file holds a shellfirm hook that covers `Bash`.
+fn claude_managed_hook(env: &ConnectEnv) -> bool {
+    claude_managed_row(env).is_some_and(|r| r.hook_installed && r.hook_off.is_empty())
+}
+
+/// Claude Code's `disableAllHooks`: the value from the highest-precedence
+/// settings file that sets it (managed, local, project, user). `Some` with
+/// the file when it turns every hook off.
+fn claude_hooks_off(env: &ConnectEnv) -> Option<String> {
+    let dir = env.cwd.join(".claude");
+    let project = (env.cwd != env.home)
+        .then(|| [dir.join("settings.local.json"), dir.join("settings.json")])
+        .into_iter()
+        .flatten();
+    let files = env
+        .dirs
+        .claude_managed
+        .iter()
+        .cloned()
+        .chain(project)
+        .chain([env.dirs.claude_dir(&env.home).join("settings.json")]);
+    files.into_iter().find_map(|f| {
+        let v = read_value(&f).ok().flatten()?;
+        let off = v.get("disableAllHooks")?.as_bool()?;
+        Some(off.then(|| {
+            format!(
+                "disableAllHooks is true in {}: Claude Code runs no hook (remove it or set it \
+                 to false)",
+                f.display()
+            )
+        }))
+    })?
+}
+
+/// Claude Code's managed setting that loads only managed hooks.
+pub(super) const MANAGED_HOOKS_ONLY: &str = "allowManagedHooksOnly";
+
+/// Claude Code's managed `allowManagedHooksOnly`: user, project and plugin
+/// hooks (where `shellfirm connect` puts its hook) are not loaded.
+fn claude_managed_only(env: &ConnectEnv) -> Option<String> {
+    let f = env.dirs.claude_managed.as_ref()?;
+    let on = read_value(f).ok()??.get(MANAGED_HOOKS_ONLY)?.as_bool()?;
+    on.then(|| {
+        let advice = if claude_managed_hook(env) {
+            "the shellfirm hook in that file runs instead"
+        } else {
+            "put the shellfirm hook in that file, or remove the setting"
+        };
+        format!(
+            "{MANAGED_HOOKS_ONLY} is true in {}: Claude Code runs only hooks from managed \
+             settings ({advice})",
+            f.display()
+        )
+    })
+}
+
+/// Codex's hooks feature flag (`[features] hooks`, formerly `codex_hooks`,
+/// on by default): the project `.codex/config.toml` overrides the user one.
+fn codex_hooks_off(env: &ConnectEnv) -> Option<String> {
+    let user = env
+        .dirs
+        .codex_home
+        .clone()
+        .unwrap_or_else(|| env.home.join(".codex"))
+        .join("config.toml");
+    let mut files = Vec::new();
+    if env.cwd != env.home {
+        files.push(env.cwd.join(".codex").join("config.toml"));
+    }
+    files.push(user);
+    files.into_iter().find_map(|f| {
+        let doc = read_regular_string(&f)
+            .ok()?
+            .parse::<toml_edit::DocumentMut>()
+            .ok()?;
+        let features = doc.get("features")?;
+        let (key, on) = ["hooks", "codex_hooks"]
+            .into_iter()
+            .find_map(|k| features.get(k)?.as_bool().map(|b| (k, b)))?;
+        Some((!on).then(|| {
+            format!(
+                "hooks are turned off in {} ([features] {key} = false): Codex runs no hook \
+                 (set it to true)",
+                f.display()
+            )
+        }))
+    })?
 }
 
 // ---------------------------------------------------------------------------
@@ -1477,17 +2154,19 @@ fn parse_jsonc(content: &str) -> std::result::Result<(Value, bool), String> {
     }
 }
 
-struct LoadedFile {
+pub(super) struct LoadedFile {
     /// Path as shown to the user.
-    path: PathBuf,
+    pub(super) path: PathBuf,
     /// Where to write (symlink target if `path` is a symlink).
-    write_path: PathBuf,
-    exists: bool,
-    value: Value,
-    lossy_format: bool,
+    pub(super) write_path: PathBuf,
+    pub(super) exists: bool,
+    pub(super) value: Value,
+    pub(super) lossy_format: bool,
 }
 
-fn load_file(path: &Path) -> OpResult<LoadedFile> {
+/// Read a config file that is about to be modified: `None` when it does not
+/// exist, else the path to write to (symlink target) and its text.
+pub(super) fn read_text(path: &Path) -> OpResult<Option<(PathBuf, String)>> {
     if !path.exists() {
         if fs::symlink_metadata(path).is_ok() {
             return Err(format!(
@@ -1495,6 +2174,22 @@ fn load_file(path: &Path) -> OpResult<LoadedFile> {
                 path.display()
             ));
         }
+        return Ok(None);
+    }
+    let write_path = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes =
+        read_regular(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let content = String::from_utf8(bytes).map_err(|_| {
+        format!(
+            "{} is not valid UTF-8; refusing to modify it",
+            path.display()
+        )
+    })?;
+    Ok(Some((write_path, content)))
+}
+
+pub(super) fn load_file(path: &Path) -> OpResult<LoadedFile> {
+    let Some((write_path, content)) = read_text(path)? else {
         return Ok(LoadedFile {
             path: path.to_path_buf(),
             write_path: path.to_path_buf(),
@@ -1502,15 +2197,7 @@ fn load_file(path: &Path) -> OpResult<LoadedFile> {
             value: json!({}),
             lossy_format: false,
         });
-    }
-    let write_path = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let bytes = fs::read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    let content = String::from_utf8(bytes).map_err(|_| {
-        format!(
-            "{} is not valid UTF-8; refusing to modify it",
-            path.display()
-        )
-    })?;
+    };
     let (value, lossy_format) = parse_jsonc(&content).map_err(|e| {
         format!(
             "could not parse {} as JSON/JSONC ({e}); nothing was changed. Fix the file or edit it by hand.",
@@ -1577,6 +2264,63 @@ fn backup_path_for(path: &Path, backup_dir: Option<&Path>) -> PathBuf {
     candidate
 }
 
+/// Remove the directories between `file` and `root` that are left empty
+/// (`.github/hooks` and `.github` after a project-scope uninstall). A
+/// directory that still holds anything stays.
+pub(super) fn remove_empty_parents(file: &Path, root: &Path) {
+    for dir in file.ancestors().skip(1) {
+        if dir == root || !dir.starts_with(root) || fs::remove_dir(dir).is_err() {
+            break;
+        }
+    }
+}
+
+/// shellfirm keeps this many backups of each file; older ones are deleted.
+pub(super) const BACKUPS_KEPT: usize = 3;
+
+/// `rest` is what [`backup_path_for`] puts after `.shellfirm-bak-`: a
+/// `YYYYMMDDTHHMMSSZ` stamp, then an optional `-<n>`.
+fn is_backup_suffix(rest: &str) -> bool {
+    let (stamp, n) = rest.split_once('-').unwrap_or((rest, "1"));
+    let b = stamp.as_bytes();
+    b.len() == 16
+        && b[8] == b'T'
+        && b[15] == b'Z'
+        && b[..8].iter().chain(&b[9..15]).all(u8::is_ascii_digit)
+        && !n.is_empty()
+        && n.bytes().all(|c| c.is_ascii_digit())
+}
+
+/// Delete all but the newest [`BACKUPS_KEPT`] shellfirm backups of the
+/// file `bak` (just written) is a backup of.
+fn prune_backups(bak: &Path) {
+    let (Some(dir), Some(name)) = (bak.parent(), bak.file_name().and_then(|n| n.to_str())) else {
+        return;
+    };
+    let Some(idx) = name.find(".shellfirm-bak-") else {
+        return;
+    };
+    let prefix = &name[..idx + ".shellfirm-bak-".len()];
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    // Named `<prefix><UTC timestamp>[-<n>]`: the name sorts by age.
+    let mut found: Vec<(String, PathBuf)> = entries
+        .filter_map(std::result::Result::ok)
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.to_string();
+            // Only names shellfirm writes: not a user's own
+            // `settings.json.shellfirm-bak-mine`.
+            is_backup_suffix(n.strip_prefix(prefix)?).then(|| (n.clone(), e.path()))
+        })
+        .collect();
+    found.sort();
+    let excess = found.len().saturating_sub(BACKUPS_KEPT);
+    for (_, p) in found.into_iter().take(excess) {
+        let _ = fs::remove_file(p);
+    }
+}
+
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -1594,7 +2338,7 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 
 /// What to do with a file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SaveMode {
+pub(super) enum SaveMode {
     Write,
     /// The file would only be an empty stub after uninstall: delete it.
     Remove,
@@ -1602,9 +2346,20 @@ enum SaveMode {
 
 /// Write `value` to `file` atomically (or remove the file), after backing up
 /// the existing file. Returns the backup path (if a backup was made).
-fn save_file(
+pub(super) fn save_file(
     file: &LoadedFile,
     value: &Value,
+    backup_dir: Option<&Path>,
+    mode: SaveMode,
+) -> OpResult<Option<PathBuf>> {
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())? + "\n";
+    save_text(file, &text, backup_dir, mode)
+}
+
+/// [`save_file`] for content that is already serialized (any format).
+pub(super) fn save_text(
+    file: &LoadedFile,
+    text: &str,
     backup_dir: Option<&Path>,
     mode: SaveMode,
 ) -> OpResult<Option<PathBuf>> {
@@ -1627,6 +2382,7 @@ fn save_file(
         let bak = backup_path_for(target, backup_dir);
         fs::copy(target, &bak)
             .map_err(|e| format!("could not back up {}: {e}", file.path.display()))?;
+        prune_backups(&bak);
         backup = Some(bak);
     }
 
@@ -1645,7 +2401,6 @@ fn save_file(
     fs::create_dir_all(&parent)
         .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
 
-    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())? + "\n";
     let name = target
         .file_name()
         .map_or_else(|| "config".into(), |n| n.to_string_lossy().into_owned());
@@ -1724,6 +2479,22 @@ fn hooks_tool_subcommand(name: &'static str, about: &'static str, long: &'static
         .arg(uninstall_arg())
 }
 
+/// A tool with a hook and no MCP registration.
+fn hooks_only_subcommand(name: &'static str, about: &'static str, long: &'static str) -> Command {
+    Command::new(name)
+        .about(about)
+        .long_about(long)
+        .arg(
+            Arg::new("scope")
+                .long("scope")
+                .help("user: your home directory (default); project: the current directory (for team rollout)")
+                .value_parser(["user", "project"])
+                .default_value("user"),
+        )
+        .arg(dry_run_arg())
+        .arg(uninstall_arg())
+}
+
 fn mcp_only_subcommand(name: &'static str, about: &'static str) -> Command {
     Command::new(name)
         .about(about)
@@ -1731,9 +2502,10 @@ fn mcp_only_subcommand(name: &'static str, about: &'static str) -> Command {
         .arg(uninstall_arg())
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn command() -> Command {
     Command::new("connect")
-        .about("Connect AI tool integrations (hooks + MCP)")
+        .about("Connect AI agents (blocking hooks, MCP server)")
         .arg_required_else_help(true)
         .subcommand(hooks_tool_subcommand(
             "claude-code",
@@ -1775,17 +2547,95 @@ pub fn command() -> Command {
             action through. shellfirm itself never exits without a decision for risky input \
             (crashes become deny).",
         ))
-        .subcommand(mcp_only_subcommand(
+        .subcommand(hooks_only_subcommand(
+            "codex",
+            "Connect OpenAI Codex CLI (PreToolUse hook)",
+            "Connect OpenAI Codex CLI (0.124.0 or later).\n\n\
+            user scope:    ~/.codex/hooks.json ($CODEX_HOME/hooks.json when set)\n\
+            project scope: ./.codex/hooks.json (Codex loads it in trusted projects)\n\n\
+            A PreToolUse hook (matcher Bash|apply_patch) runs `shellfirm check --hook codex` \
+            before every shell command and apply_patch edit. Codex hooks cannot ask, so \
+            risky commands are denied with the reason and a safer alternative, like dangerous \
+            ones; safe commands get no answer (Codex's own approvals apply). Codex runs a new \
+            or changed hook only after you trust it: the TUI lists it when it starts (or use \
+            /hooks), and `codex exec` skips it until then. If shellfirm is missing or times \
+            out, Codex runs the command.",
+        ))
+        .subcommand(hooks_only_subcommand(
+            "gemini",
+            "Connect Google Gemini CLI (BeforeTool hook)",
+            "Connect Google Gemini CLI.\n\n\
+            user scope:    ~/.gemini/settings.json\n\
+            project scope: ./.gemini/settings.json (Gemini asks you to trust project hooks)\n\n\
+            A BeforeTool hook named \"shellfirm\" (matcher \
+            ^(run_shell_command|write_file|replace|read_file|read_many_files)$, timeout 30000 ms) runs \
+            `shellfirm check --hook gemini`: risky commands and edits ask (Gemini CLI 0.36.0 \
+            or later; older versions ignore the ask), dangerous ones are denied. Turn it off \
+            with /hooks disable shellfirm.",
+        ))
+        .subcommand(hooks_only_subcommand(
+            "qwen",
+            "Connect Qwen Code (PreToolUse hook)",
+            "Connect Qwen Code.\n\n\
+            user scope:    ~/.qwen/settings.json\n\
+            project scope: ./.qwen/settings.json (Qwen Code asks you to approve project hooks)\n\n\
+            A PreToolUse hook (matcher \
+            run_shell_command|write_file|edit|read_file|read_many_files) runs \
+            `shellfirm check --hook qwen`: risky commands and edits ask, dangerous ones are \
+            denied (headless runs deny what would be asked).",
+        ))
+        .subcommand(hooks_only_subcommand(
+            "copilot",
+            "Connect GitHub Copilot CLI (preToolUse hook)",
+            "Connect GitHub Copilot CLI (1.0.4 or later).\n\n\
+            user scope:    ~/.copilot/hooks/shellfirm.json ($COPILOT_HOME/hooks when set)\n\
+            project scope: ./.github/hooks/shellfirm.json (also used by Copilot cloud agent)\n\n\
+            A preToolUse hook runs `shellfirm check --hook copilot` before every tool call: \
+            risky shell commands and edits ask (autopilot and the cloud agent deny them), \
+            dangerous ones are denied. Copilot denies the tool call when the hook fails \
+            (shellfirm missing or crashing), except on a timeout.",
+        ))
+        .subcommand(hooks_tool_subcommand(
             "windsurf",
-            "Register shellfirm's MCP tools with Windsurf (advisory; no interception)",
+            "Connect Windsurf (Cascade hooks + MCP server)",
+            "Connect Windsurf.\n\n\
+            user scope:    hooks in ~/.codeium/windsurf/hooks.json, MCP server in \
+            ~/.codeium/windsurf/mcp_config.json\n\
+            project scope: hooks in ./.windsurf/hooks.json (the MCP registration is \
+            user-level only)\n\n\
+            pre_run_command, pre_write_code and pre_read_code hooks run `shellfirm check \
+            --hook windsurf`, which blocks with exit code 2 and the reason on stderr. Cascade \
+            hooks cannot ask, so risky commands are blocked like dangerous ones. If shellfirm \
+            is missing, Cascade runs the action.",
+        ))
+        .subcommand(hooks_tool_subcommand(
+            "cline",
+            "Connect Cline (PreToolUse hook script + MCP server)",
+            "Connect Cline (3.36 or later; macOS and Linux).\n\n\
+            user scope:    hook script ~/Documents/Cline/Hooks/PreToolUse, MCP server in \
+            Cline's cline_mcp_settings.json\n\
+            project scope: hook script ./.clinerules/hooks/PreToolUse (the MCP registration is \
+            user-level only)\n\n\
+            The script runs `shellfirm check --hook cline` before every tool call and \
+            answers {\"cancel\": true} (which stops the task) for dangerous and risky \
+            commands and edits: Cline hooks cannot ask. It also cancels when shellfirm cannot \
+            run. In the VS Code extension, turn on \"Enable Hooks\" in Cline's settings. An \
+            existing PreToolUse script that shellfirm did not write is never replaced.",
+        ))
+        .subcommand(hooks_only_subcommand(
+            "opencode",
+            "Connect OpenCode (tool.execute.before plugin)",
+            "Connect OpenCode.\n\n\
+            user scope:    ~/.config/opencode/plugins/shellfirm.js ($XDG_CONFIG_HOME when set)\n\
+            project scope: ./.opencode/plugins/shellfirm.js\n\n\
+            The plugin sends bash, write, edit, read and apply_patch calls to `shellfirm check \
+            --hook opencode` and throws (which blocks the call) unless shellfirm allows it: \
+            dangerous and risky ones are blocked, because the plugin cannot ask. It also \
+            blocks when shellfirm cannot run.",
         ))
         .subcommand(mcp_only_subcommand(
             "zed",
             "Register shellfirm's MCP tools with Zed (advisory; no interception)",
-        ))
-        .subcommand(mcp_only_subcommand(
-            "cline",
-            "Register shellfirm's MCP tools with Cline (advisory; no interception)",
         ))
 }
 
@@ -1834,7 +2684,7 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
         dry_run: flag(sub, "dry-run"),
         uninstall: flag(sub, "uninstall"),
         hooks: !mcp_only && provider.supports_hooks(),
-        mcp: !hooks_only,
+        mcp: !hooks_only && provider.supports_mcp(),
         scope,
         fail_closed: !flag(sub, "no-fail-closed"),
     };
@@ -1845,6 +2695,7 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
             .then(|| dirs::cache_dir().map(|d| d.join("shellfirm").join("backups")))
             .flatten(),
         config_dir: shellfirm::Config::new(None).ok().map(|c| c.root_folder),
+        dirs: AgentDirs::from_env(),
     };
 
     let mut out = String::new();
@@ -1873,6 +2724,24 @@ pub fn run(matches: &ArgMatches) -> Result<shellfirm::CmdExit> {
     })
 }
 
+/// An installed hook that the agent's settings turn off (this file or
+/// another scope): say so, with how to turn it on.
+fn hook_off_warnings(provider: Provider, scope: Scope, env: &ConnectEnv, out: &mut String) {
+    let scope = if scope == Scope::User {
+        "user"
+    } else {
+        "project"
+    };
+    for row in integration_status_in(env)
+        .iter()
+        .filter(|r| r.tool == provider.cli_name() && r.scope == scope)
+    {
+        for off in &row.hook_off {
+            let _ = writeln!(out, "! The hook does not run yet: {off}.");
+        }
+    }
+}
+
 /// Run the whole connect/uninstall flow, writing user-facing output to `out`.
 #[allow(clippy::too_many_lines, clippy::trivially_copy_pass_by_ref)]
 fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut String) -> OpResult<()> {
@@ -1890,16 +2759,20 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
     );
 
     if !opts.hooks && !opts.mcp {
-        return Err(format!(
-            "{} has no command hook; run `shellfirm connect {}` without --hooks-only",
-            provider.display_name(),
-            match provider {
-                Provider::Windsurf => "windsurf",
-                Provider::Zed => "zed",
-                Provider::Cline => "cline",
-                _ => "<tool>",
-            }
-        ));
+        return Err(if provider.supports_hooks() {
+            format!(
+                "shellfirm does not register an MCP server with {}; run `shellfirm connect {}` \
+                 without --mcp-only",
+                provider.display_name(),
+                provider.cli_name()
+            )
+        } else {
+            format!(
+                "{} has no command hook; run `shellfirm connect {}` without --hooks-only",
+                provider.display_name(),
+                provider.cli_name()
+            )
+        });
     }
     if opts.scope == Scope::Project && !provider.supports_scope() {
         return Err(format!(
@@ -1910,9 +2783,30 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
 
     // 1. Load and parse every file first; abort before writing anything.
     let files = plan(provider, opts, env)?;
+    if opts.scope == Scope::Project {
+        for (path, _) in &files {
+            if let Some((link, target)) = symlink_out_of(path, &env.cwd) {
+                return Err(symlink_refusal(path, &link, &target, "project"));
+            }
+        }
+    }
     let mut loaded = Vec::new();
+    let mut owned_files = Vec::new();
     for (path, ops) in files {
-        loaded.push((load_file(&path)?, ops));
+        if let Some(&op) = ops.iter().find(|o| o.is_owned_file()) {
+            owned_files.push((path, op));
+        } else {
+            loaded.push((load_file(&path)?, ops));
+        }
+    }
+    if opts.scope == Scope::Project && opts.mcp && !provider.mcp_follows_scope() {
+        let _ = writeln!(
+            out,
+            "  ! the {} MCP registration is user-level only; run `shellfirm connect {}` \
+             (user scope) for it",
+            provider.display_name(),
+            provider.cli_name()
+        );
     }
 
     // 2. Compute changes in memory.
@@ -1927,6 +2821,18 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
     };
     let mut changes: Vec<(&LoadedFile, Value, Vec<String>, SaveMode)> = Vec::new();
     let mut already: Vec<Component> = Vec::new();
+    let fallback = (opts.scope == Scope::User)
+        .then_some(env.dirs.current_exe.as_ref())
+        .flatten()
+        .map(|p| p.display().to_string());
+    let mut owned: Vec<OwnedChange> = Vec::new();
+    for (path, op) in &owned_files {
+        match plan_owned(*op, path, opts, &spec, fallback.as_deref())? {
+            Some(c) => owned.push(c),
+            None if !opts.uninstall => already.push(Component::Hooks),
+            None => {}
+        }
+    }
     for (file, ops) in &loaded {
         let mut value = file.value.clone();
         let mut actions = Vec::new();
@@ -1995,7 +2901,7 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
         }
     }
 
-    if changes.is_empty() {
+    if changes.is_empty() && owned.is_empty() {
         let _ = writeln!(
             out,
             "\nNothing to change: {}",
@@ -2011,6 +2917,9 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
                 )
             }
         );
+        if !opts.uninstall && opts.hooks {
+            hook_off_warnings(provider, opts.scope, env, out);
+        }
         return Ok(());
     }
 
@@ -2018,48 +2927,108 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
     let mut written: Vec<String> = Vec::new();
     let backup_dir = env.backup_dir.as_deref();
     for (file, value, actions, mode) in &changes {
+        // The change list is shown once the file is written (or for a dry
+        // run): a failed write shows only the error.
+        let mut block = String::new();
         if opts.dry_run {
             let _ = writeln!(
-                out,
+                block,
                 "  Would {} {}:",
                 if file.exists { "update" } else { "create" },
                 file.path.display()
             );
         } else {
-            let _ = writeln!(out, "  {}:", file.path.display());
-        }
-        for a in actions {
-            let _ = writeln!(out, "    - {a}");
+            let _ = writeln!(block, "  {}:", file.path.display());
         }
         if file.lossy_format {
             let _ = writeln!(
-                out,
+                block,
                 "    ! this file contains comments or trailing commas, which will not be kept (a backup is made first)"
             );
+        }
+        for a in actions {
+            let _ = writeln!(block, "    - {a}");
         }
         if opts.dry_run {
             if file.exists {
                 let _ = writeln!(
-                    out,
+                    block,
                     "    (a timestamped backup would be written first{})",
                     backup_dir.map_or_else(String::new, |d| format!(" to {}", d.display()))
                 );
             }
+            out.push_str(&block);
             continue;
         }
         match save_file(file, value, backup_dir, *mode) {
             Ok(backup) => {
+                out.push_str(&block);
                 written.push(file.path.display().to_string());
                 if *mode == SaveMode::Remove && opts.scope == Scope::Project {
-                    // `.claude` / `.cursor` that shellfirm emptied (fails if not empty).
-                    if let Some(parent) = file.path.parent().filter(|p| *p != env.cwd) {
-                        let _ = fs::remove_dir(parent);
-                    }
+                    // `.claude` / `.cursor` that shellfirm emptied.
+                    remove_empty_parents(&file.path, &env.cwd);
                 }
                 let _ = writeln!(
                     out,
                     "    ✓ {}{}",
                     if *mode == SaveMode::Remove {
+                        "removed"
+                    } else {
+                        "written"
+                    },
+                    backup.map_or_else(String::new, |b| format!(" (backup: {})", b.display()))
+                );
+            }
+            Err(e) => {
+                if written.is_empty() {
+                    return Err(e);
+                }
+                return Err(format!(
+                    "{e}. Already updated before the failure: {}",
+                    written.join(", ")
+                ));
+            }
+        }
+    }
+
+    for c in &owned {
+        let verb = match (&c.content, c.exists) {
+            (None, _) => "remove",
+            (Some(_), true) => "update",
+            (Some(_), false) => "create",
+        };
+        let mut block = String::new();
+        if opts.dry_run {
+            let _ = writeln!(block, "  Would {verb} {}:", c.path.display());
+        } else {
+            let _ = writeln!(block, "  {}:", c.path.display());
+        }
+        for a in &c.actions {
+            let _ = writeln!(block, "    - {a}");
+        }
+        if opts.dry_run {
+            if c.exists {
+                let _ = writeln!(
+                    block,
+                    "    (a timestamped backup would be written first{})",
+                    backup_dir.map_or_else(String::new, |d| format!(" to {}", d.display()))
+                );
+            }
+            out.push_str(&block);
+            continue;
+        }
+        match save_owned(c, backup_dir) {
+            Ok(backup) => {
+                out.push_str(&block);
+                written.push(c.path.display().to_string());
+                if c.content.is_none() && opts.scope == Scope::Project {
+                    // The `hooks` / `plugins` directories shellfirm emptied.
+                    remove_empty_parents(&c.path, &env.cwd);
+                }
+                let _ = writeln!(
+                    out,
+                    "    ✓ {}{}",
+                    if c.content.is_none() {
                         "removed"
                     } else {
                         "written"
@@ -2088,6 +3057,9 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
         let _ = writeln!(out, "shellfirm removed from {}.", provider.display_name());
         return Ok(());
     }
+    if opts.hooks {
+        hook_off_warnings(provider, opts.scope, env, out);
+    }
     let note = match provider {
         Provider::ClaudeCode if opts.hooks => {
             "Claude Code Bash/PowerShell/Monitor commands are now checked by shellfirm before they run \
@@ -2096,8 +3068,46 @@ fn execute(provider: Provider, opts: &Options, env: &ConnectEnv, out: &mut Strin
         }
         Provider::Cursor if opts.hooks => {
             "Cursor shell commands are now checked by shellfirm (beforeShellExecution hook), \
-             and agent edits of protected files are blocked (preToolUse hook). \
+             agent edits of protected files are blocked (preToolUse hook), and so are reads \
+             of credential files (beforeReadFile hook). \
              Restart Cursor to pick up the change."
+        }
+        Provider::Codex if opts.hooks => {
+            "Codex shell commands and apply_patch edits are now checked by shellfirm \
+             (PreToolUse hook; dangerous and risky ones are denied, because Codex hooks cannot \
+             ask). Codex runs a new or changed hook only after you trust it: start `codex` \
+             once and trust it (or open /hooks); `codex exec` skips an untrusted hook. Needs \
+             Codex CLI 0.124.0 or later."
+        }
+        Provider::Gemini if opts.hooks => {
+            "Gemini CLI shell commands, file writes and reads are now checked by shellfirm \
+             (BeforeTool hook: risky -> ask, dangerous -> deny). Asking needs Gemini CLI \
+             0.36.0 or later. Restart running Gemini CLI sessions."
+        }
+        Provider::Qwen if opts.hooks => {
+            "Qwen Code shell commands, file writes and reads are now checked by shellfirm \
+             (PreToolUse hook: risky -> ask, dangerous -> deny; headless runs deny what would \
+             be asked). Restart running Qwen Code sessions."
+        }
+        Provider::Copilot if opts.hooks => {
+            "GitHub Copilot CLI tool calls are now checked by shellfirm (preToolUse hook: \
+             risky -> ask, dangerous -> deny; autopilot denies what would be asked). Needs \
+             Copilot CLI 1.0.4 or later. Restart running Copilot sessions."
+        }
+        Provider::Windsurf if opts.hooks => {
+            "Windsurf (Cascade) commands, file writes and reads are now checked by shellfirm \
+             (pre_run_command / pre_write_code / pre_read_code hooks; dangerous and risky ones \
+             are blocked, because Cascade hooks cannot ask). Restart Windsurf."
+        }
+        Provider::Cline if opts.hooks => {
+            "Cline tool calls are now checked by shellfirm (PreToolUse hook; dangerous and \
+             risky ones cancel the task, because Cline hooks cannot ask). In the VS Code \
+             extension, turn on \"Enable Hooks\" in Cline's settings (Cline 3.36 or later)."
+        }
+        Provider::OpenCode if opts.hooks => {
+            "OpenCode shell commands, file edits and reads are now checked by shellfirm \
+             (plugin; dangerous and risky ones are blocked, because the plugin cannot ask). \
+             Restart OpenCode."
         }
         _ => {
             "MCP tools registered. Note: commands are NOT automatically intercepted — the \
@@ -2145,6 +3155,7 @@ mod tests {
                 cwd,
                 backup_dir: None,
                 config_dir: None,
+                dirs: AgentDirs::default(),
             },
             tree,
         }
@@ -2323,6 +3334,37 @@ mod tests {
         assert!(r.unwrap_err().contains("read-only"));
         assert!(!out.contains('✓'));
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_agent_folder_is_an_error_not_missing() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut sb = sandbox();
+        sb.env.dirs.claude_config_dir = Some(sb.tree.root.join("ccd"));
+        for p in [Provider::ClaudeCode, Provider::Codex] {
+            exec(p, &hooks_only(false), &sb.env).0.unwrap();
+        }
+        let dirs = [sb.tree.root.join("ccd"), sb.env.home.join(".codex")];
+        for d in &dirs {
+            fs::set_permissions(d, fs::Permissions::from_mode(0o000)).unwrap();
+        }
+        let rows = integration_status_in(&sb.env);
+        for d in &dirs {
+            fs::set_permissions(d, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        for tool in ["claude-code", "codex"] {
+            let row = rows
+                .iter()
+                .find(|s| s.tool == tool && s.scope == "user")
+                .unwrap();
+            assert!(
+                row.error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("can't read")),
+                "{row:?}"
+            );
+        }
     }
 
     #[cfg(unix)]
@@ -3037,5 +4079,895 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         command().debug_assert();
+    }
+
+    // -- Codex, Gemini, Qwen, Copilot, Windsurf, Cline, OpenCode --
+
+    fn hooks_only(uninstall: bool) -> Options {
+        opts(uninstall, true, false)
+    }
+
+    #[test]
+    fn codex_install_merges_with_user_hooks_and_uninstall_keeps_them() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".codex/hooks.json");
+        // A user hook of their own, on the same event.
+        write(
+            &path,
+            r#"{"description":"mine","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"python3 ~/.codex/hooks/log.py"}]}],"Stop":[{"hooks":[{"type":"command","command":"notify"}]}]}}"#,
+        );
+        let (r, out) = exec(Provider::Codex, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(out.contains("trust"), "{out}");
+        let v = read_json(&path);
+        let groups = v["hooks"]["PreToolUse"].as_array().unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            groups[0]["hooks"][0]["command"],
+            "python3 ~/.codex/hooks/log.py"
+        );
+        assert_eq!(groups[1]["matcher"], "Bash|apply_patch");
+        assert_eq!(groups[1]["hooks"][0]["type"], "command");
+        assert_eq!(
+            groups[1]["hooks"][0]["command"],
+            "shellfirm check --hook codex"
+        );
+        assert_eq!(groups[1]["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS);
+        // Codex rejects unknown top-level keys in hooks.json: only `hooks`
+        // and the user's `description` are there.
+        let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["description", "hooks"]);
+        assert_eq!(backups(path.parent().unwrap()).len(), 1);
+
+        let (r, out) = exec(Provider::Codex, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(out.contains("already connected"), "{out}");
+
+        let (r, _) = exec(Provider::Codex, &hooks_only(true), &sb.env);
+        r.unwrap();
+        let v = read_json(&path);
+        assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+        assert_eq!(v["hooks"]["Stop"][0]["hooks"][0]["command"], "notify");
+    }
+
+    #[test]
+    fn codex_home_and_project_scope() {
+        let sb = sandbox();
+        let custom = sb.tree.root.join("codex-home");
+        let env = ConnectEnv {
+            dirs: AgentDirs {
+                codex_home: Some(custom.clone()),
+                ..AgentDirs::default()
+            },
+            ..sb.env.clone()
+        };
+        exec(Provider::Codex, &hooks_only(false), &env).0.unwrap();
+        assert!(custom.join("hooks.json").exists());
+        assert!(!sb.env.home.join(".codex/hooks.json").exists());
+        let project = Options {
+            scope: Scope::Project,
+            ..hooks_only(false)
+        };
+        exec(Provider::Codex, &project, &env).0.unwrap();
+        let v = read_json(&sb.env.cwd.join(".codex/hooks.json"));
+        // A team file records no personal --config-dir.
+        assert_eq!(
+            v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "shellfirm check --hook codex"
+        );
+    }
+
+    #[test]
+    fn gemini_jsonc_settings_keep_other_keys_and_get_a_named_hook() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".gemini/settings.json");
+        write(
+            &path,
+            "{\n  // my theme\n  \"ui\": {\"theme\": \"GitHub\"},\n  \"hooks\": {\"AfterTool\": [{\"matcher\": \"write_file\", \"hooks\": [{\"type\": \"command\", \"command\": \"prettier\"}]}],},\n}\n",
+        );
+        let (r, out) = exec(Provider::Gemini, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(out.contains("comments or trailing commas"), "{out}");
+        let v = read_json(&path);
+        assert_eq!(v["ui"]["theme"], "GitHub");
+        assert_eq!(
+            v["hooks"]["AfterTool"][0]["hooks"][0]["command"],
+            "prettier"
+        );
+        let g = &v["hooks"]["BeforeTool"][0];
+        assert_eq!(
+            g["matcher"],
+            "^(run_shell_command|write_file|replace|read_file|read_many_files)$"
+        );
+        assert_eq!(g["hooks"][0]["name"], "shellfirm");
+        // Gemini timeouts are milliseconds.
+        assert_eq!(g["hooks"][0]["timeout"], HOOK_TIMEOUT_SECS * 1000);
+
+        let mut env = sb.env.clone();
+        env.config_dir = Some(sb.tree.root.join("cfg"));
+        let (r, out) = exec(Provider::Gemini, &hooks_only(false), &env);
+        r.unwrap();
+        assert!(out.contains("pinned --config-dir"), "{out}");
+        let v = read_json(&path);
+        let cmd = v["hooks"]["BeforeTool"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(
+            cmd.starts_with("shellfirm check --hook gemini --config-dir "),
+            "{cmd}"
+        );
+        assert_eq!(v["hooks"]["BeforeTool"].as_array().unwrap().len(), 1);
+
+        // Turned off in Gemini's own settings: status says so.
+        let mut v = read_json(&path);
+        v["hooksConfig"] = json!({"disabled": ["shellfirm"]});
+        write(&path, &v.to_string());
+        let st = integration_status_in(&sb.env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "gemini" && s.scope == "user")
+            .unwrap();
+        assert!(row.hook_installed && row.file_tools_covered && !row.fail_closed);
+        assert!(
+            row.hook_off
+                .iter()
+                .any(|n| n.contains("hooksConfig.disabled")),
+            "{row:?}"
+        );
+        assert!(row.mcp_file.is_none());
+
+        // `connect` takes shellfirm out of hooksConfig.disabled.
+        let (r, out) = exec(Provider::Gemini, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(
+            out.contains("take shellfirm out of hooksConfig.disabled"),
+            "{out}"
+        );
+        assert_eq!(read_json(&path)["hooksConfig"]["disabled"], json!([]));
+        let st = integration_status_in(&sb.env);
+        assert!(st.iter().all(|s| s.hook_off.is_empty()), "{st:?}");
+
+        // Hooks turned off altogether: connect says so (it leaves the
+        // switch to the user).
+        let mut v = read_json(&path);
+        v["hooksConfig"] = json!({"enabled": false});
+        write(&path, &v.to_string());
+        let (r, out) = exec(Provider::Gemini, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(
+            out.contains("The hook does not run yet: hooks are turned off"),
+            "{out}"
+        );
+        v["hooksConfig"] = json!({});
+        write(&path, &v.to_string());
+
+        exec(Provider::Gemini, &hooks_only(true), &sb.env)
+            .0
+            .unwrap();
+        let v = read_json(&path);
+        assert!(v["hooks"].get("BeforeTool").is_none(), "{v}");
+        assert_eq!(
+            v["hooks"]["AfterTool"][0]["hooks"][0]["command"],
+            "prettier"
+        );
+    }
+
+    #[test]
+    fn group_hooks_are_deduped_and_a_partial_matcher_is_completed() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".qwen/settings.json");
+        write(
+            &path,
+            r#"{"hooks":{"PreToolUse":[
+                {"matcher":"run_shell_command","hooks":[{"type":"command","command":"shellfirm check --hook qwen","timeout":5}]},
+                {"matcher":"run_shell_command","hooks":[{"type":"command","command":"shellfirm check --hook qwen"},{"type":"command","command":"audit.sh"}]}
+            ]}}"#,
+        );
+        let (r, out) = exec(Provider::Qwen, &hooks_only(false), &sb.env);
+        r.unwrap();
+        assert!(out.contains("duplicate"), "{out}");
+        let v = read_json(&path);
+        let groups = v["hooks"]["PreToolUse"].as_array().unwrap();
+        // The user's own timeout is kept; the second group keeps only audit.sh;
+        // a group for the file tools is added.
+        assert_eq!(groups[0]["hooks"][0]["timeout"], 5);
+        assert_eq!(groups[1]["hooks"].as_array().unwrap().len(), 1);
+        assert_eq!(groups[1]["hooks"][0]["command"], "audit.sh");
+        assert_eq!(
+            groups[2]["matcher"],
+            "write_file|edit|read_file|read_many_files"
+        );
+        let st = integration_status_in(&sb.env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "qwen" && s.scope == "user")
+            .unwrap();
+        assert!(row.hook_installed && row.file_tools_covered);
+    }
+
+    #[test]
+    fn copilot_owns_its_hook_file() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".copilot/hooks/shellfirm.json");
+        let (r, _) = exec(Provider::Copilot, &hooks_only(false), &sb.env);
+        r.unwrap();
+        let v = read_json(&path);
+        assert_eq!(v["version"], 1);
+        let e = &v["hooks"]["preToolUse"][0];
+        assert_eq!(e["type"], "command");
+        assert_eq!(e["bash"], "shellfirm check --hook copilot");
+        assert_eq!(e["powershell"], "shellfirm check --hook copilot");
+        assert_eq!(e["timeoutSec"], HOOK_TIMEOUT_SECS);
+        assert!(
+            e.get("matcher").is_none(),
+            "every tool goes through the hook"
+        );
+        let st = integration_status_in(&sb.env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "copilot" && s.scope == "user")
+            .unwrap();
+        assert!(row.hook_installed && row.fail_closed);
+
+        // A dry run of the uninstall changes nothing; the uninstall removes
+        // the file (nothing else was in it).
+        let dry = Options {
+            dry_run: true,
+            ..hooks_only(true)
+        };
+        let (r, out) = exec(Provider::Copilot, &dry, &sb.env);
+        r.unwrap();
+        assert!(out.contains("Would update"), "{out}");
+        assert!(path.exists());
+        exec(Provider::Copilot, &hooks_only(true), &sb.env)
+            .0
+            .unwrap();
+        assert!(!path.exists());
+
+        // COPILOT_HOME moves the user directory; project scope writes
+        // .github/hooks.
+        let env = ConnectEnv {
+            dirs: AgentDirs {
+                copilot_home: Some(sb.tree.root.join("cp")),
+                ..AgentDirs::default()
+            },
+            // Project-scope backups go outside the repository.
+            backup_dir: Some(sb.tree.root.join("backups")),
+            ..sb.env.clone()
+        };
+        exec(Provider::Copilot, &hooks_only(false), &env).0.unwrap();
+        assert!(sb.tree.root.join("cp/hooks/shellfirm.json").exists());
+        let project = Options {
+            scope: Scope::Project,
+            ..hooks_only(false)
+        };
+        exec(Provider::Copilot, &project, &env).0.unwrap();
+        assert!(sb.env.cwd.join(".github/hooks/shellfirm.json").exists());
+        let project_off = Options {
+            scope: Scope::Project,
+            ..hooks_only(true)
+        };
+        exec(Provider::Copilot, &project_off, &env).0.unwrap();
+        // The `.github` directories shellfirm emptied are gone too.
+        assert!(!sb.env.cwd.join(".github").exists());
+    }
+
+    #[test]
+    fn windsurf_hooks_and_mcp() {
+        let sb = sandbox();
+        let hooks = sb.env.home.join(".codeium/windsurf/hooks.json");
+        write(
+            &hooks,
+            r#"{"hooks":{"post_write_code":[{"command":"npx prettier --write","show_output":true}],"pre_run_command":[{"command":"python3 log.py"}]}}"#,
+        );
+        exec(Provider::Windsurf, &opts(false, true, true), &sb.env)
+            .0
+            .unwrap();
+        let v = read_json(&hooks);
+        assert_eq!(
+            v["hooks"]["pre_run_command"][0]["command"],
+            "python3 log.py"
+        );
+        assert_eq!(
+            v["hooks"]["pre_run_command"][1]["command"],
+            "shellfirm check --hook windsurf"
+        );
+        assert_eq!(v["hooks"]["pre_run_command"][1]["show_output"], false);
+        for event in ["pre_write_code", "pre_read_code"] {
+            assert_eq!(
+                v["hooks"][event][0]["command"], "shellfirm check --hook windsurf",
+                "{event}"
+            );
+        }
+        let mcp = read_json(&sb.env.home.join(".codeium/windsurf/mcp_config.json"));
+        assert_eq!(mcp["mcpServers"]["shellfirm"]["command"], "shellfirm");
+        let st = integration_status_in(&sb.env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "windsurf" && s.scope == "user")
+            .unwrap();
+        assert!(row.hook_installed && row.file_tools_covered && row.mcp_registered);
+        assert!(!row.fail_closed);
+
+        // --hooks-only uninstall keeps the MCP server and the user's hooks.
+        exec(Provider::Windsurf, &opts(true, true, false), &sb.env)
+            .0
+            .unwrap();
+        let v = read_json(&hooks);
+        assert_eq!(v["hooks"]["pre_run_command"].as_array().unwrap().len(), 1);
+        assert!(v["hooks"].get("pre_read_code").is_none());
+        assert!(sb
+            .env
+            .home
+            .join(".codeium/windsurf/mcp_config.json")
+            .exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cline_script_is_owned_and_a_foreign_one_is_never_replaced() {
+        let sb = sandbox();
+        let env = ConnectEnv {
+            dirs: AgentDirs {
+                current_exe: Some(PathBuf::from("/opt/shellfirm/bin/shellfirm")),
+                ..AgentDirs::default()
+            },
+            ..sb.env.clone()
+        };
+        let script = sb.env.home.join("Documents/Cline/Hooks/PreToolUse");
+        exec(Provider::Cline, &hooks_only(false), &env).0.unwrap();
+        let content = fs::read_to_string(&script).unwrap();
+        assert!(
+            content.starts_with("#!/bin/sh\n# shellfirm-hook: cline\n"),
+            "{content}"
+        );
+        assert!(
+            content.contains("SHELLFIRM=/opt/shellfirm/bin/shellfirm"),
+            "{content}"
+        );
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&script).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
+        let (r, out) = exec(Provider::Cline, &hooks_only(false), &env);
+        r.unwrap();
+        assert!(out.contains("already connected"), "{out}");
+
+        // An out-of-date shellfirm script is rewritten (with a backup).
+        fs::write(
+            &script,
+            content.replace("check --hook cline", "check --hook cline --log debug"),
+        )
+        .unwrap();
+        let (r, out) = exec(Provider::Cline, &hooks_only(false), &env);
+        r.unwrap();
+        assert!(out.contains("out of date"), "{out}");
+        assert_eq!(fs::read_to_string(&script).unwrap(), content);
+        assert_eq!(backups(script.parent().unwrap()).len(), 1);
+
+        // Someone else's PreToolUse script: refused on install, kept on
+        // uninstall.
+        fs::write(&script, "#!/bin/sh\necho '{\"cancel\": false}'\n").unwrap();
+        let (r, _) = exec(Provider::Cline, &hooks_only(false), &env);
+        let err = r.unwrap_err();
+        assert!(err.contains("not written by shellfirm"), "{err}");
+        exec(Provider::Cline, &hooks_only(true), &env).0.unwrap();
+        assert!(script.exists());
+        let st = integration_status_in(&env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "cline" && s.scope == "user")
+            .unwrap();
+        assert!(!row.hook_present);
+        assert!(row
+            .notes
+            .iter()
+            .any(|n| n.contains("not written by shellfirm")));
+    }
+
+    #[test]
+    fn opencode_plugin_install_project_scope_and_uninstall() {
+        let sb = sandbox();
+        let env = ConnectEnv {
+            dirs: AgentDirs {
+                xdg_config_home: Some(sb.tree.root.join("xdg")),
+                current_exe: Some(PathBuf::from("/usr/local/bin/shellfirm")),
+                ..AgentDirs::default()
+            },
+            backup_dir: Some(sb.tree.root.join("backups")),
+            ..sb.env.clone()
+        };
+        exec(Provider::OpenCode, &hooks_only(false), &env)
+            .0
+            .unwrap();
+        let user = sb.tree.root.join("xdg/opencode/plugins/shellfirm.js");
+        let content = fs::read_to_string(&user).unwrap();
+        assert!(content.contains("\"tool.execute.before\""));
+        assert!(content.contains("const FALLBACK = \"/usr/local/bin/shellfirm\""));
+        let project = Options {
+            scope: Scope::Project,
+            ..hooks_only(false)
+        };
+        exec(Provider::OpenCode, &project, &env).0.unwrap();
+        let shared = sb.env.cwd.join(".opencode/plugins/shellfirm.js");
+        // A team file names no personal binary path.
+        assert!(fs::read_to_string(&shared)
+            .unwrap()
+            .contains("const FALLBACK = null"));
+        let st = integration_status_in(&env);
+        for scope in ["user", "project"] {
+            let row = st
+                .iter()
+                .find(|s| s.tool == "opencode" && s.scope == scope)
+                .unwrap();
+            assert!(row.hook_installed && row.fail_closed, "{scope}");
+        }
+        let project_off = Options {
+            scope: Scope::Project,
+            ..hooks_only(true)
+        };
+        exec(Provider::OpenCode, &project_off, &env).0.unwrap();
+        assert!(!shared.exists());
+        assert!(!sb.env.cwd.join(".opencode/plugins").exists());
+        exec(Provider::OpenCode, &hooks_only(true), &env).0.unwrap();
+        assert!(!user.exists());
+    }
+
+    #[test]
+    fn hook_only_agents_have_no_mcp() {
+        let sb = sandbox();
+        for p in [
+            Provider::Codex,
+            Provider::Gemini,
+            Provider::Qwen,
+            Provider::Copilot,
+            Provider::OpenCode,
+        ] {
+            let (r, _) = exec(p, &opts(false, false, false), &sb.env);
+            assert!(r.unwrap_err().contains("--mcp-only"), "{p:?}");
+        }
+    }
+
+    #[test]
+    fn every_provider_round_trips_through_its_cli_name() {
+        for p in ALL_PROVIDERS {
+            assert_eq!(Provider::from_name(p.cli_name()), Some(p));
+            assert!(SUPPORTED_PROVIDERS.contains(p.cli_name()));
+            assert!(command().find_subcommand(p.cli_name()).is_some(), "{p:?}");
+        }
+    }
+
+    fn project(uninstall: bool) -> Options {
+        Options {
+            scope: Scope::Project,
+            ..opts(uninstall, true, false)
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn project_scope_never_writes_through_a_symlink_out_of_the_project() {
+        let sb = sandbox();
+        // Another agent's user file, reached from a link planted in the repo.
+        let victim = sb.env.home.join(".codex/hooks.json");
+        write(&victim, r#"{"hooks":{}}"#);
+        let claude = sb.env.cwd.join(".claude");
+        fs::create_dir_all(&claude).unwrap();
+        std::os::unix::fs::symlink("../../home/.codex/hooks.json", claude.join("settings.json"))
+            .unwrap();
+        let (r, _) = exec(Provider::ClaudeCode, &project(false), &sb.env);
+        let e = r.unwrap_err();
+        assert!(e.contains("outside this project"), "{e}");
+        assert_eq!(fs::read_to_string(&victim).unwrap(), r#"{"hooks":{}}"#);
+        let st = integration_status_in(&sb.env);
+        let row = st
+            .iter()
+            .find(|s| s.tool == "claude-code" && s.scope == "project")
+            .unwrap();
+        assert!(
+            row.error
+                .as_deref()
+                .unwrap()
+                .contains("outside this project"),
+            "{row:?}"
+        );
+
+        // A linked directory (`.cursor` -> the user's `~/.cursor`).
+        fs::create_dir_all(sb.env.home.join(".cursor")).unwrap();
+        std::os::unix::fs::symlink(sb.env.home.join(".cursor"), sb.env.cwd.join(".cursor"))
+            .unwrap();
+        let (r, _) = exec(Provider::Cursor, &project(false), &sb.env);
+        assert!(r.unwrap_err().contains("outside this project"));
+        assert!(!sb.env.home.join(".cursor/hooks.json").exists());
+
+        // A link that stays inside the project is fine.
+        fs::create_dir_all(sb.env.cwd.join("shared")).unwrap();
+        std::os::unix::fs::symlink("shared", sb.env.cwd.join(".gemini")).unwrap();
+        exec(Provider::Gemini, &project(false), &sb.env).0.unwrap();
+        assert!(sb.env.cwd.join("shared/settings.json").exists());
+    }
+
+    #[test]
+    fn claude_disable_all_hooks_in_any_scope_turns_the_hook_off() {
+        let mut sb = sandbox();
+        exec(Provider::ClaudeCode, &hooks_only(false), &sb.env)
+            .0
+            .unwrap();
+        let off = |env: &ConnectEnv| -> Vec<String> {
+            integration_status_in(env)
+                .into_iter()
+                .find(|s| s.tool == "claude-code" && s.scope == "user")
+                .unwrap()
+                .hook_off
+        };
+        assert!(off(&sb.env).is_empty());
+        // One line in a teammate's settings.local.json.
+        let local = sb.env.cwd.join(".claude/settings.local.json");
+        write(&local, r#"{"disableAllHooks": true}"#);
+        let notes = off(&sb.env);
+        assert!(notes[0].contains("disableAllHooks is true in"), "{notes:?}");
+        assert!(notes[0].contains("settings.local.json"), "{notes:?}");
+        // Managed settings take precedence over every other file.
+        let managed = sb.tree.root.join("managed-settings.json");
+        write(&managed, r#"{"disableAllHooks": false}"#);
+        sb.env.dirs.claude_managed = Some(managed.clone());
+        assert!(off(&sb.env).is_empty());
+        write(&managed, r#"{"disableAllHooks": true}"#);
+        fs::remove_file(&local).unwrap();
+        assert!(off(&sb.env)[0].contains("managed-settings.json"));
+        // `connect` says the hook does not run.
+        let (_, out) = exec(Provider::ClaudeCode, &hooks_only(false), &sb.env);
+        assert!(
+            out.contains("The hook does not run yet: disableAllHooks"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn codex_hooks_feature_flag_off_is_reported() {
+        let sb = sandbox();
+        exec(Provider::Codex, &hooks_only(false), &sb.env)
+            .0
+            .unwrap();
+        let config = sb.env.home.join(".codex/config.toml");
+        let off = || -> Vec<String> {
+            integration_status_in(&sb.env)
+                .into_iter()
+                .find(|s| s.tool == "codex" && s.scope == "user")
+                .unwrap()
+                .hook_off
+        };
+        for (text, hit) in [
+            ("[features]\nhooks = false\n", true),
+            ("[features]\ncodex_hooks = false\n", true),
+            ("[features]\nhooks = true\n", false),
+            ("model = \"x\"\n", false),
+        ] {
+            write(&config, text);
+            assert_eq!(!off().is_empty(), hit, "{text}");
+        }
+        // The project config overrides the user one.
+        write(&config, "[features]\nhooks = false\n");
+        write(
+            &sb.env.cwd.join(".codex/config.toml"),
+            "[features]\nhooks = true\n",
+        );
+        assert!(off().is_empty());
+        // hooks.json with a key Codex does not accept.
+        let hooks = sb.env.home.join(".codex/hooks.json");
+        let mut v = read_json(&hooks);
+        v["sandbox"] = json!({});
+        write(&hooks, &v.to_string());
+        assert!(off()[0].contains("top-level keys other than `hooks` (sandbox)"));
+    }
+
+    #[test]
+    fn claude_config_dir_is_honoured() {
+        let mut sb = sandbox();
+        let dir = sb.tree.root.join("ccd");
+        sb.env.dirs.claude_config_dir = Some(dir.clone());
+        exec(Provider::ClaudeCode, &opts(false, true, true), &sb.env)
+            .0
+            .unwrap();
+        assert!(claude_hooks_installed(&read_json(
+            &dir.join("settings.json")
+        )));
+        assert!(server_installed(
+            &read_json(&dir.join(".claude.json")),
+            "mcpServers"
+        ));
+        assert!(!sb.env.home.join(".claude").exists());
+        assert!(!sb.env.home.join(".claude.json").exists());
+        let st = integration_status_in(&sb.env);
+        let row = st.iter().find(|s| s.tool == "claude-code").unwrap();
+        assert!(row.hook_installed && row.mcp_registered, "{row:?}");
+    }
+
+    #[test]
+    fn cursor_reads_go_to_the_hook() {
+        let sb = sandbox();
+        exec(Provider::Cursor, &hooks_only(false), &sb.env)
+            .0
+            .unwrap();
+        let path = sb.env.home.join(".cursor/hooks.json");
+        let v = read_json(&path);
+        let read = &v["hooks"]["beforeReadFile"];
+        assert_eq!(read.as_array().unwrap().len(), 1, "{v}");
+        assert!(is_cursor_hook(read[0]["command"].as_str().unwrap()));
+        let row = integration_status_in(&sb.env)
+            .into_iter()
+            .find(|s| s.tool == "cursor")
+            .unwrap();
+        assert!(row.file_tools_covered);
+        // Without it, file tools are not fully covered.
+        let mut v = v;
+        v["hooks"].as_object_mut().unwrap().remove("beforeReadFile");
+        write(&path, &v.to_string());
+        let row = integration_status_in(&sb.env)
+            .into_iter()
+            .find(|s| s.tool == "cursor")
+            .unwrap();
+        assert!(!row.file_tools_covered);
+        // A re-run adds it back; uninstall removes it.
+        let (_, out) = exec(Provider::Cursor, &hooks_only(false), &sb.env);
+        assert!(out.contains("hooks.beforeReadFile"), "{out}");
+        exec(Provider::Cursor, &hooks_only(true), &sb.env)
+            .0
+            .unwrap();
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn backups_next_to_a_user_file_are_capped() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".gemini/settings.json");
+        write(&path, r#"{"model":"x"}"#);
+        // A backup of another file in the same directory is not touched.
+        write(
+            &sb.env.home.join(".gemini/other.json.shellfirm-bak-1"),
+            "{}",
+        );
+        for i in 0..6 {
+            let mut v = read_json(&path);
+            v["n"] = json!(i);
+            write(&path, &v.to_string());
+            exec(Provider::Gemini, &hooks_only(i % 2 == 1), &sb.env)
+                .0
+                .unwrap();
+        }
+        let all = backups(&sb.env.home.join(".gemini"));
+        let ours = all
+            .iter()
+            .filter(|p| p.to_string_lossy().contains("settings.json.shellfirm-bak-"))
+            .count();
+        assert_eq!(ours, BACKUPS_KEPT, "{all:?}");
+        assert_eq!(all.len(), BACKUPS_KEPT + 1, "{all:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_shows_only_the_error() {
+        use std::os::unix::fs::PermissionsExt;
+        let sb = sandbox();
+        let path = sb.env.home.join(".gemini/settings.json");
+        write(&path, "{}");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o444)).unwrap();
+        let (r, out) = exec(Provider::Gemini, &hooks_only(false), &sb.env);
+        assert!(r.unwrap_err().contains("read-only"));
+        assert!(!out.contains("add hooks.BeforeTool"), "{out}");
+    }
+
+    #[test]
+    fn status_reports_files_connect_refuses() {
+        let sb = sandbox();
+        write(&sb.env.home.join(".qwen/settings.json"), r#"{"hooks":[]}"#);
+        let st = integration_status_in(&sb.env);
+        let qwen = st
+            .iter()
+            .find(|s| s.tool == "qwen" && s.scope == "user")
+            .unwrap();
+        assert!(
+            qwen.error
+                .as_deref()
+                .unwrap()
+                .contains("`hooks` is not an object"),
+            "{qwen:?}"
+        );
+        if !cfg!(windows) {
+            write(
+                &sb.env.home.join("Documents/Cline/Hooks/PreToolUse"),
+                "#!/bin/sh\necho '{}'\n",
+            );
+            let st = integration_status_in(&sb.env);
+            let cline = st
+                .iter()
+                .find(|s| s.tool == "cline" && s.scope == "user")
+                .unwrap();
+            assert!(
+                cline
+                    .notes
+                    .iter()
+                    .any(|n| n.contains("not written by shellfirm")),
+                "{cline:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_claude_code_accepts_no_fail_closed() {
+        let parse = |agent: &str| {
+            command()
+                .try_get_matches_from(["connect", agent, "--no-fail-closed"])
+                .is_ok()
+        };
+        assert!(parse("claude-code"));
+        for agent in ["codex", "gemini", "cursor", "copilot"] {
+            assert!(!parse(agent), "{agent}");
+        }
+    }
+
+    #[test]
+    fn a_shellfirm_hook_in_managed_settings_gets_its_own_row() {
+        let mut sb = sandbox();
+        exec(Provider::ClaudeCode, &hooks_only(false), &sb.env)
+            .0
+            .unwrap();
+        let user = sb.env.dirs.claude_dir(&sb.env.home).join("settings.json");
+        let hooks = read_value(&user).unwrap().unwrap()["hooks"].clone();
+        let managed = sb.tree.root.join("managed-settings.json");
+        sb.env.dirs.claude_managed = Some(managed.clone());
+        let row = |env: &ConnectEnv, scope: &str| {
+            integration_status_in(env)
+                .into_iter()
+                .find(|s| s.tool == "claude-code" && s.scope == scope)
+        };
+        // No managed file, or one without a shellfirm hook: no row.
+        assert!(row(&sb.env, "managed").is_none());
+        write(&managed, r#"{"allowManagedHooksOnly": true}"#);
+        assert!(row(&sb.env, "managed").is_none());
+        assert!(row(&sb.env, "user").unwrap().hook_off[0].contains("put the shellfirm hook"));
+
+        write(
+            &managed,
+            &json!({"allowManagedHooksOnly": true, "hooks": hooks}).to_string(),
+        );
+        let m = row(&sb.env, "managed").unwrap();
+        assert!(
+            m.hook_installed && m.file_tools_covered && m.fail_closed,
+            "{m:?}"
+        );
+        assert!(m.hook_off.is_empty() && m.error.is_none(), "{m:?}");
+        assert_eq!(m.hook_file.as_deref(), Some(managed.to_str().unwrap()));
+        let u = row(&sb.env, "user").unwrap();
+        assert!(
+            u.hook_off[0].contains("the shellfirm hook in that file runs instead"),
+            "{u:?}"
+        );
+
+        // Uninstalling the user hook leaves the managed one (and its row).
+        let o = Options {
+            uninstall: true,
+            ..hooks_only(false)
+        };
+        exec(Provider::ClaudeCode, &o, &sb.env).0.unwrap();
+        assert!(row(&sb.env, "managed").unwrap().hook_installed);
+        assert!(!row(&sb.env, "user").unwrap().hook_present);
+
+        // Only managed settings turn a managed hook off.
+        write(
+            &managed,
+            &json!({"disableAllHooks": true, "hooks": hooks}).to_string(),
+        );
+        assert!(row(&sb.env, "managed").unwrap().hook_off[0].contains("disableAllHooks"));
+        write(&managed, "{");
+        assert!(row(&sb.env, "managed").is_some_and(|m| m.error.is_some()));
+    }
+
+    #[test]
+    fn managed_hooks_only_turns_the_user_and_project_hook_off() {
+        let mut sb = sandbox();
+        exec(Provider::ClaudeCode, &hooks_only(false), &sb.env)
+            .0
+            .unwrap();
+        let managed = sb.tree.root.join("managed-settings.json");
+        sb.env.dirs.claude_managed = Some(managed.clone());
+        let off = |env: &ConnectEnv| -> Vec<String> {
+            integration_status_in(env)
+                .into_iter()
+                .find(|s| s.tool == "claude-code" && s.scope == "user")
+                .unwrap()
+                .hook_off
+        };
+        write(&managed, r#"{"allowManagedHooksOnly": false}"#);
+        assert!(off(&sb.env).is_empty());
+        write(&managed, r#"{"allowManagedHooksOnly": true}"#);
+        let notes = off(&sb.env);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("allowManagedHooksOnly is true in")
+                && notes[0].contains("managed-settings.json"),
+            "{notes:?}"
+        );
+        let (_, out) = exec(Provider::ClaudeCode, &hooks_only(false), &sb.env);
+        assert!(
+            out.contains("The hook does not run yet: allowManagedHooksOnly"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_relative_claude_config_dir_is_relative_to_the_current_directory() {
+        let cwd = Path::new("/work/repo");
+        assert_eq!(
+            claude_config_dir_from(Some("rel".into()), Some(cwd)),
+            Some(cwd.join("rel"))
+        );
+        assert_eq!(
+            claude_config_dir_from(Some("~/cc".into()), Some(cwd)),
+            Some(cwd.join("~/cc"))
+        );
+        assert_eq!(
+            claude_config_dir_from(Some("/opt/cc".into()), Some(cwd)),
+            Some(PathBuf::from("/opt/cc"))
+        );
+        assert_eq!(claude_config_dir_from(Some("".into()), Some(cwd)), None);
+        assert_eq!(claude_config_dir_from(None, Some(cwd)), None);
+    }
+
+    #[test]
+    fn only_backups_shellfirm_names_count_toward_the_cap() {
+        assert!(is_backup_suffix("20261119T123456Z"));
+        assert!(is_backup_suffix("20261119T123456Z-2"));
+        for bad in [
+            "mine",
+            "20261119T123456Z-",
+            "20261119T123456Z-x",
+            "1",
+            "2026111T123456Z",
+        ] {
+            assert!(!is_backup_suffix(bad), "{bad}");
+        }
+        let sb = sandbox();
+        let path = sb.env.home.join(".gemini/settings.json");
+        write(&path, r#"{"model":"x"}"#);
+        let mine = sb.env.home.join(".gemini/settings.json.shellfirm-bak-mine");
+        write(&mine, "{}");
+        for i in 0..6 {
+            exec(Provider::Gemini, &hooks_only(i % 2 == 1), &sb.env)
+                .0
+                .unwrap();
+        }
+        assert!(mine.exists());
+        let all = backups(&sb.env.home.join(".gemini"));
+        assert_eq!(all.len(), BACKUPS_KEPT + 1, "{all:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_at_a_settings_path_is_an_error_not_a_hang() {
+        let sb = sandbox();
+        let path = sb.env.home.join(".claude/settings.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        assert!(std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        for dry_run in [true, false] {
+            let o = Options {
+                dry_run,
+                ..hooks_only(false)
+            };
+            let (r, _) = exec(Provider::ClaudeCode, &o, &sb.env);
+            assert!(r.unwrap_err().contains("not a regular file"));
+        }
+        let row = integration_status_in(&sb.env)
+            .into_iter()
+            .find(|s| s.tool == "claude-code" && s.scope == "user")
+            .unwrap();
+        assert!(row.error.unwrap().contains("not a regular file"));
     }
 }

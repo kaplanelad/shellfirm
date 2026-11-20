@@ -18,3 +18,32 @@
   description: "Removing a domain disconnects it from your deployment."
   id: vercel:domain_remove
   severity: High
+- from: vercel
+  test: (?:^|\s)vercel\s+(?:\S+\s+)*?alias(?:es)?\s+(?:rm|remove)(?:\s|$)
+  description: "Removing an alias takes the deployment off that domain: visitors of the domain get no site."
+  id: vercel:alias_remove
+  severity: High
+- from: vercel
+  test: (?:^|\s)vercel\s+(?:\S+\s+)*?dns\s+(?:rm|remove)(?:\s|$)
+  description: "Removing a DNS record can take a domain, its email or another service offline."
+  id: vercel:dns_remove
+  severity: High
+- from: vercel
+  test: (?:^|\s)vercel\s+(?:\S+\s+)*?blob\s+(?:del|rm|delete|remove)(?:\s|$)
+  description: "This permanently deletes files from Vercel Blob storage."
+  id: vercel:blob_delete
+  severity: High
+- from: vercel
+  test: (?:^|\s)vercel\s+(?:\S+\s+)*?teams?\s+(?:rm|remove|delete)(?:\s|$)
+  description: "This removes a Vercel team, with its projects, deployments and members."
+  id: vercel:team_remove
+  severity: High
+  alternative: "vercel teams ls"
+  alternative_info: "List the teams first and check this is the one to remove."
+- from: vercel
+  test: (?:^|\s)vercel\s+(?:\S+\s+)*?integrations?\s+(?:rm|remove)(?:\s|$)
+  description: "This removes a Vercel integration: the resources it provisioned (a database, storage) and the environment variables it set can go with it."
+  id: vercel:integration_remove
+  severity: High
+  alternative: "vercel integration list"
+  alternative_info: "List the integrations first and check which projects use this one."

@@ -309,3 +309,350 @@
 - test: "iptables -A INPUT -s 10.0.0.5 -j DROP"
   description: "negative: a host-specific DROP is not a blanket lockout"
   expect_ids: []
+
+# -- network:http_delete_authenticated --
+- test: "xh --bearer $API_TOKEN DELETE https://api.example.com/items/1"
+  description: "xh DELETE with --bearer"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "http --bearer $API_TOKEN GET https://api.example.com/items/1"
+  description: "negative: a GET with --bearer"
+  expect_ids: []
+- test: "xh --bearer tok DELETE :8080/items/1"
+  description: "negative: a local development server"
+  expect_ids: []
+- test: "curl -X DELETE https://api.vercel.com/v9/projects/web -H \"Authorization: Bearer $VERCEL_TOKEN\""
+  description: "DELETE with a bearer token"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "curl -X DELETE -H \"Authorization: token $T\" https://api.github.com/repos/acme/web"
+  description: "header before the URL"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "curl --request DELETE https://api.cloudflare.com/client/v4/zones/z/dns_records/r -H \"X-Auth-Key: $K\""
+  description: "--request with an API key header"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "curl -sSX DELETE https://api.example.com/v1/items/1 -u admin:$PW"
+  description: "basic auth and a flag cluster"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "http DELETE https://api.example.com/items/1 \"Authorization:Bearer $T\""
+  description: "httpie with an auth header item"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "xh delete https://api.example.com/items/1 -a user:pw"
+  description: "xh with -a"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "wget --method=DELETE --header=\"Authorization: Bearer $T\" https://api.example.com/items/1"
+  description: "wget with an auth header"
+  expect_ids: ["network:http_delete_authenticated"]
+
+# -- network:http_delete --
+- test: "curl --request=DELETE https://api.example.com/v1/items/1"
+  description: "--request=DELETE"
+  expect_ids: ["network:http_delete"]
+- test: "curl -XDELETE https://es.example.com/logs-2024"
+  description: "glued -XDELETE"
+  expect_ids: ["network:http_delete"]
+- test: "http DELETE api.example.com/items/1"
+  description: "httpie without auth"
+  expect_ids: ["network:http_delete"]
+- test: "wget --method=DELETE https://api.example.com/items/1"
+  description: "wget --method"
+  expect_ids: ["network:http_delete"]
+- test: "curl -X GET https://api.example.com/items -H \"Authorization: Bearer $TOKEN\""
+  description: "negative: GET with a token"
+  expect_ids: []
+- test: "curl https://example.com"
+  description: "negative: plain GET"
+  expect_ids: []
+- test: "curl -X POST https://api.example.com/items -H \"Content-Type: application/json\" -d '{\"name\":\"x\"}'"
+  description: "negative: POST"
+  expect_ids: []
+- test: "curl -X PATCH https://api.example.com/items/1 -d '{\"deleted\":false}'"
+  description: "negative: PATCH with a deleted field"
+  expect_ids: []
+- test: "curl -X DELETE http://localhost:3000/api/todos/1"
+  description: "negative: a local development server"
+  expect_ids: []
+- test: "curl -X DELETE http://127.0.0.1:8080/items/2"
+  description: "negative: loopback address"
+  expect_ids: []
+- test: "curl https://api.example.com/items/DELETE"
+  description: "negative: DELETE in the URL path"
+  expect_ids: []
+- test: "curl -H \"X-Request-Method: DELETE\" https://api.example.com/items"
+  description: "negative: DELETE in a header value"
+  expect_ids: []
+- test: "http POST https://api.example.com/items name=delete-me"
+  description: "negative: httpie POST with a delete-like value"
+  expect_ids: []
+- test: "grep -rn \"DELETE\" src"
+  description: "negative: searching code for DELETE"
+  expect_ids: []
+- test: "echo \"curl -X DELETE\" >> notes.md"
+  description: "negative: echo into notes"
+  expect_ids: []
+- test: "cat <<'EOF' > api.md\nUse curl -X DELETE https://api.example.com/items/1 to delete an item.\nEOF"
+  description: "negative: a heredoc mentioning DELETE"
+  expect_ids: ["fs:flush_file_content"]
+- test: "git commit -m \"fix: handle DELETE requests in api client\""
+  description: "negative: commit message"
+  expect_ids: []
+
+# -- network:graphql_destructive_mutation --
+- test: "curl -X POST https://api.example.com/graphql -H \"Authorization: Bearer $API_TOKEN\" -H \"Content-Type: application/json\" -d '{\"query\":\"mutation { volumeDelete(volumeId: \\\"vol_8f2c\\\") }\"}'"
+  description: "volumeDelete mutation"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -X POST https://api.github.com/graphql -H \"Authorization: bearer $GH_TOKEN\" -d '{\"query\":\"mutation { deleteRepository(input:{repositoryId:\\\"x\\\"}) { clientMutationId } }\"}'"
+  description: "deleteRepository mutation"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { deleteProjectV2(input:{projectId:\"x\"}) { clientMutationId } }'"
+  description: "through gh api graphql"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl https://api.linear.app/graphql -H \"Authorization: $LINEAR_KEY\" -d '{\"query\":\"mutation { issueDelete(id: \\\"x\\\") { success } }\"}'"
+  description: "issueDelete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -X POST -d '{\"query\":\"query { viewer { login } }\"}' https://api.github.com/graphql -H \"Authorization: bearer $T\""
+  description: "negative: a query"
+  expect_ids: []
+- test: "curl -s https://api.github.com/graphql -H \"Authorization: bearer $T\" -d '{\"query\":\"query { repository(owner:\\\"a\\\", name:\\\"b\\\") { deleteBranchOnMerge } }\"}'"
+  description: "negative: a field named like delete in a query"
+  expect_ids: []
+- test: "curl -X POST https://api.github.com/graphql -H \"Authorization: bearer $T\" -d '{\"query\":\"mutation { addStar(input:{starrableId:\\\"x\\\"}) { clientMutationId } }\"}'"
+  description: "negative: a harmless mutation"
+  expect_ids: []
+- test: "curl -X POST https://api.github.com/graphql -d '{\"query\":\"mutation { updateIssue(input:{id:\\\"x\\\", title:\\\"drop support for node 14\\\"}) { issue { id } } }\"}'"
+  description: "negative: drop in a string value"
+  expect_ids: []
+- test: "curl -X POST https://api.example.com/graphql -d '{\"query\":\"mutation { updateUser(input:{id:1}) { user { removedAt } } }\"}'"
+  description: "negative: removed-at field in the selection"
+  expect_ids: []
+- test: "gh api graphql -f query='query { viewer { login } }'"
+  description: "negative: gh api query"
+  expect_ids: []
+- test: "rg \"volumeDelete\" -n"
+  description: "negative: searching code"
+  expect_ids: []
+- test: "git commit -F - <<'EOF'\nfeat: support volumeDelete mutation\n\nmutation { volumeDelete(id: 1) }\nEOF"
+  description: "negative: commit message heredoc"
+  expect_ids: []
+
+# -- network:stop_firewall --
+- test: "sudo systemctl stop firewalld"
+  description: "stopping firewalld"
+  expect_ids: ["network:stop_firewall"]
+- test: "systemctl stop ufw.service"
+  description: "stopping ufw.service"
+  expect_ids: ["network:stop_firewall"]
+- test: "sudo service ufw stop"
+  description: "SysV service stop"
+  expect_ids: ["network:stop_firewall"]
+- test: "sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off"
+  description: "macOS application firewall off"
+  expect_ids: ["network:stop_firewall"]
+- test: "sudo launchctl unload /System/Library/LaunchDaemons/com.apple.alf.agent.plist"
+  description: "unloading the macOS firewall daemon"
+  expect_ids: ["network:stop_firewall"]
+- test: "sudo pfctl -d"
+  description: "macOS packet filter off"
+  expect_ids: ["network:stop_firewall"]
+- test: "systemctl disable ufw"
+  description: "disabling ufw"
+  expect_ids: ["network:stop_firewall", "systemd:disable_service"]
+- test: "systemctl status nginx"
+  description: "negative: status"
+  expect_ids: []
+- test: "systemctl restart nginx"
+  description: "negative: restart"
+  expect_ids: []
+- test: "sudo systemctl start firewalld"
+  description: "negative: starting firewalld"
+  expect_ids: []
+- test: "sudo ufw status"
+  description: "negative: ufw status"
+  expect_ids: []
+- test: "systemctl is-active firewalld"
+  description: "negative: is-active"
+  expect_ids: []
+- test: "/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate"
+  description: "negative: reading the firewall state"
+  expect_ids: []
+- test: "pfctl -s rules"
+  description: "negative: listing pf rules"
+  expect_ids: []
+
+# -- network:graphql_destructive_mutation (field names, not text) --
+- test: "gh api graphql -f query='mutation { deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "delete-first field name"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://backboard.railway.app/graphql/v2 -H \"Authorization: Bearer $T\" -d '{\"query\":\"mutation { volumeDelete(volumeId: \\\"v1\\\") }\"}'"
+  description: "resource-first field name"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://backboard.railway.app/graphql/v2 -d '{\"query\":\"mutation($id: String!) {\\n  x: serviceDelete(id: $id) }\"}'"
+  description: "variables, an alias and an escaped newline"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://hasura.example.com/v1/graphql -d '{\"query\":\"mutation { delete_users(where: {}) { affected_rows } }\"}'"
+  description: "snake_case delete field"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { removeOutsideCollaborator(input:{}) { clientMutationId } }'"
+  description: "member removal"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { removeLabelsFromLabelable(input:{labelableId:\"I_1\", labelIds:[\"L_1\"]}) { clientMutationId } }'"
+  description: "negative: removing a label"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { removeReaction(input:{subjectId:\"I_1\", content:THUMBS_UP}) { clientMutationId } }'"
+  description: "negative: removing a reaction"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { removeAssigneesFromAssignable(input:{assignableId:\"I_1\", assigneeIds:[\"U_1\"]}) { clientMutationId } }'"
+  description: "negative: removing an assignee"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { removeStar(input:{starrableId:\"R_1\"}) { clientMutationId } }'"
+  description: "negative: removing a star"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { removeUpvote(input:{subjectId:\"D_1\"}) { clientMutationId } }'"
+  description: "negative: removing an upvote"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addStar(input:{starrableId:\"R\"}) { clientMutationId } deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "a delete field after a harmless one"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { a: addStar(input:{starrableId:\"R\"}) { clientMutationId } b: deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "an aliased delete field after a harmless one"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://backboard.railway.app/graphql/v2 -H \"Authorization: Bearer $T\" -d '{\"query\":\"mutation { me { id } volumeDelete(volumeId: \\\"v1\\\") }\"}'"
+  description: "a delete field after a field with a selection set"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { updateIssue(input:{id:\"I_1\"}) { issue { author { login } } } closeIssue(input:{issueId:\"I_1\"}) { clientMutationId } projectV2Delete: deleteProjectV2(input:{projectId:\"P\"}) { clientMutationId } }'"
+  description: "a delete field third, after nested selection sets"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { archiveRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "archiving a repository"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { addStar(input:{starrableId:\"R\"}) { clientMutationId } addComment(input:{subjectId:\"I_1\", body:\"please delete (x) and drop the table\"}) { clientMutationId } }'"
+  description: "negative: delete words inside a later field's string argument"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addStar(input:{starrableId:\"R\"}) { clientMutationId } removeStar(input:{starrableId:\"S\"}) { clientMutationId } }'"
+  description: "negative: two harmless fields"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { updateUser(input:{id:1}) { user { deletedAt removedAt } } }'"
+  description: "negative: delete-like names nested in a selection set"
+  expect_ids: []
+- test: "curl -s -X POST https://api.linear.app/graphql -H \"Authorization: $LINEAR_API_KEY\" -d '{\"query\":\"mutation { issueRemoveLabel(id: \\\"ABC-1\\\", labelId: \\\"l1\\\") { success } }\"}'"
+  description: "negative: removing a label from an issue"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { createIssue(input:{repositoryId:\"R_1\", title:\"Remove (legacy) login flag\"}) { issue { number } } }'"
+  description: "negative: the words are in an issue title"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addComment(input:{subjectId:\"I_1\", body:\"we should delete (or archive) the old branch\"}) { clientMutationId } }'"
+  description: "negative: the words are in a comment body"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { updateIssue(input:{id:\"I_1\", body:\"Steps: drop (temp) table, rerun\"}) { issue { id } } }'"
+  description: "negative: the words are in an issue body"
+  expect_ids: []
+- test: "curl -s -X POST https://hooks.slack.com/services/T0/B0/X -d '{\"text\":\"Released v2: the mutation deleteUser() now soft-deletes\"}'"
+  description: "negative: a chat message that mentions a mutation"
+  expect_ids: []
+- test: "curl -s https://api.example.com/v1/changelog -d 'mutation=removeFoo()'"
+  description: "negative: not a GraphQL document"
+  expect_ids: []
+- test: "gh issue create --label api --title \"Docs\" --body \"the mutation deleteRepository(input) is missing from docs\""
+  description: "negative: an issue body, not gh api graphql"
+  expect_ids: []
+- test: "gh api repos/acme/webapp/issues -f title=\"GraphQL: mutation removeMember (bug)\" -f body=\"x\""
+  description: "negative: a REST call whose title mentions a mutation"
+  expect_ids: []
+- test: "curl -X POST http://localhost:4000/graphql -d '{\"query\":\"mutation { deleteTodo(id: 1) { id } }\"}'"
+  description: "negative: a local development server"
+  expect_ids: []
+- test: "http POST :4000/graphql query='mutation { deleteTodo(id: 1) { id } }'"
+  description: "negative: the httpie localhost shorthand"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addComment(input:{subjectId:\"I\", body:\"done :)\"}) { clientMutationId } deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "a ) in an earlier field's string does not hide the delete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { addComment(input:{subjectId:\"I\", body:\"(see above\"}) { clientMutationId } deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "a ( in an earlier field's string does not hide the delete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { updateIssue(input:{id:\"I\", title:\"fix )\"}) { clientMutationId } deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "a ) in a title does not hide the delete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://api.example.com/graphql -d '{\"query\":\"mutation { updateUser(id: 1, name: \\\"x)\\\") { id } delete_users(where: {}) { affected_rows } }\"}'"
+  description: "a ) in a JSON-escaped string does not hide the delete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "curl -s https://backboard.railway.app/graphql/v2 -H \"Authorization: Bearer $T\" -d '{\"query\":\"mutation { variableUpsert(input: {name: \\\"A)\\\", value: \\\"1\\\"}) volumeDelete(volumeId: \\\"v1\\\") }\"}'"
+  description: "a ) in a JSON-escaped argument does not hide a later volumeDelete"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { updateIssue(input:{id:\"I\", title:\"unclosed }) { clientMutationId } deleteRepository(input:{repositoryId:\"R_1\"}) { clientMutationId } }'"
+  description: "an unclosed string: every name counts (fail closed)"
+  expect_ids: ["network:graphql_destructive_mutation"]
+- test: "gh api graphql -f query='mutation { createIssue(input:{repositoryId:\"R\", title:\"x\", body:\"mutation { deleteRepository }\"}) { issue { url } } }'"
+  description: "negative: a mutation written inside a string argument"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addComment(input:{subjectId:\"I\", body:\"try: mutation { deleteRepository(input:{}) }\"}) { clientMutationId } }'"
+  description: "negative: a mutation quoted in a comment body"
+  expect_ids: []
+- test: "gh api graphql -f query='mutation { addComment(input:{subjectId:\"I\", body:\"done :)\"}) { clientMutationId } }'"
+  description: "negative: a smiley in a comment body"
+  expect_ids: []
+
+# -- network:http_delete / http_delete_authenticated (local servers, httpie options) --
+- test: "curl -X DELETE http://localhost:3000/api/todos/1 -H \"Authorization: Bearer devtoken\""
+  description: "negative: an authenticated DELETE to localhost"
+  expect_ids: []
+- test: "curl -X DELETE http://localhost:3000/api/todos/1 -H \"Cookie: session=abc\""
+  description: "negative: a DELETE with a cookie to localhost"
+  expect_ids: []
+- test: "http DELETE :3000/api/todos/1"
+  description: "negative: the httpie localhost shorthand"
+  expect_ids: []
+- test: "xh delete :8080/api/todos/1"
+  description: "negative: the xh localhost shorthand"
+  expect_ids: []
+- test: "curl -X DELETE http://app.localhost:3000/api/todos/1"
+  description: "negative: a *.localhost host"
+  expect_ids: []
+- test: "curl -X DELETE http://host.docker.internal:3000/api/todos/1"
+  description: "negative: the Docker host"
+  expect_ids: []
+- test: "curl -X DELETE http://127.0.0.1:8000/items/3"
+  description: "negative: the loopback address"
+  expect_ids: []
+- test: "curl -X DELETE http://localhost:9200/_all"
+  description: "every local Elasticsearch index"
+  expect_ids: ["network:http_delete"]
+- test: "curl -X DELETE 'http://localhost:9200/logs-*'"
+  description: "a local index wildcard"
+  expect_ids: ["network:http_delete"]
+- test: "curl -X DELETE http://localhost@evil.example/x"
+  description: "a userinfo that only looks local"
+  expect_ids: ["network:http_delete"]
+- test: "curl -X DELETE http://web:3000/api/todos/1"
+  description: "a compose service name is not exempt"
+  expect_ids: ["network:http_delete"]
+- test: "http -a admin:pw DELETE https://api.example.com/v1/x"
+  description: "httpie auth before the method"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "http --auth admin:pw DELETE https://api.example.com/v1/x"
+  description: "httpie --auth before the method"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "http -A bearer -a tok DELETE https://api.example.com/v1/x"
+  description: "httpie auth type and auth before the method"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "xh -a u:p DELETE https://api.example.com/v1/x"
+  description: "xh auth before the method"
+  expect_ids: ["network:http_delete_authenticated"]
+- test: "http -a u:p GET https://api.example.com/v1/x"
+  description: "negative: an authenticated GET"
+  expect_ids: []
+
+# -- network:disable_firewall / stop_firewall (option spellings) --
+- test: "ufw --force disable"
+  description: "ufw disable without a prompt"
+  expect_ids: ["network:disable_firewall"]
+- test: "sudo ufw --force disable"
+  description: "ufw --force disable with sudo"
+  expect_ids: ["network:disable_firewall"]
+- test: "ufw status"
+  description: "negative: ufw status"
+  expect_ids: []
+- test: "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate=off"
+  description: "socketfilterfw with =off"
+  expect_ids: ["network:stop_firewall"]
+- test: "/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate"
+  description: "negative: reading the firewall state"
+  expect_ids: []

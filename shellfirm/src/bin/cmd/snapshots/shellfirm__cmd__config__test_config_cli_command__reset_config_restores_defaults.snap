@@ -91,5 +91,10 @@ Ok(
         },
         group_escalation: {},
         check_escalation: {},
+        sandbox: SandboxConfig {
+            deny_read: [],
+            deny_write: [],
+            exclude: [],
+        },
     },
 )
