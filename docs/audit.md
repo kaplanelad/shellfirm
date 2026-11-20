@@ -244,6 +244,7 @@ OpenCode, MCP); `check --format json` reports `deny_reason` and
 | `policy_deny` | `Denied` | A matched check is in an org or project policy `deny` list; `policy_sources` names the file(s) |
 | `user_deny` | `Denied` | A matched check is in your personal `deny_patterns_ids` |
 | `agent_auto_deny` | `Denied` | AI agent: the severity (after context escalation) is at or above `agent.auto_deny_severity`, or a command or edit that would need a human in an agent that cannot ask (Codex CLI, Windsurf, Cline, OpenCode; Cursor file edits) |
+| `self_protection` | `Denied` | AI agent: the command turns off the audit log or the agent protection (`shellfirm-self:protection_off`) |
 | `fail_closed` | `Denied` / `Asked` | AI agent: the hook input could not be checked (malformed, too large, internal error), so it was blocked |
 | `no_tty` | `NoTerminal` | A challenge was needed but no terminal was available to answer it (CI, scripts, `</dev/null`) |
 | `cancelled` | `Cancelled` | The human cancelled the challenge (Esc, Ctrl-C, Ctrl-D or end of input). A wrong answer only asks again, so a shell-hook challenge ends unanswered only this way |

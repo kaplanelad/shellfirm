@@ -465,7 +465,8 @@ impl RuntimeContext {
             ("Azure subscription", &self.azure_subscription),
             ("cluster", &self.cluster),
         ] {
-            if let Some(v) = v {
+            // `a,prod`: several namespaces deleted at once.
+            for v in v.iter().flat_map(|v| v.split(',')) {
                 if matches_any_pattern(v, &config.production_k8s_patterns) {
                     reasons.push((
                         RiskLevel::Critical,
@@ -3626,6 +3627,56 @@ fn ssh_host(args: &[String]) -> Option<(String, usize)> {
     (!host.is_empty()).then(|| (host.to_string(), i))
 }
 
+/// `kubectl delete ns prod`: the namespaces being deleted are the target
+/// (`ns a b c` / `ns/a ns/b` → `a,b,c`; a namespace name has no comma).
+/// Options are skipped, with the value of those that take one.
+fn deleted_namespaces(args: &[String]) -> Option<String> {
+    const VALUED: &[&str] = &[
+        "-n",
+        "--namespace",
+        "--context",
+        "--cluster",
+        "--kubeconfig",
+        "--user",
+        "-s",
+        "--server",
+        "--token",
+        "--as",
+        "--grace-period",
+        "--timeout",
+        "-l",
+        "--selector",
+        "--field-selector",
+        "-o",
+        "--output",
+        "-f",
+        "--filename",
+    ];
+    let mut words = Vec::new();
+    let mut skip = false;
+    for a in args {
+        if std::mem::take(&mut skip) {
+            continue;
+        }
+        if a.starts_with('-') {
+            skip = VALUED.contains(&a.as_str());
+        } else {
+            words.push(a.as_str());
+        }
+    }
+    let rest = &words[words.iter().position(|w| *w == "delete")? + 1..];
+    let is_ns = |k: &str| matches!(k, "ns" | "namespace" | "namespaces");
+    let names: Vec<&str> = match rest.split_first() {
+        Some((kind, names)) if is_ns(kind) => names.to_vec(),
+        _ => rest
+            .iter()
+            .filter_map(|w| w.split_once('/').filter(|(k, _)| is_ns(k)).map(|(_, n)| n))
+            .collect(),
+    };
+    let names: Vec<&str> = names.into_iter().filter(|n| !n.is_empty()).collect();
+    (!names.is_empty()).then(|| names.join(","))
+}
+
 fn parse_k8s_args(args: &[String], seg: &mut SegmentTargets, state: &mut LineState) {
     // `kubectl config use-context X` (alias `use`) switches the context for
     // the commands that follow; `kubectl config set-context --current
@@ -3687,11 +3738,8 @@ fn parse_k8s_args(args: &[String], seg: &mut SegmentTargets, state: &mut LineSta
         }
         i += 1;
     }
-    // `kubectl delete ns prod`: the namespace being deleted is the target.
-    if let [verb, kind, name, ..] = positional.as_slice() {
-        if *verb == "delete" && matches!(kind.as_str(), "ns" | "namespace" | "namespaces") {
-            seg.k8s_namespace = Some((*name).clone());
-        }
+    if let Some(ns) = deleted_namespaces(args) {
+        seg.k8s_namespace = Some(ns);
     }
     if let Some(ctx) = explicit_ctx {
         // `--context $c` / `--context "$(…)"`: resolved from the line, or
@@ -5243,6 +5291,18 @@ mod tests {
                 "gcp-project=acme-prod",
             ),
             ("kubectl delete deploy api -n prod", "namespace=prod"),
+            // Every namespace deleted is shown and checked, not only the first.
+            ("kubectl delete ns dev qa prod", "namespace=dev,qa,prod"),
+            ("kubectl delete --wait=false ns prod", "namespace=prod"),
+            (
+                "kubectl delete ns --force --grace-period 0 dev prod",
+                "namespace=dev,prod",
+            ),
+            ("kubectl delete ns/dev namespace/prod", "namespace=dev,prod"),
+            (
+                "kubectl --context x delete namespace a production --wait=false",
+                "namespace=a,production",
+            ),
             (
                 "kubectl --namespace=production delete deploy api",
                 "namespace=production",

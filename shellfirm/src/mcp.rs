@@ -449,6 +449,9 @@ impl<'a> McpServer<'a> {
     fn command_arg(args: &Value) -> std::result::Result<&str, String> {
         match args.get("command") {
             None | Some(Value::Null) => Err("Missing required argument 'command'".into()),
+            Some(Value::String(s)) if s.trim().is_empty() => {
+                Err("Argument 'command' is empty".into())
+            }
             Some(Value::String(s)) => Ok(s.as_str()),
             Some(other) => Err(format!(
                 "Argument 'command' must be a string (got {})",
@@ -1051,6 +1054,8 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Missing"));
+        let r = one(&tool(7, "check_command", &json!({"command": "  "})));
+        assert_eq!(r["result"]["isError"], true);
     }
 
     #[test]

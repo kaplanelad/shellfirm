@@ -1,5 +1,47 @@
 ## Unreleased
 
+### Added
+
+- **Piped confirmations to Terraform.** `yes | terraform apply`, `echo yes |
+  terraform destroy`, `printf 'yes\n' | tofu apply` and `terraform apply <<<
+  yes` answer Terraform's own confirmation prompt, so they are Critical like
+  `-auto-approve` (`terraform:piped_yes_approve`), also with `sudo`,
+  `timeout`, `nice`, `command` or an env prefix after the pipe.
+- **Deleting the home directory from an inline script.** `python3 -c
+  'shutil.rmtree(os.path.expanduser("~"))'`, `node -e
+  'fs.rmSync(os.homedir(), …)'`, `ruby -e 'FileUtils.rm_rf(Dir.home)'`,
+  `perl -e 'remove_tree($ENV{HOME})'` and the like are Critical
+  (`fs:interpreter_delete_home`). Deleting a folder inside the home
+  directory from a script stays Medium (`fs:interpreter_inline_delete`).
+
+### Changed
+
+- **An agent cannot turn off the audit log or agent protection.** A shell
+  command from an agent that writes `audit_enabled: false` or
+  `agent.self_protection: false` into the settings is denied
+  (`shellfirm-self:protection_off`, `deny_reason: self_protection`) instead
+  of asking. Other setting changes, and turning them back on, still ask.
+- **Empty commands are errors.** `shellfirm check -c ""` (or only
+  whitespace) is a usage error (exit 2), `--stdin` with `{"command": ""}` is
+  an input error (exit 1, like empty stdin), and MCP `check_command` with an
+  empty command returns a tool error, so a CI step that checks an empty or
+  unset variable no longer passes as "nothing risky".
+- `kubectl delete ns a b c` shows every namespace being deleted
+  (`namespace=a,b,c`, also for `ns/a ns/b` and with options before or
+  between the names), and each one is checked against the production
+  patterns (`kubectl delete ns dev prod` is a production target). The
+  namespace shown is the one deleted, not the `-n` of the command
+  (`kubectl -n prod delete ns dev` shows `namespace=dev`).
+
+### Fixed
+
+- `rm -rf "$HOME "`, `rm -rf " / "`: whitespace quoted around a critical
+  target no longer lowers the delete to Medium (`fs:recursively_delete`).
+- `for k in shred wipe; do grep -- "$k" f; done`: the words of a `for … in` /
+  `select … in` list are data, not commands (no more `fs:shred`). The loop
+  body is still checked, and so are list words whose output runs (`done |
+  bash`).
+
 ## 0.4.2
 
 Blocking hooks for seven more AI coding agents, `shellfirm audit replay` for

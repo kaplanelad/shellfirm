@@ -163,7 +163,16 @@ most ignores do not affect them, and they make a decision at least `ask`.
   fine), and to agent instruction files
   (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.cursor/rules/*`,
   `.github/copilot-instructions.md`, `.claude/commands/*`, `.claude/agents/*`,
-  ...). `self_protection: false` turns all of these off.
+  ...). `self_protection: false` turns all of these off. A shell command that
+  writes `audit_enabled: false` or `agent.self_protection: false` into the
+  settings (`sed -i 's/audit_enabled: true/audit_enabled: false/' …`, `yq
+  -i '.agent.self_protection = false' …`, `echo … >> …`) is denied, not
+  asked (`shellfirm-self:protection_off`, `deny_reason: self_protection`):
+  make that change yourself, in a terminal. Only text that can be written
+  counts: not comments, not what is only printed or written to another
+  file, not what is only searched for (`grep` patterns, `sed`/`perl`/`awk`
+  addresses and search sides), so turning it back on only asks. Edits of the settings file with an
+  agent's file tools (Write, Edit) ask, like other protected files.
 - **Persistence** (always on, also with `self_protection: false`): files and
   commands that grant access or run code later — `~/.ssh/authorized_keys`,
   sudoers, cron and systemd/launchd units, git hooks (also of submodules),

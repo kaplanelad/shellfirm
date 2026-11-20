@@ -6006,3 +6006,93 @@
 - test: "rm -rf ~/Library/Caches/*"
   description: "negative: emptying the macOS caches"
   expect_ids: ["fs-strict:recursive_deletion"]
+
+# -- fs:recursively_delete: whitespace quoted around the target --
+- test: 'rm -rf "$HOME "'
+  description: "a space inside the quotes"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: "rm -rf ' / '"
+  description: "spaces around the root"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:recursively_delete"]
+- test: 'rm -rf "my dir"'
+  description: "negative: a quoted name with a space"
+  expect_ids: ["fs-strict:recursive_deletion"]
+
+# -- fs:interpreter_delete_home --
+- test: "python3 -c 'import shutil,os; shutil.rmtree(os.path.expanduser(\"~\"))'"
+  description: "python deletes the home directory"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "node -e 'require(\"fs\").rmSync(require(\"os\").homedir(),{recursive:true})'"
+  description: "node deletes the home directory"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "python3 -c 'import shutil,pathlib; shutil.rmtree(pathlib.Path.home())'"
+  description: "pathlib home"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "ruby -rfileutils -e 'FileUtils.rm_rf(Dir.home)'"
+  description: "ruby Dir.home"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "perl -MFile::Path=remove_tree -e 'remove_tree($ENV{HOME})'"
+  description: "perl $ENV{HOME}"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "node -e 'require(\"fs\").rmSync(process.env.HOME, {recursive: true})'"
+  description: "node process.env.HOME"
+  expect_ids: ["fs:interpreter_inline_delete", "fs:interpreter_delete_home"]
+- test: "python3 -c 'import shutil,os; shutil.rmtree(os.path.expanduser(\"~/.cache/pip\"))'"
+  description: "negative: a folder inside the home directory"
+  expect_ids: ["fs:interpreter_inline_delete"]
+- test: "node -e 'require(\"fs\").rmSync(require(\"os\").homedir()+\"/x\",{recursive:true})'"
+  description: "negative: a path built from the home directory"
+  expect_ids: ["fs:interpreter_inline_delete"]
+- test: "python3 -c 'import os; print(os.path.expanduser(\"~\"))'"
+  description: "negative: only prints the home directory"
+  expect_ids: []
+
+# -- loop lists are data --
+- test: 'for k in shred wipe; do grep -- "$k" f; done'
+  description: "negative: shred is a word in the loop list"
+  expect_ids: []
+- test: "select k in shred wipe; do echo $k; done"
+  description: "negative: select list"
+  expect_ids: []
+- test: "for k in shred wipe; do $k f; done"
+  description: "the loop runs the list word as a command"
+  expect_ids: ["fs:shred"]
+- test: "for x in shred; do $x; done"
+  description: "the loop runs the list word with no arguments"
+  expect_ids: ["fs:shred"]
+- test: "for x in shred; do \"${x}\" f; done"
+  description: "the loop runs the quoted list word"
+  expect_ids: ["fs:shred"]
+- test: "for x in shred; do echo a && $x f; done"
+  description: "the list word runs after another command"
+  expect_ids: ["fs:shred"]
+- test: "for i in a; do shred f; done"
+  description: "shred in the loop body"
+  expect_ids: ["fs:shred"]
+- test: "set -- x; for f do shred x; done"
+  description: "a loop without `in` runs its body: still checked"
+  expect_ids: ["fs:shred"]
+- test: "select f do shred x; done"
+  description: "select without `in`: the body is checked"
+  expect_ids: ["fs:shred"]
+- test: "for w in shred x; do printf '%s ' \"$w\"; done | bash"
+  description: "loop words printed into a shell are code"
+  expect_ids: ["fs:shred"]
+- test: "for w in rm -rf /; do echo $w; done > d.sh && sh d.sh"
+  description: "loop words written to a script that runs are code"
+  expect_ids: ["fs-strict:recursive_deletion", "fs:flush_file_content", "fs:recursively_delete"]
+- test: "sh <(for k in mkfs.ext4; do echo \"$k /dev/sda\"; done)"
+  description: "loop words run through a process substitution are code"
+  expect_ids: ["fs:mkfs_format"]
+- test: "bash <(for w in shred x; do printf '%s ' \"$w\"; done)"
+  description: "loop words printed into bash <( … ) are code"
+  expect_ids: ["fs:shred"]
+- test: "for w in shred x\ndo printf '%s ' \"$w\"\ndone | bash"
+  description: "a loop over several lines piped into a shell is code"
+  expect_ids: ["fs:shred"]
+- test: "for k in shred wipe; do grep -- \"$k\" f; done | sudo sh"
+  description: "a line whose output runs in a shell keeps the loop words"
+  expect_ids: ["fs:shred"]
+- test: "for k in shred; do grep -l \"$k\" *.sh; done | xargs sh"
+  description: "a line with xargs sh keeps the loop words"
+  expect_ids: ["fs:shred"]

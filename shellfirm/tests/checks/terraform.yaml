@@ -329,3 +329,50 @@
 - test: "terraform state mv -dry-run a b"
   description: "negative: the word before the dry-run flag cannot take it as a value"
   expect_ids: []
+
+# -- terraform:piped_yes_approve --
+- test: "yes | terraform apply"
+  description: "yes answers the confirmation prompt"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "echo yes | terraform apply"
+  description: "echo yes answers the prompt"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: 'printf "yes\n" | tofu apply'
+  description: "printf yes, OpenTofu"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "yes | terraform -chdir=infra apply"
+  description: "global option before the subcommand"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "yes 2>/dev/null | sudo terraform apply"
+  description: "redirect and sudo"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "yes | terraform destroy"
+  description: "destroy confirmed by yes"
+  expect_ids: ["terraform:destroy", "terraform:piped_yes_approve"]
+- test: "echo no | terraform apply"
+  description: "negative: answers no"
+  expect_ids: []
+- test: "yes n | terraform apply"
+  description: "negative: answers n (terraform only accepts yes)"
+  expect_ids: []
+- test: "yes | terraform plan"
+  description: "negative: plan does not ask"
+  expect_ids: []
+- test: "echo yes"
+  description: "negative: nothing piped"
+  expect_ids: []
+- test: "yes | TF_LOG=debug terraform apply"
+  description: "an env prefix after the pipe"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "yes | timeout 600 terraform apply"
+  description: "timeout after the pipe"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "yes | command terraform apply"
+  description: "command after the pipe"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "terraform apply <<< yes"
+  description: "a here-string answers the prompt"
+  expect_ids: ["terraform:piped_yes_approve"]
+- test: "terraform apply <<< no"
+  description: "negative: a here-string that answers no"
+  expect_ids: []

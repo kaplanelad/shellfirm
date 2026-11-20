@@ -43,7 +43,7 @@ Without `--exit-code` / `--fail-on`, `check` exits 0 whenever it could answer.
 |------|---------|
 | 0 | allowed: nothing risky matched (or below `--fail-on`) |
 | 1 | error (empty, unreadable or malformed input, internal failure) |
-| 2 | usage error (also an unknown group in `--list -g`, the same as `config groups`) |
+| 2 | usage error (also an empty or whitespace-only `--command`, and an unknown group in `--list -g`, the same as `config groups`; an empty `--stdin` input or `{"command": ""}` is exit 1) |
 | 10 | risky: needs human confirmation (decision `ask`) |
 | 11 | blocked (decision `deny`) |
 | 74 | the result could not be written to stdout (e.g. disk full) |
@@ -94,7 +94,7 @@ Also:
 | `not_applied` | `[{"id", "reason": "ignored", "undo"}]`, `[{"id", "reason": "below_min_severity", "severity", "min_severity"}]`, `[{"id", "reason": "path_missing", "path"}]` |
 | `skipped_missing_paths` | `[{"id", "path"}]`: one entry per check and missing path; each path is one argument; every part of the line is looked at. Always present (`[]` when none). |
 | `exit_code`, `exit_reason` | Only when `--fail-on` (`below_fail_on`: the decision is ask/deny but below `--fail-on`, exit 0) or `--strict` (`strict`, exit 78) changed the exit code |
-| `deny_reason`, `policy_sources` | For a deny: `policy_deny` \| `user_deny` \| `agent_auto_deny`, and the policy files |
+| `deny_reason`, `policy_sources` | For a deny: `policy_deny` \| `user_deny` \| `agent_auto_deny` \| `self_protection`, and the policy files |
 | `decision_reason` | Why the decision is `ask` or `deny` (human-readable) |
 | `denial_reason` | Deny only: the same text as `decision_reason`, kept for consumers of older versions; read `decision_reason` |
 | `blast_radius_detail`, `blast_radius_scope` | The impact of the highest-scope match. It is measured within `blast_radius_budget_ms`, so on slow or big targets it can differ between runs; use `--no-context` for JSON that does not depend on the target's size (see "Configuration directory and context" for what it still reads) |
